@@ -389,6 +389,8 @@ def colleague(i, rules):
     всем остальным — нет. Кто коллега — `colleagues` в sources.json: источники целиком (teams), домены почты, имена."""
     r = {**COLLEAGUES_DEFAULT, **(rules or {})}
     src = i.get("src") or "teams"
+    if src in ("dm", "mention", "channel", "support"):   # виды сообщений Teams: в `colleagues.sources` — «teams»
+        src = "teams"
     if src in (r.get("sources") or []):
         return True
     c = str(i.get("contact") or "")

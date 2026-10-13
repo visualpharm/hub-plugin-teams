@@ -243,6 +243,13 @@ class Channels(unittest.TestCase):
         finally:
             main.source_cfg = real
 
+    def test_teams_message_kinds_count_as_the_teams_source_for_colleagues(self):
+        rules = {"sources": ["teams"], "domains": [], "names": []}
+        for src in ("dm", "mention", "channel"):
+            self.assertTrue(main.colleague({"src": src, "from": "Кто-то"}, rules), src)
+        self.assertFalse(main.colleague({"src": "whatsapp", "from": "Кто-то"}, rules))
+        self.assertFalse(main.colleague({"src": "dm", "from": "Кто-то"}, {"sources": []}))
+
     def test_triage_plugin_replaces_autodraft_and_is_named_in_config(self):
         real = main.source_cfg
         main.source_cfg = lambda: {"triage": "proactivity"}
