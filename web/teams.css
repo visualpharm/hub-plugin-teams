@@ -36,6 +36,7 @@
   background: var(--muted); }
 .tm-draft-by { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .tm-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tm-draft-why { margin-top: var(--space-2); color: var(--muted-foreground); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-acts { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .tm-link { margin-left: auto; font-size: var(--text-sm); color: var(--muted-foreground); }
 .tm-link:hover { color: var(--foreground); }

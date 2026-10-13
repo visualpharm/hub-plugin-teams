@@ -271,8 +271,8 @@ function line(m) {
 
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
-function openCompose(m, text = "") {
-  composing.set(m.id, { text });
+function openCompose(m, text = "", why = "") {
+  composing.set(m.id, { text, why });
   focusId = m.id;
   paint();
 }
@@ -309,23 +309,38 @@ function composer(m) {
   const foot = el("div", "tm-acts");
   foot.append(go, button("Отмена", "quiet", () => { composing.delete(m.id); paint(); }),
     el("span", "tm-hint", `Уйдёт в ${SRC_FROM(m)} от вашего имени`));
-  wrap.append(ta, foot);
+  wrap.append(ta);
+  if (st.why) wrap.append(el("div", "tm-draft-why", `Почему: ${st.why}`));   // заметка хаба — рядом, не в поле и не в отправке
+  wrap.append(foot);
   return wrap;
 }
 
 // ответ можно отправить, если процесс знает, куда (reply) и мы туда ещё не ответили
 const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !sentOk(m.id) && !answered.has(m.id) && !hidden.has(m.id);
 
+// Черновик хаба: сам текст, затем строка `---` и заметка владельцу («Почему: …»). Делим по последней такой строке;
+// заметка показывается рядом, в поле правки и в отправку идёт только текст (владелец 13.10: «когда редактируешь,
+// туда же влезает и „почему“»)
+export function splitDraft(reply) {
+  const lines = String(reply || "").split("\n");
+  const i = lines.findLastIndex((l) => l.trim() === "---");
+  if (i < 0) return { text: lines.join("\n").trim(), why: "" };
+  const why = lines.slice(i + 1).join("\n").trim().replace(/^(Почему|Why|Por qué):\s*/i, "");
+  return { text: lines.slice(0, i).join("\n").trim(), why };
+}
+
 function draftBlock(m, r) {
   const d = el("div", "tm-draft");
   const by = el("div", "tm-draft-by", `Черновик ответа · ${r.by} · `);
   by.append(stamp(r.ts));
-  d.append(by, el("div", "tm-draft-text", r.text));
-  const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === r.text.trim() || x.text === signed(r.text)));
-  if (canReply(m) && !mine.some((x) => x.state !== "fail")) {
+  const { text, why } = splitDraft(r.text);
+  d.append(by, el("div", "tm-draft-text", text));
+  if (why) d.append(el("div", "tm-draft-why", `Почему: ${why}`));
+  const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text)));
+  if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
-    a.append(button("Отправить", "primary", () => sendReply(m, signed(r.text)), `Отправить черновик: ${m.from}`),
-      button("Править", "", () => openCompose(m, signed(r.text)), `Править черновик: ${m.from}`));
+    a.append(button("Отправить", "primary", () => sendReply(m, signed(text)), `Отправить черновик: ${m.from}`),
+      button("Править", "", () => openCompose(m, signed(text), why), `Править черновик: ${m.from}`));
     d.append(a);
   }
   return d;
@@ -592,14 +607,16 @@ function build(root) {
 // только внутри самой вкладки), «Inbox», подпись и число новых — пилюлей, как у «Исполнители N» (sidebar.js:
 // countBadge/.gcount). addView своего же плагина с тем же id — обновление записи, не новая (ext.js:addView), так
 // что звать её заново на каждом render — безопасно и дёшево
+let badgeShown = -1;
 function registerView() {
+  badgeShown = count((m) => !done(m));
   hub.addView({
     id: "inbox",   // адрес #/x/inbox; канал плагина по-прежнему teams (hub feed teams)
     title: "Inbox",
     subtitle: "Teams, WhatsApp, Telegram, почта",
     icon: "web/icon.svg",
     pin: true,   // API 1.13: пункт выше «Расписания» (владелец 12.10)
-    badge: count((m) => !done(m)),
+    badge: badgeShown,
     full: true,
     async render(root, snap) {
       if (!ui || ui.root !== root) { build(root); paint(); }
@@ -608,7 +625,9 @@ function registerView() {
         const first = !loaded;
         if ((await sync()) || first) paint();
       }
-      registerView();   // число новых могло поменяться — обновить бейдж в боковой панели
+      // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
+      // заново зарегистрированному виду новый узел, и поле ответа теряло курсор
+      if (count((m) => !done(m)) !== badgeShown) registerView();
     },
   });
 }
