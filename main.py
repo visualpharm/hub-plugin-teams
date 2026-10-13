@@ -148,8 +148,15 @@ class Choice:
             body = json.loads(d.get("text") or "")
         except (ValueError, TypeError):
             return
-        if ev.get("type") != "ext.post" or d.get("plugin") != NAME or not from_owner(d):
+        if ev.get("type") != "ext.post" or d.get("plugin") != NAME:
             return
+        if not from_owner(d):
+            # плагин разбора входящих, которому владелец доверил отправку (sources.json: "triage": "<плагин>"): только
+            # send и cancel — и ничего больше; остальное в этом канале — слово владельца
+            who = triage_plugin()
+            if not (who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
+                    and body.get("kind") in ("send", "cancel")):
+                return
         if isinstance(body, dict) and body.get("kind") == "send":   # только слово владельца: сессии так не отправят
             files = send_files(body.get("files"))
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid")) and (
@@ -523,7 +530,8 @@ def config(st, put=post):
     """Действующие настройки — постом: их читают вкладка и приложения (подпись черновиков, «черновик сразу»)."""
     cfg = st.get("cfg") or {}
     put({"kind": "config", "v": 3, "signature": cfg.get("signature") or "", "autodraft": cfg.get("autodraft") is not False,
-         "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st)})
+         "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
+         **({"triage": triage_plugin()} if triage_plugin() else {})})
     st["config_at"] = time.time()
 
 
@@ -572,7 +580,7 @@ def autodraft(st, fresh, tell=None):
     """«Черновик сразу» (по умолчанию включено): на новые сообщения, куда можно ответить, главная сессия хаба готовит
     черновики — одним сообщением на опрос. В сообщении хабу — только ключи постов: чужой текст хаб читает сам, как
     данные. Отправляет по-прежнему только нажатие владельца."""
-    if (st.get("cfg") or {}).get("autodraft") is False:
+    if (st.get("cfg") or {}).get("autodraft") is False or triage_plugin():   # разбор отдан плагину — он спросит сам
         return []
     prompt = ((st.get("cfg") or {}).get("prompt") or "").strip()
     keys = [i["key"] for i in fresh if i.get("ref") and not i.get("done")][-AUTODRAFT_MAX:]
@@ -703,6 +711,13 @@ def hold(st, q, why, put=post, now=None):
     put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": at, "held": why})
     save(st)
     return True
+
+
+def triage_plugin():
+    """Плагин, которому владелец отдал разбор входящих (`"triage": "proactivity"` в sources.json). Он вместо «Черновика
+    сразу» разбирает входящие, а отправку просит постом send — и получает её, только когда гейты его настроек пустили."""
+    name = source_cfg().get("triage")
+    return name if isinstance(name, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,40}", name) else None
 
 
 def source_cfg():

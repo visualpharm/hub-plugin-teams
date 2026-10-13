@@ -1,5 +1,6 @@
 """Сборщик «Teams сообщения» без сети: поддельный ms365 MCP. Запуск: python3.12 -m unittest discover -s tests (из папки
 расширения, PYTHONPATH — код хаба)."""
+import json
 import os
 import sys
 import unittest
@@ -212,6 +213,51 @@ class Channels(unittest.TestCase):
             g.write(json.dumps({"type": "core.rejected", "data": {"of": 7, "type": "ext.post"}}) + "\n")
         self.assertEqual(c.poll(), ["b", "c"])
         os.unlink(f.name)
+
+    def test_triage_plugin_may_only_send_and_cancel_and_only_when_the_owner_named_it(self):
+        import tempfile
+        real = main.source_cfg
+
+        def ev(body, **data):
+            return json.dumps({"seq": 0, "type": "ext.post", "data": {"plugin": "teams", "text": json.dumps(body), **data}})
+        plugin = dict(channel="plugin", sender="proactivity")
+        lines = [ev({"kind": "send", "id": "k1", "rid": "r1", "text": "Получил"}, **plugin),
+                 ev({"kind": "cancel", "rid": "r1"}, **plugin),
+                 ev({"kind": "settings", "signature": "x", "autodraft": False}, **plugin),   # настройки — только владельцу
+                 ev({"kind": "watch", "ids": ["z"]}, **plugin),
+                 ev({"kind": "send", "id": "k2", "rid": "r2", "text": "x"}, channel="plugin", sender="other"),
+                 ev({"kind": "send", "id": "k3", "rid": "r3", "text": "x"}, channel="session", sender="proactivity"),
+                 ev({"kind": "send", "id": "k4", "rid": "r4", "text": "x"}, owner=True, channel="plugin", sender="x")]   # owner:true из чужого процесса
+        try:
+            for triage, want in ((None, []), ("proactivity", [("k1", "r1"), "r1"])):
+                main.source_cfg = lambda triage=triage: {"triage": triage} if triage else {}
+                with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+                    f.write("\n".join(lines) + "\n")
+                c = main.Choice(f.name)
+                c.poll()
+                got = [(q["id"], q["rid"]) if "id" in q else q.get("cancel") for q in c.take_sends()]
+                self.assertEqual(got, want)
+                self.assertIsNone(c.settings)
+                self.assertEqual(c.ids, None)
+                os.unlink(f.name)
+        finally:
+            main.source_cfg = real
+
+    def test_triage_plugin_replaces_autodraft_and_is_named_in_config(self):
+        real = main.source_cfg
+        main.source_cfg = lambda: {"triage": "proactivity"}
+        try:
+            told = []
+            self.assertEqual(main.autodraft({}, [{"key": "k1", "ref": {"chat": "c"}, "text": "x", "done": False}],
+                                            told.append), [])
+            self.assertEqual(told, [])
+            out = []
+            main.config({}, out.append)
+            self.assertEqual(out[0]["triage"], "proactivity")
+            main.source_cfg = lambda: {"triage": "../../etc"}   # не имя плагина — как не названный
+            self.assertIsNone(main.triage_plugin())
+        finally:
+            main.source_cfg = real
 
     def test_choice_survives_journal_rotation_through_state(self):
         import tempfile
