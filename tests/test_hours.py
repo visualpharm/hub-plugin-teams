@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault("HUB_STATE_DIR", "/tmp/teams-ext-test")
+os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"   # не состояние живого хаба: его sources.json (triage) и state.json меняют поведение
+os.environ.pop("HUB_EXTENSION", None)
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, os.environ.get("HUB_CORE") or os.path.expanduser("~/projects/agents-hub-core"))
 

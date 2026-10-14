@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
-os.environ.setdefault("HUB_STATE_DIR", "/tmp/teams-ext-test")
+os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"   # не состояние живого хаба: его sources.json (triage) и state.json меняют поведение
+os.environ.pop("HUB_EXTENSION", None)
 
 import main  # noqa: E402
 import sources  # noqa: E402
