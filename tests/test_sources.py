@@ -148,6 +148,76 @@ class WhatsApp(unittest.TestCase):
             sources.whatsapp({"channels": ["a", "b"]}, NOW)
 
 
+class WaVoice(unittest.TestCase):
+    """14.10: голосовое WhatsApp — файл через `wamedia --voice`, расшифровка текстом поста, строки-иконки не показываем."""
+    CHAT = {"chat_id": "5491100000009@c.us", "name": "Jorge", "new": 1, "unread": 1, "last": "2026-10-10T11:30-03:00",
+            "preview": "ic-keyboard-voice-filled0:32", "out_last_t": 0,
+            "messages": [{"id": "V1", "t": 200, "type": "ptt", "text": "", "cached": False}]}
+
+    def setUp(self):
+        self._run, self._tr = sources.run, sources._transcript
+        self.d = tempfile.mkdtemp()
+        os.environ["HUB_STATE_DIR"] = self.d
+        sources._WA_MEDIA.clear()
+        sources._WA_VOICE.clear()
+
+    def tearDown(self):
+        sources.run, sources._transcript = self._run, self._tr
+        os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"
+
+    def test_icon_names_in_preview_become_words(self):
+        self.assertEqual(sources.clean_preview("ic-keyboard-voice-filled0:32"), "[голосовое 0:32]")
+        self.assertEqual(sources.clean_preview("wds-ic-keyboard-voice-filled 1:05"), "[голосовое 1:05]")
+        self.assertEqual(sources.clean_preview("ic-videocam-filled0:14"), "[видео 0:14]")
+        self.assertEqual(sources.clean_preview("ic-photo-camera-filled Foto"), "[фото] Foto")
+        self.assertEqual(sources.clean_preview("ic-unknown-filled Hola"), "Hola")
+        self.assertEqual(sources.clean_preview("Hola, ¿cómo estás?"), "Hola, ¿cómo estás?")
+
+    def test_voice_without_file_shows_no_icon_junk(self):
+        sources.run = fake_run({"--voice": OSError("нет вкладки"), "new": [self.CHAT]})
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items[0]["text"], "[голосовое 0:32]")
+        self.assertNotIn("ic-", items[0]["text"])
+
+    def test_voice_is_downloaded_transcribed_and_attached(self):
+        f = os.path.join(self.d, "5491100000009-V1.ogg")
+        with open(f, "wb") as fh:
+            fh.write(b"OggS")
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "--voice" in cmd:
+                return json.dumps([{"id": "V1", "kind": "voice", "mime": "audio/ogg", "dur": "0:32", "path": f}])
+            return json.dumps([self.CHAT])
+        sources.run = run
+        sources._transcript = lambda p: "Quieren implementar el lunes"
+        cfg = {"channels": ["whatsapp"]}
+        items, _, _ = sources.whatsapp(cfg, NOW)
+        it = items[0]
+        self.assertEqual(it["text"], "Quieren implementar el lunes")
+        self.assertEqual([(m["kind"], m["name"], m["id"], m.get("dur")) for m in it["media"]],
+                         [("voice", "5491100000009-V1.ogg", "wa:5491100000009@c.us:V1", "0:32")])
+        self.assertTrue(it["media"][0]["url"].startswith("/api/file?path="))
+        v = [c for c in calls if "--voice" in c][0]
+        self.assertEqual(v[v.index("--only") + 1], "V1")
+        self.assertIn(os.path.join(self.d, "attachments", "inbox", "wa"), v)
+        sources.whatsapp(cfg, NOW)   # то же сообщение: чат второй раз не открываем
+        self.assertEqual(len([c for c in calls if "--voice" in c]), 1)
+
+    def test_voice_next_to_text_keeps_both_in_order(self):
+        chat = {**self.CHAT, "unread": 2, "messages": [
+            {"id": "V1", "t": 200, "type": "ptt", "text": "", "cached": False},
+            {"id": "T1", "t": 300, "type": "chat", "text": "Y esto también", "cached": True}]}
+        f = os.path.join(self.d, "5491100000009-V1.ogg")
+        with open(f, "wb") as fh:
+            fh.write(b"OggS")
+        sources.run = fake_run({"--voice": [{"id": "V1", "kind": "voice", "mime": "audio/ogg", "path": f}], "new": [chat]})
+        sources._transcript = lambda p: "Primero el audio"
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items[0]["text"], "Primero el audio · Y esto también")
+
+
 class Telegram(unittest.TestCase):
     def setUp(self):
         self._run = sources.run

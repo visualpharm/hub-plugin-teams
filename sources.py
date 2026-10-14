@@ -138,6 +138,27 @@ def unread_digest(messages, n, limit=600, preview=""):
     return out if len(out) <= limit else "…" + out[-(limit - 1):]
 
 
+ICON_WORDS = (("keyboard-voice|mic|ptt", "голосовое"), ("videocam|video", "видео"), ("photo|image|camera", "фото"),
+              ("description|document|file|insert-drive", "файл"), ("audio|music|headphones", "аудио"))
+
+
+def clean_preview(text):
+    """Строка превью из списка чатов WhatsApp для медиа приходит именем иконки с длительностью
+    («ic-keyboard-voice-filled0:32», 14.10) — переводим в слово: «[голосовое 0:32]»; неизвестную иконку убираем."""
+    text = (text or "").strip()
+
+    def word(m):
+        name = m.group(1).lower()
+        for pat, w in ICON_WORDS:
+            if re.search(pat, name):
+                return f"[{w}]"
+        return ""
+    out = re.sub(r"(?:wds-)?ic-([a-z-]+?)(?:-(?:filled|outline|rounded|sharp))*(?![a-z-])", word, text, flags=re.I)
+    out = re.sub(r"(\])\s*(\d{1,2}:\d{2})\b", r"\1 \2", out)   # «[голосовое]0:32» → «[голосовое 0:32]»
+    out = re.sub(r"\]\s(\d{1,2}:\d{2})\b", r" \1]", out)
+    return " ".join(out.split())
+
+
 def media_summary(kinds, n):
     """Что пришло, когда у последнего нет текста: «4 голосовых, 2 фото» вместо счётчика (11.10, Иван: «мне надо не
     число, а про что он писал»). Без типов от `wa` — число и общие слова. Содержимое без открытия чата недоступно."""
@@ -173,7 +194,7 @@ def whatsapp(cfg, now):
             continue
         ok += 1
         for r in rows:
-            cid, text = r.get("chat_id") or "", (r.get("preview") or "").strip()
+            cid, text = r.get("chat_id") or "", clean_preview(r.get("preview") or "")
             n = r.get("unread") or 0
             if not n and cid in _WA_OPENED and (r.get("out_last_t") or 0) < max(
                     [m.get("t") or 0 for m in r.get("messages") or []] or [0]):
@@ -196,6 +217,10 @@ def whatsapp(cfg, now):
                 continue
             if r.get("messages") and not wait:
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
+            voice = wa_voice(cfg, ch, cid, f"{ch}:{cid}:{(wait[-1].get('id') if wait else '') or r.get('last')}", wait)
+            if voice:   # 14.10: расшифровка голосового — текст сообщения (по ней и срочность, и резюме)
+                wait = [{**m, "text": voice[m["id"]]["text"], "cached": True}
+                        if m.get("id") in voice and voice[m["id"]].get("text") else m for m in wait]
             digest = unread_digest(wait, len(wait), preview=text)   # о чём писали — тексты, не счётчик
             if digest:
                 text = digest
@@ -216,10 +241,13 @@ def whatsapp(cfg, now):
             mark = (wait[-1].get("id") if wait else "") or r.get("last")
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
             media = wa_media(cfg, ch, cid, f"{box}:{mark}") if kinds & {"image", "sticker"} else []
+            media = media + [v["media"] for v in voice.values()]
             if media:
                 _WA_OPENED.setdefault(cid, n)   # wamedia открывал чат — счётчик непрочитанных обнулится
             if media and not any(m.get("body") or m.get("text") for m in wait):
                 text = ""   # у картинки без подписи заглушек нет — клиент рисует вложение
+            elif voice and not digest:
+                text = "[голосовое]"
             items.append({"key": f"{box}:{mark}", "box": box, "src": "whatsapp", "tier": t, "unread": n,
                           **({"media": media} if media else {}),
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
@@ -298,6 +326,47 @@ def wa_media(cfg, ch, cid, key):
         got = []
     _WA_MEDIA[key] = got
     return got
+
+
+_WA_VOICE = {}   # ключ -> (когда, {id сообщения: {text, media}}): чат ради голосового открываем один раз на сообщение
+
+
+def wa_voice(cfg, ch, cid, key, wait):
+    """Голосовые WhatsApp среди ждущих: `wamedia --voice` скачивает файл через меню «Download» вкладки (владелец
+    13.10: синие галочки для медиа допустимы; без прокрутки и без звука), расшифровка — голосовой модуль хаба.
+    {id: {text, media}}; нет скрипта/вкладки/голоса — пусто, не вышедшее пробуем снова через WA_READ_AGAIN."""
+    from urllib.parse import quote
+    ids = [m["id"] for m in wait if m.get("id") and m.get("type") in ("ptt", "audio")]
+    if not ids or cfg.get("media") is False or cfg.get("voice") is False:
+        return {}
+    got = _WA_VOICE.get(key)
+    if got and (got[1] or time.time() - got[0] < WA_READ_AGAIN):
+        return got[1]
+    cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
+    out = {}
+    try:
+        rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--voice", "--only", ",".join(ids)],
+                              timeout=180) or "[]")
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        print(f"whatsapp: голосовое {cid}: {e}", file=sys.stderr, flush=True)
+        rows = []
+    for m in rows:
+        try:
+            path = m["path"]
+            play = _playable(path)
+            item = {"id": f"wa:{cid}:{m['id']}", "kind": "voice", "name": os.path.basename(play), "mime": m.get("mime"),
+                    "url": "/api/file?path=" + quote(play, safe="")}
+            if play != path:
+                item["mime"] = "audio/mp4"
+            if m.get("dur"):
+                item["dur"] = m["dur"]
+            out[m["id"]] = {"text": _transcript(path).strip(), "media": item}
+        except (KeyError, OSError):
+            continue
+    _WA_VOICE[key] = (time.time(), out)
+    if out:
+        _WA_OPENED.setdefault(cid, len(ids))
+    return out
 
 
 def media_dir(src):
