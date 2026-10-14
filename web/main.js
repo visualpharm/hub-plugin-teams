@@ -320,7 +320,8 @@ function composer(m) {
   go.disabled = !ta.value.trim();
   ta.addEventListener("input", () => { st.text = ta.value; go.disabled = !ta.value.trim(); });
   ta.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); sendReply(m, ta.value); }
+    // как во всех полях хаба (14.10, ui-expert/владелец): Enter — отправить, Shift+Enter — новая строка
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ta.value.trim()) sendReply(m, ta.value); }
     else if (e.key === "Escape") { composing.delete(m.id); paint(); }
   });
   const foot = el("div", "tm-acts");
