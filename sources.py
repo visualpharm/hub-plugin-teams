@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -189,7 +190,9 @@ def whatsapp(cfg, now):
                 wait = wa_read(cfg, ch, cmd, r, wait, n)   # текста нет в копии — дочитываем чат сами, владельца не просим
             if blind(wait):
                 # 14.10, владелец: «не говорить мне, что они непрочитаны» — без текста пункт не выходит; чат перечитаем
-                errors.append(f"{labels.get(ch, ch)}: не прочитан чат {r.get('name') or cid} — повторю")
+                # в плашку не идёт: это не поломка, которую чинит владелец, — в лог плагина
+                print(f"whatsapp: {labels.get(ch, ch)}: чат {r.get('name') or cid} не прочитан — повторю", file=sys.stderr,
+                      flush=True)
                 continue
             if r.get("messages") and not wait:
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем

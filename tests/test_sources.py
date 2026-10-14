@@ -112,7 +112,7 @@ class WhatsApp(unittest.TestCase):
         self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
 
     def test_no_item_without_text_the_chat_is_read_again_later(self):
-        """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в плашке),
+        """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в лог, не в плашку),
         через WA_READ_AGAIN читаем снова; ни «без текста», ни «не открывали» в пункте."""
         sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear()
         chat = {"chat_id": "5491100000008@c.us", "name": "Банк", "new": 2, "unread": 2, "last": "2026-10-10T11:36-03:00",
@@ -121,8 +121,7 @@ class WhatsApp(unittest.TestCase):
                     {"id": "y2", "t": 300, "type": "chat", "text": "", "cached": False}]}
         sources.run = fake_run({"thread": OSError("вкладка занята"), "new": [chat]})
         items, _, errors = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
-        self.assertEqual(items, [])
-        self.assertIn("Банк", errors[0])
+        self.assertEqual((items, errors), ([], []))            # не поломка вкладки — плашку не красим
         for k in sources._WA_READ:
             sources._WA_READ[k] -= sources.WA_READ_AGAIN + 1
         sources.run = fake_run({"thread": {"messages": [{"id": "y1", "out": False, "body": "Hola"},
