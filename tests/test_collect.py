@@ -147,6 +147,20 @@ class Tick(unittest.TestCase):
         self.assertEqual(st["open"], {})
         self.assertEqual(st["last_ok"], "2026-10-09T11:00:00Z")
 
+    def test_open_item_is_posted_again_when_its_text_got_better(self):
+        """14.10, владелец: «не говорить мне, что они непрочитаны» — пункт ушёл без текста, текст дочитали позже:
+        тот же пункт постится заново с текстом (клиенты берут последний пост с этим id); тот же текст — не постим."""
+        st, out, now = {}, [], datetime(2026, 10, 9, 11, tzinfo=timezone.utc)
+        main.tick(st, [self.item("k3", "2026-10-09T10:01:00Z")], {}, now, out.append)
+        main.tick(st, [self.item("k3", "2026-10-09T10:01:00Z")], {}, now, out.append)
+        self.assertEqual(len(out), 1)
+        main.tick(st, [{**self.item("k3", "2026-10-09T10:01:00Z"), "text": "Buen dia! Me deja su nombre?"}], {}, now,
+                  out.append)
+        self.assertEqual([(p["kind"], p["id"], p["text"]) for p in out[1:]], [("msg", "k3", "Buen dia! Me deja su nombre?")])
+        main.tick(st, [self.item("k3", "2026-10-09T10:01:00Z")], {"b": "2026-10-09T10:05:00Z"}, now, out.append)
+        main.tick(st, [{**self.item("k3", "2026-10-09T10:01:00Z"), "text": "другое"}], {}, now, out.append)
+        self.assertEqual([p["kind"] for p in out[2:]], ["answered"])     # отвеченное заново не поднимаем
+
     def test_already_answered_message_comes_answered_without_second_post(self):
         st, out = {}, []
         main.tick(st, [self.item("k2", "2026-10-09T10:01:00Z")], {"b": "2026-10-09T10:02:00Z"},

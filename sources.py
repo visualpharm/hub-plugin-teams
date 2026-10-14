@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import datetime, timezone
 
 SOURCES = {}
@@ -114,7 +115,7 @@ def waiting(r):
 def unread_digest(messages, n, limit=600, preview=""):
     """Резюме непрочитанного: тексты последних n входящих по порядку, медиа без подписи — словом («голосовое»,
     «фото»). Текст есть только у сообщений из сохранённой копии треда; у самого свежего без копии — строка из
-    списка чатов (preview); у остальных без текста — честное «[ещё N без текста]», чат ради них не открываем.
+    списка чатов (preview); текстовые без текста пропускаются (сборщик дочитывает чат сам и без текста пункт не шлёт).
     Длинное обрезается с конца. Ничего не известно — пусто."""
     msgs = [m for m in (messages or []) if m.get("type") not in SERVICE_TYPES][-n:] if n else []
     parts, blind = [], 0
@@ -132,8 +133,6 @@ def unread_digest(messages, n, limit=600, preview=""):
             blind += 1
     if not parts:
         return ""
-    if blind:
-        parts.insert(0, f"[ещё {blind} без текста]")
     out = " · ".join(parts)
     return out if len(out) <= limit else "…" + out[-(limit - 1):]
 
@@ -147,7 +146,7 @@ def media_summary(kinds, n):
             continue
         one, many = KIND_NAMES.get(k, (k, k))
         if k == "chat":   # 12.10: «1 текст» читалось как содержимое; чат читаем сами (wa_read) — сюда доходит, если не вышло
-            one, many = "сообщение без текста", "сообщений без текста"
+            one, many = "сообщение", "сообщения"
         parts.append(f"{c} {one if c == 1 else many}")
     return ", ".join(parts) if parts else f"Непрочитанных: {n} (фото, голосовое или файл)"
 
@@ -181,8 +180,17 @@ def whatsapp(cfg, now):
             if not cid or not n:
                 continue   # всё прочитано или отвечено — внимания не требует
             wait = waiting({**r, "unread": n})
-            if any(not (m.get("text") or "").strip() and (m.get("type") or "chat") == "chat" for m in wait):
+            def blind(ms):   # текстовые без текста; у последнего хватает строки из списка чатов
+                return [m for k, m in enumerate(ms) if not (m.get("text") or "").strip()
+                        and (m.get("type") or "chat") == "chat" and not (k == len(ms) - 1 and text and not m.get("cached"))]
+            wait = [{**m, "text": _WA_TEXT[(cid, m.get("id"))], "cached": True}
+                    if not (m.get("text") or "").strip() and (cid, m.get("id")) in _WA_TEXT else m for m in wait]
+            if blind(wait):
                 wait = wa_read(cfg, ch, cmd, r, wait, n)   # текста нет в копии — дочитываем чат сами, владельца не просим
+            if blind(wait):
+                # 14.10, владелец: «не говорить мне, что они непрочитаны» — без текста пункт не выходит; чат перечитаем
+                errors.append(f"{labels.get(ch, ch)}: не прочитан чат {r.get('name') or cid} — повторю")
+                continue
             if r.get("messages") and not wait:
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
             digest = unread_digest(wait, len(wait), preview=text)   # о чём писали — тексты, не счётчик
@@ -224,7 +232,9 @@ def whatsapp(cfg, now):
 
 
 _WA_OPENED = {}   # чат WhatsApp -> сколько ждало, когда мы его открыли сами: обнулённый нами счётчик — не «прочитал владелец»
-_WA_READ = set()  # сообщения, ради текста которых чат уже открывали: не вышло — второй раз за 2 мин не открываем
+_WA_READ = {}     # сообщение, ради текста которого чат открывали -> когда: не вышло — снова не раньше WA_READ_AGAIN
+WA_READ_AGAIN = 10 * 60
+_WA_TEXT = {}     # (чат, сообщение) -> текст, дочитанный из чата: копия треда может отстать от списка чатов
 
 
 def wa_read(cfg, ch, cmd, r, wait, n):
@@ -233,9 +243,9 @@ def wa_read(cfg, ch, cmd, r, wait, n):
     не вышло (нет вкладки) — как было, без текста."""
     cid = r.get("chat_id") or ""
     key = f"{ch}:{cid}:{(wait[-1].get('id') if wait else '') or r.get('last')}"
-    if key in _WA_READ or cfg.get("read") is False:
+    if time.time() - _WA_READ.get(key, 0) < WA_READ_AGAIN or cfg.get("read") is False:
         return wait
-    _WA_READ.add(key)
+    _WA_READ[key] = time.time()
     who = re.sub(r"\D", "", cid.split("@")[0]) if cid.endswith("@c.us") else (r.get("name") or "")
     try:
         got = json.loads(run([cmd, "thread", who, "--channel", ch, "--json", "--limit", "40"], timeout=120) or "{}")
@@ -243,6 +253,11 @@ def wa_read(cfg, ch, cmd, r, wait, n):
         return wait
     _WA_OPENED.setdefault(cid, n)
     body = {m.get("id"): (m.get("body") or "").strip() for m in got.get("messages") or [] if not m.get("out")}
+    for mid, b in body.items():
+        if b:
+            _WA_TEXT[(cid, mid)] = b
+    while len(_WA_TEXT) > 2000:
+        _WA_TEXT.pop(next(iter(_WA_TEXT)))
     return [{**m, "text": body.get(m.get("id")) or m.get("text") or "", "cached": True} if body.get(m.get("id")) else m
             for m in wait]
 

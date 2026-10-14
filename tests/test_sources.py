@@ -70,9 +70,11 @@ class WhatsApp(unittest.TestCase):
                 "out_last_t": 150, "preview": "Hoy nos vemos como siempre?", "kinds": {"chat": 4},
                 "messages": [m("a", 100, "Buen día!"), m("b", 200, "Llego a las 16"), m("c", 300, cached=False),
                              m("s", 310, kind="notification_template"), m("d", 400, cached=False)]}
-        sources.run = fake_run({"new": [chat]})
+        sources._WA_READ.clear()
+        sources.run = fake_run({"thread": {"messages": [{"id": "c", "out": False, "body": "Estoy en camino"}]},
+                                "new": [chat]})
         items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
-        self.assertEqual(items[0]["text"], "[ещё 1 без текста] · Llego a las 16 · Hoy nos vemos como siempre?")
+        self.assertEqual(items[0]["text"], "Llego a las 16 · Estoy en camino · Hoy nos vemos como siempre?")
         self.assertNotIn("Buen día", items[0]["text"])            # на это он уже ответил
         self.assertTrue(items[0]["key"].endswith(":d"))           # ключ — последнее ждущее сообщение
         sources.run = fake_run({"new": [{**chat, "last": "2026-10-10T11:40-03:00", "messages": chat["messages"] + [
@@ -85,7 +87,7 @@ class WhatsApp(unittest.TestCase):
     def test_text_missing_from_the_copy_is_read_from_the_chat_not_asked_of_the_owner(self):
         """14.10, владелец: «Чё, я тебе должен чаты, что ли, открывать?» — нет текста в копии, читаем чат сами (один раз);
         счётчик непрочитанных, обнулённый нами, пункт не закрывает — закрывает только его ответ."""
-        sources._WA_OPENED.clear(); sources._WA_READ.clear()
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear()
         chat = {"chat_id": "5491100000007@c.us", "name": "Отель", "new": 2, "unread": 2, "last": "2026-10-10T11:36-03:00",
                 "out_last_t": 100, "preview": "", "messages": [
                     {"id": "x1", "t": 200, "type": "chat", "text": "", "cached": False},
@@ -108,6 +110,26 @@ class WhatsApp(unittest.TestCase):
         self.assertEqual(sum("thread" in c for c in calls), 1)      # и чат второй раз не открываем
         chat["out_last_t"] = 400                                    # ответил — пункт уходит
         self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
+
+    def test_no_item_without_text_the_chat_is_read_again_later(self):
+        """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в плашке),
+        через WA_READ_AGAIN читаем снова; ни «без текста», ни «не открывали» в пункте."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear()
+        chat = {"chat_id": "5491100000008@c.us", "name": "Банк", "new": 2, "unread": 2, "last": "2026-10-10T11:36-03:00",
+                "out_last_t": 100, "preview": "", "messages": [
+                    {"id": "y1", "t": 200, "type": "chat", "text": "", "cached": False},
+                    {"id": "y2", "t": 300, "type": "chat", "text": "", "cached": False}]}
+        sources.run = fake_run({"thread": OSError("вкладка занята"), "new": [chat]})
+        items, _, errors = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items, [])
+        self.assertIn("Банк", errors[0])
+        for k in sources._WA_READ:
+            sources._WA_READ[k] -= sources.WA_READ_AGAIN + 1
+        sources.run = fake_run({"thread": {"messages": [{"id": "y1", "out": False, "body": "Hola"},
+                                                        {"id": "y2", "out": False, "body": "Me llamás?"}]},
+                                "new": [chat]})
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items[0]["text"], "Hola · Me llamás?")
 
     def test_unread_media_without_text_still_shows(self):
         sources.run = fake_run({"new": [
@@ -457,8 +479,7 @@ class MediaSummary(unittest.TestCase):
         self.assertEqual(media_summary({"ptt": 4, "image": 1}, 5), "4 голосовых, 1 фото")
         self.assertIn("Непрочитанных: 6", media_summary(None, 6))
         # текст без копии не выдаём за «1 текст»; служебное не считаем
-        self.assertEqual(media_summary({"chat": 1, "notification_template": 1}, 2),
-                         "1 сообщение без текста")
+        self.assertEqual(media_summary({"chat": 1, "notification_template": 1}, 2), "1 сообщение")
 
     def test_digest_is_the_unread_texts(self):
         from sources import unread_digest

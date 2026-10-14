@@ -416,11 +416,21 @@ def load_colleagues():
         return {}
 
 
+def msg_post(i, done, rules):
+    return {"kind": "msg", "id": i["key"], "answered": done, **({"reply": True} if i.get("ref") else {}),
+            **({"react": True} if collect.can_react(i.get("ref")) else {}),
+            "sign": colleague(i, rules),   # подпись хаба под черновиком — только когда это коллега
+            **({"also": i["also"]} if i.get("also") else {}),
+            "contact": contact(i),   # по нему приложения берут рабочие часы собеседника (config.hours.except)
+            **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread") if k in i}}
+
+
 def tick(st, items, owner_last, now, put=post):
     """Новое — в канал (по возрастанию времени), отвеченное владельцем — пометить. Меняет st."""
     seen = set(st.get("seen") or [])
     opened = st.setdefault("open", {})   # key → [box, at]: запощено, ещё не отвечено
-    fresh, keys = [], set()
+    texts = st.setdefault("texts", {})   # key → текст последнего поста открытого пункта
+    fresh, again, keys = [], [], set()
     muted = st.get("ignored") or {}
     for i in sorted((({**i, "from": collect.person(i["from"])} if i.get("from") else i) for i in items),
                     key=lambda i: i["at"]):
@@ -428,11 +438,25 @@ def tick(st, items, owner_last, now, put=post):
             if i["key"] not in seen:
                 st.setdefault("seen", []).append(i["key"])
             continue
-        if i["key"] in seen or i["key"] in keys:   # сообщение канала с упоминанием находится дважды — берём первое
+        if i["key"] in keys:   # сообщение канала с упоминанием находится дважды — берём первое
+            continue
+        if i["key"] in seen:
+            # 14.10: пункт ушёл без текста, текст дочитали позже — тот же пункт заново (клиенты берут последний пост
+            # с этим id)
+            was = texts.get(i["key"])
+            if i["key"] in opened and i.get("text") and i["text"] != was \
+                    and not owner_last.get(i.get("box") or "", "") > i["at"]  \
+                    and was is not None:
+                keys.add(i["key"])
+                again.append(i)
             continue
         keys.add(i["key"])
         fresh.append(i)
     rules = load_colleagues()
+    for i in again:
+        i["also"] = also(i, items)
+        put(msg_post(i, False, rules))
+        texts[i["key"]] = i.get("text") or ""
     for i in fresh:
         i["also"] = also(i, items)
         if str(i.get("box") or "").startswith(("wa:", "mail:")):   # в переписке новое — прежняя карточка устарела
@@ -441,12 +465,8 @@ def tick(st, items, owner_last, now, put=post):
                     put({"kind": "answered", "id": k})
                     del opened[k]
         done = bool(i.get("box")) and owner_last.get(i["box"], "") > i["at"]   # уже ответил — сразу отвеченным
-        put({"kind": "msg", "id": i["key"], "answered": done, **({"reply": True} if i.get("ref") else {}),
-             **({"react": True} if collect.can_react(i.get("ref")) else {}),
-             "sign": colleague(i, rules),   # подпись хаба под черновиком — только когда это коллега
-             **({"also": i["also"]} if i.get("also") else {}),
-             "contact": contact(i),   # по нему приложения берут рабочие часы собеседника (config.hours.except)
-             **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread") if k in i}})
+        put(msg_post(i, done, rules))
+        texts[i["key"]] = i.get("text") or ""
         st.setdefault("who", {})[i["key"]] = {"contact": contact(i), "from": i.get("from"), "src": i.get("src"),
                                               "where": i.get("where")}
         if i.get("ref"):   # куда ответить владелец сможет из вкладки; в пост это не идёт
@@ -460,6 +480,8 @@ def tick(st, items, owner_last, now, put=post):
             put({"kind": "answered", "id": k})
             del opened[k]
     st["seen"] = st.get("seen", [])[-SEEN_MAX:]
+    for k in [k for k in texts if k not in opened]:
+        del texts[k]
     refs = st.setdefault("refs", {})
     late = [i for i in items if i.get("ref") and i["key"] in opened and i["key"] not in refs]
     for i in late:   # открытое сообщение, запощенное до того, как на его канал научились отвечать
