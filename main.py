@@ -52,7 +52,7 @@ FAIL_AFTER = 3
 SEEN_MAX, OPEN_MAX = 3000, 500
 POST_MAX = 2000
 PROMPT_MAX = 2000                  # знаков: указания владельца по разбору входящих
-OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask)\\"')   # посты владельца, которые читает процесс
+OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss)\\"')   # посты владельца, которые читает процесс
 DIR_EVERY = 6 * 3600               # список каналов команд перечитываем и заново постим раз в 6 часов: канал плагина
                                    # хранит 500 последних постов, старые списки вытесняются сообщениями
 
@@ -155,7 +155,7 @@ class Choice:
             # send и cancel — и ничего больше; остальное в этом канале — слово владельца
             who = triage_plugin()
             if not (who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
-                    and body.get("kind") in ("send", "cancel")):
+                    and body.get("kind") in ("send", "cancel", "dismiss")):
                 return
         if isinstance(body, dict) and body.get("kind") == "send":   # только слово владельца: сессии так не отправят
             files = send_files(body.get("files"))
@@ -202,6 +202,9 @@ class Choice:
             # ✨ / «Разобрать» в приложении: поручение хабу шлёт плагин от своего имени — в ленте это не слово владельца
             self.sends.append({"ask": body["what"], "rid": body["rid"][:80], "post": body["post"], "ts": ev.get("ts") or 0,
                                **{k: str(body[k])[:200] for k in ("place", "msg", "from", "at") if body.get(k)}})
+        elif isinstance(body, dict) and body.get("kind") == "dismiss" and isinstance(body.get("id"), str):
+            # разбор решил «ответ не нужен» — пункт уходит из Inbox, как отвеченный (не «Не показывать»: собеседник не скрыт)
+            self.sends.append({"dismiss": body["id"][:300]})
         elif isinstance(body, dict) and body.get("kind") == "settings":
             self.settings = {"signature": str(body.get("signature") or "")[:300],
                              "autodraft": body.get("autodraft") is not False,
@@ -726,6 +729,11 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if "ask" in q:
             ask_hub(st, q, put)
+            continue
+        if "dismiss" in q:
+            if st.get("open", {}).pop(q["dismiss"], None) is not None:
+                put({"kind": "answered", "id": q["dismiss"]})
+                save(st)
             continue
         if "hours_for" in q:
             hours_for(st, q["hours_for"], q.get("weekends"), put)

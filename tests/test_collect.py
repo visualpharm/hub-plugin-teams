@@ -448,6 +448,18 @@ class Later(unittest.TestCase):
         self.assertIn("заново", told[1])
         self.assertEqual([p["rid"] for p in out], ["a1", "a5"])
 
+    def test_dismiss_from_the_triage_plugin_closes_the_item_once(self):
+        """14.10: разобранное без ответа плагин разбора снимает сам — владельцу «Не показывать» не нужно."""
+        out, st = [], {"open": {"k1": ["wa:x", "2026-10-14T10:00:00Z"]}}
+        real_save = main.save
+        main.save = lambda st: None
+        try:
+            main.send_replies(st, self.R(), [{"dismiss": "k1"}, {"dismiss": "k1"}, {"dismiss": "нет"}], out.append)
+        finally:
+            main.save = real_save
+        self.assertEqual(out, [{"kind": "answered", "id": "k1"}])
+        self.assertEqual(st["open"], {})
+
     def test_later_waits_for_its_time_and_goes_once(self):
         st = {"refs": {"k1": {"chat": "c1", "msg": "m1"}}, "open": {"k1": ["b", "t"]}}
         q = [{"id": "k1", "rid": "r1", "text": "Позже", "at": "2026-10-10T09:00:00Z"}]
