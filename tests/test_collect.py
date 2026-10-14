@@ -414,6 +414,40 @@ class Later(unittest.TestCase):
                                           {"react": "👍", "id": "k1", "rid": "r2"}, {"cancel": "r1"}])
         self.assertEqual(c.settings, {"signature": "_Хаб_", "autodraft": False, "prompt": ""})
 
+    def test_sparkles_ask_goes_to_the_hub_from_the_plugin_once_and_again_rewrites(self):
+        """14.10, владелец: «опять мне попадают сообщения твоим субагентам, как будто я их писал» — ✨ в приложении слал
+        поручение хабу через /api/send от его имени, и дважды. Теперь приложение кладёт пост ask, поручение шлёт плагин
+        (канал plugin); двойное касание и перечитанный журнал второго поручения не дают, позднее касание — «переделай»."""
+        import json
+        import tempfile
+
+        def ev(body, **data):
+            return json.dumps({"seq": 1, "type": "ext.post", "data": {"plugin": "teams", "text": json.dumps(body), **data}})
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+            f.write(ev({"kind": "ask", "what": "draft", "rid": "a1", "post": "p12"}, owner=True, channel="web") + "\n")
+            f.write(ev({"kind": "ask", "what": "draft", "rid": "a2", "post": "p12"}, channel="session", sender="hub") + "\n")
+            f.write(ev({"kind": "ask", "what": "rm -rf", "rid": "a3", "post": "p12"}, owner=True, channel="web") + "\n")
+        c = main.Choice(f.name)
+        c.poll()
+        os.unlink(f.name)
+        q = c.take_sends()
+        self.assertEqual(q, [{"ask": "draft", "rid": "a1", "post": "p12", "ts": 0}])
+        told, out, st = [], [], {}
+        real_save = main.save
+        main.save = lambda st: None
+        try:
+            main.ask_hub(st, q[0], out.append, told.append, now=1000)
+            main.ask_hub(st, q[0], out.append, told.append, now=1001)                    # журнал перечитан
+            main.ask_hub(st, {**q[0], "rid": "a4"}, out.append, told.append, now=1005)   # двойное касание
+            main.ask_hub(st, {**q[0], "rid": "a5"}, out.append, told.append, now=1100)   # позже — переделать
+        finally:
+            main.save = real_save
+        self.assertEqual(len(told), 2)
+        self.assertIn("p12", told[0])
+        self.assertNotIn("заново", told[0])
+        self.assertIn("заново", told[1])
+        self.assertEqual([p["rid"] for p in out], ["a1", "a5"])
+
     def test_later_waits_for_its_time_and_goes_once(self):
         st = {"refs": {"k1": {"chat": "c1", "msg": "m1"}}, "open": {"k1": ["b", "t"]}}
         q = [{"id": "k1", "rid": "r1", "text": "Позже", "at": "2026-10-10T09:00:00Z"}]
