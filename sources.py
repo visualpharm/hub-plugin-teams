@@ -146,8 +146,8 @@ def media_summary(kinds, n):
         if k in SERVICE_TYPES:
             continue
         one, many = KIND_NAMES.get(k, (k, k))
-        if k == "chat":   # 12.10: «1 текст» читалось как содержимое; текст без копии и без превью — так и говорим
-            one, many = "сообщение без текста (чат не открывали)", "сообщений без текста (чат не открывали)"
+        if k == "chat":   # 12.10: «1 текст» читалось как содержимое; чат читаем сами (wa_read) — сюда доходит, если не вышло
+            one, many = "сообщение без текста", "сообщений без текста"
         parts.append(f"{c} {one if c == 1 else many}")
     return ", ".join(parts) if parts else f"Непрочитанных: {n} (фото, голосовое или файл)"
 
@@ -175,9 +175,14 @@ def whatsapp(cfg, now):
         for r in rows:
             cid, text = r.get("chat_id") or "", (r.get("preview") or "").strip()
             n = r.get("unread") or 0
+            if not n and cid in _WA_OPENED and (r.get("out_last_t") or 0) < max(
+                    [m.get("t") or 0 for m in r.get("messages") or []] or [0]):
+                n = _WA_OPENED[cid]   # прочитали мы сами (текст, картинки), а не он — сообщение всё ещё ждёт ответа
             if not cid or not n:
                 continue   # всё прочитано или отвечено — внимания не требует
-            wait = waiting(r)
+            wait = waiting({**r, "unread": n})
+            if any(not (m.get("text") or "").strip() and (m.get("type") or "chat") == "chat" for m in wait):
+                wait = wa_read(cfg, ch, cmd, r, wait, n)   # текста нет в копии — дочитываем чат сами, владельца не просим
             if r.get("messages") and not wait:
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
             digest = unread_digest(wait, len(wait), preview=text)   # о чём писали — тексты, не счётчик
@@ -200,6 +205,8 @@ def whatsapp(cfg, now):
             mark = (wait[-1].get("id") if wait else "") or r.get("last")
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
             media = wa_media(cfg, ch, cid, f"{box}:{mark}") if kinds & {"image", "sticker"} else []
+            if media:
+                _WA_OPENED.setdefault(cid, n)   # wamedia открывал чат — счётчик непрочитанных обнулится
             if media and not any(m.get("body") or m.get("text") for m in wait):
                 text = ""   # у картинки без подписи заглушек нет — клиент рисует вложение
             items.append({"key": f"{box}:{mark}", "box": box, "src": "whatsapp", "tier": t, "unread": n,
@@ -214,6 +221,30 @@ def whatsapp(cfg, now):
     if errors and not ok:
         raise OSError("; ".join(errors))
     return items, boxes, errors
+
+
+_WA_OPENED = {}   # чат WhatsApp -> сколько ждало, когда мы его открыли сами: обнулённый нами счётчик — не «прочитал владелец»
+_WA_READ = set()  # сообщения, ради текста которых чат уже открывали: не вышло — второй раз за 2 мин не открываем
+
+
+def wa_read(cfg, ch, cmd, r, wait, n):
+    """Текста сообщения нет в сохранённой копии — читаем чат сами: `wa thread` (открывает чат во вкладке WhatsApp Web,
+    синие галочки — слово 14.10: «Чё, я тебе должен чаты, что ли, открывать?»). Один раз на последнее ждущее сообщение;
+    не вышло (нет вкладки) — как было, без текста."""
+    cid = r.get("chat_id") or ""
+    key = f"{ch}:{cid}:{(wait[-1].get('id') if wait else '') or r.get('last')}"
+    if key in _WA_READ or cfg.get("read") is False:
+        return wait
+    _WA_READ.add(key)
+    who = re.sub(r"\D", "", cid.split("@")[0]) if cid.endswith("@c.us") else (r.get("name") or "")
+    try:
+        got = json.loads(run([cmd, "thread", who, "--channel", ch, "--json", "--limit", "40"], timeout=120) or "{}")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return wait
+    _WA_OPENED.setdefault(cid, n)
+    body = {m.get("id"): (m.get("body") or "").strip() for m in got.get("messages") or [] if not m.get("out")}
+    return [{**m, "text": body.get(m.get("id")) or m.get("text") or "", "cached": True} if body.get(m.get("id")) else m
+            for m in wait]
 
 
 # --- вложения сообщений (12.10, «фото, видео, файлы, голосовые — как в мессенджере») -----------------------------------

@@ -82,6 +82,33 @@ class WhatsApp(unittest.TestCase):
         sources.run = fake_run({"new": [{**chat, "out_last_t": 450}]})
         self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])   # ответил после всех — не поднимаем
 
+    def test_text_missing_from_the_copy_is_read_from_the_chat_not_asked_of_the_owner(self):
+        """14.10, владелец: «Чё, я тебе должен чаты, что ли, открывать?» — нет текста в копии, читаем чат сами (один раз);
+        счётчик непрочитанных, обнулённый нами, пункт не закрывает — закрывает только его ответ."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear()
+        chat = {"chat_id": "5491100000007@c.us", "name": "Отель", "new": 2, "unread": 2, "last": "2026-10-10T11:36-03:00",
+                "out_last_t": 100, "preview": "", "messages": [
+                    {"id": "x1", "t": 200, "type": "chat", "text": "", "cached": False},
+                    {"id": "x2", "t": 300, "type": "chat", "text": "", "cached": False}]}
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "thread" in cmd:
+                return json.dumps({"messages": [{"id": "x1", "out": False, "body": "Buen dia!"},
+                                                {"id": "x2", "out": False, "body": "Me deja su nombre?"}]})
+            return json.dumps([chat])
+        sources.run = run
+        items, boxes, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items[0]["text"], "Buen dia! · Me deja su nombre?")
+        self.assertEqual(calls[1][1:3], ["thread", "5491100000007"])
+        chat["unread"] = 0                                         # чат открыли мы — счётчик обнулился
+        items, boxes, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual([i["from"] for i in items], ["Отель"])     # пункт остаётся, пока он не ответил
+        self.assertEqual(sum("thread" in c for c in calls), 1)      # и чат второй раз не открываем
+        chat["out_last_t"] = 400                                    # ответил — пункт уходит
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
+
     def test_unread_media_without_text_still_shows(self):
         sources.run = fake_run({"new": [
             {"chat_id": "5491100000004@c.us", "name": "Электрик", "new": 3, "unread": 1,
@@ -431,7 +458,7 @@ class MediaSummary(unittest.TestCase):
         self.assertIn("Непрочитанных: 6", media_summary(None, 6))
         # текст без копии не выдаём за «1 текст»; служебное не считаем
         self.assertEqual(media_summary({"chat": 1, "notification_template": 1}, 2),
-                         "1 сообщение без текста (чат не открывали)")
+                         "1 сообщение без текста")
 
     def test_digest_is_the_unread_texts(self):
         from sources import unread_digest
