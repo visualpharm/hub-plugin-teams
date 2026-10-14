@@ -422,7 +422,8 @@ def msg_post(i, done, rules):
             "sign": colleague(i, rules),   # подпись хаба под черновиком — только когда это коллега
             **({"also": i["also"]} if i.get("also") else {}),
             "contact": contact(i),   # по нему приложения берут рабочие часы собеседника (config.hours.except)
-            **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread") if k in i}}
+            **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread", "team")
+               if k in i}}
 
 
 def tick(st, items, owner_last, now, put=post):

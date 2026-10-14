@@ -113,18 +113,38 @@ def waiting(r):
     return msgs[-n:] if n else []
 
 
-def unread_digest(messages, n, limit=600, preview=""):
+def work_group(cfg, cid, name, group):
+    """Рабочая группа владельца (14.10, слово владельца: «analizar los grupos … escalar al inbox»): группа из списка
+    groups в sources.json (имя или id чата). Её ветка разбирается целиком — всё после его последнего ответа, а не только
+    непрочитанное и не только срочное; остальные группы — как раньше, только срочное."""
+    gs = cfg.get("groups") or []
+    return bool(group) and bool(gs) and (cid in gs or (name or "") in gs)
+
+
+def team_wait(r):
+    """Сколько сообщений рабочей группы ждут разбора: все входящие после его последнего ответа (прочитал — не значит
+    ответил)."""
+    after = r.get("out_last_t") or 0
+    return len([m for m in r.get("messages") or [] if m.get("type") not in SERVICE_TYPES
+                and not m.get("out") and (m.get("t") or after + 1) > after])
+
+
+def unread_digest(messages, n, limit=600, preview="", authors=False):
     """Резюме непрочитанного: тексты последних n входящих по порядку, медиа без подписи — словом («голосовое»,
     «фото»). Текст есть только у сообщений из сохранённой копии треда; у самого свежего без копии — строка из
     списка чатов (preview); текстовые без текста пропускаются (сборщик дочитывает чат сам и без текста пункт не шлёт).
     Длинное обрезается с конца. Ничего не известно — пусто."""
     msgs = [m for m in (messages or []) if m.get("type") not in SERVICE_TYPES][-n:] if n else []
-    parts, blind = [], 0
+    parts, blind, last_who = [], 0, ""
     for i, m in enumerate(msgs):
         txt = " ".join((m.get("text") or "").split())
         if not txt and i == len(msgs) - 1 and not m.get("cached"):
             txt = " ".join((preview or "").split())
         if txt:
+            who = (m.get("from") or m.get("author") or "").strip() if authors else ""
+            if who and who != last_who:   # в группе — кто пишет, у первой реплики подряд
+                txt = f"{who}: {txt}"
+            last_who = who or last_who
             parts.append(txt)
             continue
         one = KIND_NAMES.get(m.get("type") or "", (m.get("type") or "", ""))[0]
@@ -199,13 +219,17 @@ def whatsapp(cfg, now):
             if not n and cid in _WA_OPENED and (r.get("out_last_t") or 0) < max(
                     [m.get("t") or 0 for m in r.get("messages") or []] or [0]):
                 n = _WA_OPENED[cid]   # прочитали мы сами (текст, картинки), а не он — сообщение всё ещё ждёт ответа
+            team = work_group(cfg, cid, r.get("name"), cid.endswith("@g.us"))
+            if team:
+                n = max(n, team_wait(r))
             if not cid or not n:
                 continue   # всё прочитано или отвечено — внимания не требует
             wait = waiting({**r, "unread": n})
             def blind(ms):   # текстовые без текста; у последнего хватает строки из списка чатов
                 return [m for k, m in enumerate(ms) if not (m.get("text") or "").strip()
                         and (m.get("type") or "chat") == "chat" and not (k == len(ms) - 1 and text and not m.get("cached"))]
-            wait = [{**m, "text": _WA_TEXT[(cid, m.get("id"))], "cached": True}
+            wait = [{**m, "text": _WA_TEXT[(cid, m.get("id"))], "cached": True,
+                     **({"from": _WA_WHO[(cid, m["id"])]} if (cid, m.get("id")) in _WA_WHO else {})}
                     if not (m.get("text") or "").strip() and (cid, m.get("id")) in _WA_TEXT else m for m in wait]
             if blind(wait):
                 wait = wa_read(cfg, ch, cmd, r, wait, n)   # текста нет в копии — дочитываем чат сами, владельца не просим
@@ -221,7 +245,7 @@ def whatsapp(cfg, now):
             if voice:   # 14.10: расшифровка голосового — текст сообщения (по ней и срочность, и резюме)
                 wait = [{**m, "text": voice[m["id"]]["text"], "cached": True}
                         if m.get("id") in voice and voice[m["id"]].get("text") else m for m in wait]
-            digest = unread_digest(wait, len(wait), preview=text)   # о чём писали — тексты, не счётчик
+            digest = unread_digest(wait, len(wait), preview=text, **({"limit": 1200, "authors": True} if team else {}))
             if digest:
                 text = digest
             elif not text:   # текста нет ни в копии, ни в списке чатов: что пришло — словами
@@ -231,7 +255,7 @@ def whatsapp(cfg, now):
                 text = media_summary(kinds or r.get("kinds"), len(wait) or n)
             group = cid.endswith("@g.us")
             t = tier(text)
-            if t == "C" or (group and t != "A"):
+            if t == "C" or (group and t != "A" and not team):
                 continue
             last = datetime.fromisoformat(r["last"]) if r.get("last") else now
             box = f"wa:{ch}:{cid}"
@@ -253,7 +277,7 @@ def whatsapp(cfg, now):
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
                           "from": r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
-                          "mention": False,
+                          "mention": False, **({"team": True} if team else {}),
                           "ref": {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
                                   **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
                                      if cfg.get("react") and (r.get("messages") or [{}])[-1].get("id") else {})}})
@@ -266,6 +290,7 @@ _WA_OPENED = {}   # чат WhatsApp -> сколько ждало, когда м�
 _WA_READ = {}     # сообщение, ради текста которого чат открывали -> когда: не вышло — снова не раньше WA_READ_AGAIN
 WA_READ_AGAIN = 10 * 60
 _WA_TEXT = {}     # (чат, сообщение) -> текст, дочитанный из чата: копия треда может отстать от списка чатов
+_WA_WHO = {}      # (чат, сообщение) -> автор (группы: кто пишет)
 
 
 def wa_read(cfg, ch, cmd, r, wait, n):
@@ -284,12 +309,17 @@ def wa_read(cfg, ch, cmd, r, wait, n):
         return wait
     _WA_OPENED.setdefault(cid, n)
     body = {m.get("id"): (m.get("body") or "").strip() for m in got.get("messages") or [] if not m.get("out")}
+    who = {m.get("id"): (m.get("author") or "").strip() for m in got.get("messages") or [] if m.get("author")}
     for mid, b in body.items():
         if b:
             _WA_TEXT[(cid, mid)] = b
+            if who.get(mid):
+                _WA_WHO[(cid, mid)] = who[mid]
     while len(_WA_TEXT) > 2000:
+        _WA_WHO.pop(next(iter(_WA_TEXT)), None)
         _WA_TEXT.pop(next(iter(_WA_TEXT)))
-    return [{**m, "text": body.get(m.get("id")) or m.get("text") or "", "cached": True} if body.get(m.get("id")) else m
+    return [{**m, "text": body.get(m.get("id")) or m.get("text") or "", "cached": True,
+             **({"from": who[m["id"]]} if who.get(m.get("id")) else {})} if body.get(m.get("id")) else m
             for m in wait]
 
 
@@ -474,24 +504,28 @@ def telegram(cfg, now):
     items, boxes = [], set()
     for r in rows:
         cid, n = r.get("chat_id") or "", r.get("unread") or 0
+        team = work_group(cfg, cid, r.get("name"), r.get("group"))
+        if team:
+            n = max(n, team_wait(r))
         if not cid or not n:
             continue
-        wait = waiting(r)
+        wait = waiting({**r, "unread": n})
         if r.get("messages") and not wait:
             continue
-        text = unread_digest(wait, len(wait), preview=r.get("preview") or "")
+        text = unread_digest(wait, len(wait), preview=r.get("preview") or "",
+                             **({"limit": 1200, "authors": True} if team else {}))
         if not text:
             kinds = {}
             for m in wait:
                 kinds[m.get("type") or ""] = kinds.get(m.get("type") or "", 0) + 1
             text = (r.get("preview") or "").strip() or media_summary(kinds, len(wait) or n)
         group = bool(r.get("group"))
-        if group and wait:   # в группе — кто написал
+        if group and wait and not team:   # в группе — кто написал (у рабочей — у каждой реплики)
             last = wait[-1]
             if last.get("from"):
                 text = f"{last['from']}: {text}" if " · " not in text else text
         t = tier(text)
-        if t == "C" or (group and t != "A"):
+        if t == "C" or (group and t != "A" and not team):
             continue
         at = datetime.fromisoformat(r["last"]) if r.get("last") else now
         box = f"tg:{cid}"
@@ -504,7 +538,7 @@ def telegram(cfg, now):
         links = [m["link"] for m in wait if m.get("link")][-3:]
         items.append({"key": f"{box}:{mark}", "box": box, "src": "telegram", "tier": t, "unread": n,
                       "where": "Telegram" + (" · группа" if group else ""), "from": r.get("name") or cid,
-                      "text": text[:1200], "at": iso_utc(at), "mention": False,
+                      "text": text[:1200], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
                       **({"media": media} if media else {}), **({"links": links} if links else {}),
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
                       "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send")}})

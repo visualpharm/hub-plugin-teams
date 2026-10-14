@@ -112,6 +112,39 @@ class WhatsApp(unittest.TestCase):
         chat["out_last_t"] = 400                                    # ответил — пункт уходит
         self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
 
+    def test_work_group_whole_thread_after_owner_reply_with_authors(self):
+        """14.10, владелец: «analizar los grupos … escalar al inbox» — рабочая группа (groups в sources.json) идёт в разбор
+        не только срочным и не только непрочитанным: прочитал — не значит ответил. Текст — реплики с авторами."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear(); sources._WA_WHO.clear()
+        chat = {"chat_id": "120363999@g.us", "name": "Ремонт дома", "new": 4, "unread": 0, "out_last_t": 100,
+                "last": "2026-10-10T11:36-03:00", "preview": "", "messages": [
+                    {"id": "g0", "t": 90, "type": "chat", "text": "", "cached": False},
+                    {"id": "g1", "t": 200, "type": "gp2", "text": "", "cached": False},
+                    {"id": "g2", "t": 300, "type": "chat", "text": "", "cached": False},
+                    {"id": "g3", "t": 310, "type": "chat", "text": "", "cached": False},
+                    {"id": "g4", "t": 400, "type": "chat", "text": "", "cached": False}]}
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "thread" in cmd:
+                return json.dumps({"messages": [
+                    {"id": "g0", "author": "Аня", "out": False, "body": "старое, на это он ответил"},
+                    {"id": "g2", "author": "Аня", "out": False, "body": "Починить бак — 30 000, подтверди"},
+                    {"id": "g3", "author": "Аня", "out": False, "body": "И замки в список"},
+                    {"id": "g4", "author": "Боря", "out": False, "body": "Без разницы, где покупать"}]})
+            return json.dumps([chat, {**chat, "chat_id": "120363111@g.us", "name": "Соседи"}])
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"], "groups": ["Ремонт дома"]}, NOW)
+        self.assertEqual([i["from"] for i in items], ["Ремонт дома"])     # чужая группа без срочного — по-прежнему нет
+        self.assertTrue(items[0]["team"])
+        self.assertEqual(items[0]["text"], "Аня: Починить бак — 30 000, подтверди · И замки в список · "
+                                           "Боря: Без разницы, где покупать")
+        self.assertEqual(calls[1][1:3], ["thread", "Ремонт дома"])
+        self.assertTrue(items[0]["key"].endswith(":g4"))
+        chat["out_last_t"] = 450                                          # ответили в группе — пункт уходит
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"], "groups": ["120363999@g.us"]}, NOW)[0], [])
+
     def test_no_item_without_text_the_chat_is_read_again_later(self):
         """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в лог, не в плашку),
         через WA_READ_AGAIN читаем снова; ни «без текста», ни «не открывали» в пункте."""
@@ -247,6 +280,18 @@ class Telegram(unittest.TestCase):
         sources.run = lambda cmd, timeout=0: calls.append(cmd) or ""
         sources.reply(items[0]["ref"], "Да, вечером")
         self.assertEqual(calls[0][1:], ["tg", "--to", "3123499", "--text", "Да, вечером"])
+
+    def test_work_group_read_whole_with_authors(self):
+        sources.run = fake_run({"new": [
+            {"chat_id": "-100777", "name": "Дача", "unread": 0, "group": True, "last": "2026-10-10T11:30-03:00",
+             "preview": "", "out_last_t": 5,
+             "messages": [{"id": "1", "text": "давно", "type": "chat", "out": False, "t": 1, "from": "Ира"},
+                          {"id": "7", "text": "Кто купит краску?", "type": "chat", "out": False, "t": 7, "from": "Ира"},
+                          {"id": "8", "text": "Я могу", "type": "chat", "out": False, "t": 8, "from": "Олег"}]}]})
+        items, _, _ = sources.telegram({"groups": ["Дача"]}, NOW)
+        self.assertEqual(items[0]["text"], "Ира: Кто купит краску? · Олег: Я могу")
+        self.assertTrue(items[0]["team"])
+        self.assertEqual(sources.telegram({}, NOW)[0], [])                  # не в списке — как раньше
 
     def test_reply_carries_files_and_a_native_reply_to(self):
         # 13.10: ответ с файлами и ответ-цитата на конкретное сообщение; реакция — на выбранное, не на последнее
