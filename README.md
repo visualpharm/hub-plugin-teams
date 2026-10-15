@@ -68,6 +68,22 @@ Teams — сообщение само уходит в «Разобранные»
 
 ## Как работает
 
+Corrections are append-only. Reading or losing an unread marker does not prove a
+reply was sent. To correct a false WhatsApp closure, a local operator can use the
+existing plugin entry point: `python3 main.py --reopen p100 --corrects p200`
+(with the same `HUB_STATE_DIR`, `HUB_EXTENSION` and core import path as the plugin).
+The collector rechecks both accepted posts, the current closure, source contact
+and stored destination, then emits `reopened`; a stale or successful-send item is
+refused. This queues a correction, not a reply. See
+[the correction contract](docs/solutions/inbox-correction.md) before activation.
+
+WhatsApp history requires the upstream per-row source-v1 identity contract and an
+independently configured channel account in `sources.json` under
+`whatsapp.accounts` (channel → account digits). Missing bindings or legacy/mixed
+rows produce `thread_failed`, never trusted history. No credentials belong here.
+Account bindings must be reconciled with the existing source configuration, never
+copied from returned row data. Existing raw caches and posts are preserved.
+
 Процесс плагина раз в минуту читает Teams через MCP-сервер
 [`@softeria/ms-365-mcp-server`](https://github.com/softeria/ms-365-mcp-server) от вашего имени и кладёт новые
 сообщения в канал плагина хаба (`hub feed teams`). Модель не вызывается. Токен входа хранит сам сервер в своём

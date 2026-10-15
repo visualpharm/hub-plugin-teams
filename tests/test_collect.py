@@ -665,9 +665,15 @@ class Later(unittest.TestCase):
     def test_whatsapp_history_only_from_the_saved_copy(self):
         import sources
         ran, real = [], sources.run
-        sources.run = lambda cmd, timeout=0: ran.append(cmd) or '{"messages": [{"out": false, "when": "9:35 AM, 10/12/2026", "author": "П", "body": "hola"}, {"out": true, "when": "x", "author": "Я", "body": "", "media": true}]}'
+        rows = [{"id": "a", "out": False, "when": "9:35 AM, 10/12/2026", "author": "П", "body": "hola"},
+                {"id": "b", "out": True, "when": "x", "author": "Я", "body": "", "media": True}]
+        for row in rows:
+            row["source"] = {"version": 1, "channel": "whatsapp", "account": "5491100000001",
+                             "peer": "5491100000000@c.us", "raw_id": f"{str(row['out']).lower()}_5491100000000@c.us_{row['id']}",
+                             "captured_at": "2026-10-12T12:35:00+00:00"}
+        sources.run = lambda cmd, timeout=0: ran.append(cmd) or json.dumps({"chat_id": "5491100000000@c.us", "messages": rows})
         try:
-            got = sources.history({"wa": "whatsapp", "to": "5491100000000@c.us", "cmd": "/bin/wa"})
+            got = sources.history({"wa": "whatsapp", "to": "5491100000000@c.us", "account": "5491100000001", "cmd": "/bin/wa"})
         finally:
             sources.run = real
         self.assertIn("--cached", ran[0])   # живое чтение открыло бы чат и поставило синие галочки

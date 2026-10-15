@@ -34,6 +34,7 @@ from core.daemon import default_state_dir  # noqa: E402
 from core.tools import from_owner  # noqa: E402
 
 import collect  # noqa: E402
+import corrections  # noqa: E402
 import contacts  # noqa: E402
 import hours  # noqa: E402
 
@@ -52,7 +53,7 @@ FAIL_AFTER = 3
 SEEN_MAX, OPEN_MAX = 3000, 500
 POST_MAX = 2000
 PROMPT_MAX = 2000                  # знаков: указания владельца по разбору входящих
-OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss)\\"')   # посты владельца, которые читает процесс
+OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|reopen)\\"')   # посты владельца, которые читает процесс
 DIR_EVERY = 6 * 3600               # список каналов команд перечитываем и заново постим раз в 6 часов: канал плагина
                                    # хранит 500 последних постов, старые списки вытесняются сообщениями
 
@@ -154,7 +155,9 @@ class Choice:
             # плагин разбора входящих, которому владелец доверил отправку (sources.json: "triage": "<плагин>"): только
             # send и cancel — и ничего больше; остальное в этом канале — слово владельца
             who = triage_plugin()
-            if not (who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
+            own_correction = (d.get("channel") == "plugin" and d.get("sender") == NAME
+                              and isinstance(body, dict) and body.get("kind") == "reopen")
+            if not (own_correction or who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
                     and body.get("kind") in ("send", "cancel", "dismiss")):
                 return
         if isinstance(body, dict) and body.get("kind") == "send":   # только слово владельца: сессии так не отправят
@@ -169,6 +172,9 @@ class Choice:
                     if isinstance(body.get(k), str) and body[k]:
                         q[k] = body[k][:1000 if k == "quote" else 200]
                 self.sends.append(q)
+        elif isinstance(body, dict) and body.get("kind") == "reopen":
+            if all(isinstance(body.get(k), str) and re.fullmatch(r"p\d+", body[k]) for k in ("post", "corrects")):
+                self.sends.append({"reopen": body["post"], "corrects": body["corrects"]})
         elif isinstance(body, dict) and body.get("kind") == "react":
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid", "emoji")) and len(body["emoji"]) <= 16:
                 self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"],
@@ -503,7 +509,8 @@ def tick(st, items, owner_last, now, put=post):
 
 def run_sources(st, now, put=post, between=None):
     """Остальные каналы (sources.py), каждый сам по себе: сбой WhatsApp не мешает почте и Teams. Включены те, что есть
-    в sources.json. Возвращает (items, cleared): cleared — переписки, что были открыты и пропали из «ждут вас»."""
+    в sources.json. Возвращает (items, cleared); cleared оставлен для совместимости и всегда пуст:
+    исчезновение из списка непрочитанных не доказывает ответ."""
     try:
         with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
             cfg = json.load(f)
@@ -532,8 +539,8 @@ def run_sources(st, now, put=post, between=None):
                  **({"warn": "; ".join(errors)[:160]} if errors else {})})
         s["fails"], s["errors"] = 0, errors
         items += got
-        # что было открыто этим каналом и больше не ждёт — отвечено; пока канал не прочитан целиком — не трогаем
-        cleared |= {b for b in s["boxes"] if b not in boxes} if not errors else set()
+        # Чтение, архивирование, окно поиска и перезапуск меняют список непрочитанных.
+        # Ни одно из них не подтверждает отправку ответа владельцем.
         s["boxes"] = sorted(boxes | (set(s["boxes"]) if errors else set()))
     return items, cleared
 
@@ -735,6 +742,13 @@ def send_replies(st, reader, queue, put=post, now=None):
             unignore(st, q["unignore"], put)
             save(st)
             continue
+        if "reopen" in q:
+            try:
+                if corrections.reopen(st, STATE, NAME, q["reopen"], q["corrects"], put):
+                    save(st)
+            except ValueError as e:
+                put({"kind": "reopen_failed", "post": q["reopen"], "corrects": q["corrects"], "error": short(e)})
+            continue
         if "history" in q:
             history(st, reader, q, put)
             continue
@@ -920,6 +934,15 @@ def history(st, reader, q, put=post, now=None):
         del seen[k]
     try:
         if ref.get("wa") or ref.get("mail") or ref.get("tg"):
+            if ref.get("wa") and not ref.get("account"):
+                # Old stored reply refs keep their destination; bind history to
+                # the configured account without asking the source to name it.
+                try:
+                    with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
+                        accounts = (json.load(f).get("whatsapp") or {}).get("accounts") or {}
+                    ref = {**ref, "account": accounts.get(ref["wa"])}
+                except (OSError, ValueError, AttributeError):
+                    pass  # missing binding is refused by sources.history
             items = sources.history(ref, limit, before, search)
         else:
             if not reader.mcp:
@@ -929,9 +952,11 @@ def history(st, reader, q, put=post, now=None):
             else:
                 items = collect.history(reader.mcp, ref, st["me"]["id"])
     except Exception as e:   # noqa: BLE001 — истории нет, сообщение всё равно видно
-        reader.close()
+        if not (ref.get("wa") or ref.get("mail") or ref.get("tg")):
+            reader.close()
         print(f"teams: переписка {key} не прочитана: {e}", file=sys.stderr, flush=True)
-        items = []
+        put({"kind": "thread_failed", "id": key, "reset_history": True, "error": short(e)})
+        return
     parts, cur, size = [], [], 0
     for it in items:
         it = {**it, "text": it["text"] if len(it["text"]) <= HISTORY_TEXT else it["text"][:HISTORY_TEXT].rstrip() + "…",
@@ -1019,10 +1044,8 @@ def main():
             if queue:
                 send_replies(st, reader, queue)
         between()
-        extra, cleared = run_sources(st, now, between=between)
+        extra, _cleared = run_sources(st, now, between=between)
         items += extra
-        for box in cleared:
-            owner_last[box] = iso(now)
         if teams_ok and st.get("fails", 0) >= FAIL_AFTER:
             post({"kind": "status", "ok": True, "at": iso(now)})
         if teams_ok:
@@ -1050,5 +1073,23 @@ def main():
         pause(st, reader, choice, POLL)
 
 
+def correction_command(argv):
+    """Queue a local operator correction for the existing collector; never send a reply."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Queue an exact false Inbox closure correction")
+    parser.add_argument("--reopen", required=True, help="Original message post pN")
+    parser.add_argument("--corrects", required=True, help="False answered post pN")
+    args = parser.parse_args(argv)
+    event = corrections.plan_reopen(corrections.feed(STATE, NAME), args.reopen, args.corrects, NAME)
+    if event is None:
+        print("Correction already applied")
+        return
+    post({"kind": "reopen", "post": args.reopen, "corrects": args.corrects})
+    print("Correction requested; wait for the collector's reopened or reopen_failed post")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        correction_command(sys.argv[1:])
+    else:
+        main()

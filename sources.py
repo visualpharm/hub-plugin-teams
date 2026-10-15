@@ -279,6 +279,8 @@ def whatsapp(cfg, now):
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
                           "mention": False, **({"team": True} if team else {}),
                           "ref": {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+                                  **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
+                                     and isinstance(cfg["accounts"].get(ch), str) else {}),
                                   **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
                                      if cfg.get("react") and (r.get("messages") or [{}])[-1].get("id") else {})}})
     if errors and not ok:
@@ -838,18 +840,52 @@ def mark_read(ref):
     raise OSError("в Teams прочитанным пометить нельзя: Graph этого не даёт")
 
 
+def verified_wa_history(ref, data):
+    """Validate the source-v1 cache contract before publishing any row.
+
+    Expected account comes from the collector's channel configuration, never from
+    returned data. Legacy rows remain on disk but cannot be used as thread context.
+    """
+    def peer(value):
+        return str(value or "").replace("@s.whatsapp.net", "@c.us")
+    want, account = peer(ref.get("to")), ref.get("account")
+    rows = data.get("messages") if isinstance(data, dict) else None
+    if (not re.fullmatch(r"\d+@(c\.us|g\.us|lid)", want)
+            or not isinstance(account, str) or not re.fullmatch(r"\d+", account)
+            or not isinstance(rows, list) or peer(data.get("chat_id")) != want):
+        raise OSError("Unverified WhatsApp history identity")
+    ids = set()
+    for row in rows:
+        source = (row.get("source") or {}) if isinstance(row, dict) else {}
+        if not isinstance(source, dict):
+            raise OSError("Unverified WhatsApp history identity")
+        raw = str(source.get("raw_id") or "").split("_")
+        if (not isinstance(row, dict) or source.get("version") != 1
+                or source.get("channel") != ref["wa"] or source.get("account") != account
+                or peer(source.get("peer")) != want or len(raw) not in (3, 4)
+                or raw[0] not in ("true", "false") or peer(raw[1]) != want
+                or not raw[2] or raw[2] != row.get("id") or row.get("id") in ids
+                or (raw[0] == "true") != row.get("out")):
+            raise OSError("Unverified WhatsApp history identity")
+        try:
+            stamp = datetime.fromisoformat(source.get("captured_at") or "")
+            if stamp.utcoffset() is None:
+                raise ValueError("timezone required")
+        except (ValueError, TypeError):
+            raise OSError("Unverified WhatsApp history identity") from None
+        ids.add(row["id"])
+    return rows
+
+
 def history(ref, top=20, before=None, search=None):
     """Переписка для «всей переписки» во вкладке. WhatsApp — только сохранённая копия треда (`--cached`): живое чтение
     открыло бы чат и поставило синие галочки. Почта — письма цепочки: от кого, когда, начало текста."""
     if ref.get("wa"):
         who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
-        try:
-            data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
-                                   "--limit", str(500 if before or search else top), "--channel", ref["wa"]]))
-        except OSError:
-            return []   # копии нет — истории нет; чат ради неё не открываем
+        data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
+                               "--limit", str(500 if before or search else top), "--channel", ref["wa"]]))
         out = []
-        for m in data.get("messages") or []:
+        for m in verified_wa_history(ref, data):
             try:
                 at = iso_utc(datetime.strptime(m.get("when") or "", "%I:%M %p, %m/%d/%Y"))
             except ValueError:
@@ -857,6 +893,7 @@ def history(ref, top=20, before=None, search=None):
             text = (m.get("body") or "").strip() or ("[медиа]" if m.get("media") else "")
             if text:
                 out.append({"at": at, "from": m.get("author") or "", "me": bool(m.get("out")), "text": text,
+                            "source": m["source"],
                             **({"id": str(m["id"])} if m.get("id") else {})})
         return page(out, top, before, search)   # копия треда целиком: листание и поиск — по ней
     if ref.get("tg"):

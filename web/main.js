@@ -20,6 +20,7 @@ const el = (...a) => hub.el(...a);
 
 const msgs = new Map();      // id → сообщение (+ post — номер поста, на него отвечают черновиком)
 const answered = new Set();
+const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
 const hidden = new Set();
 const work = new Map();      // id → ts: передано хабу в работу
 const draft = new Map();     // id → ts: черновик запрошен
@@ -67,8 +68,21 @@ async function sync() {
         const reply = d.src === "support" && d.where?.includes(" · ");
         if (reply && !d.mention) continue;
         msgs.set(d.id, { ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id });
-        if (d.answered) answered.add(d.id);
-      } else if (p.by === AUTHOR && d?.kind === "answered") answered.add(d.id);
+        if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
+      } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
+      else if (p.by === AUTHOR && d?.kind === "reopened") {
+        const m = msgs.get(d.id);
+        if (m?.post === d.post && m.contact === d.contact && answeredAt.get(d.id) === d.corrects && !sentOk(d.id)) {
+          answered.delete(d.id); answeredAt.delete(d.id);
+          // Keep the original post/draft relationship and any owner edits. This
+          // opens an unsent editor; only the existing owner Send action delivers.
+          const latest = (replies.get(m.post) || []).at(-1);
+          if (latest && !composing.has(d.id)) {
+            const draft = splitDraft(latest.text);
+            composing.set(d.id, {text: draft.text, why: draft.why});
+          }
+        }
+      }
       else if (p.by === AUTHOR && d?.kind === "status") { statuses.set(d.source || "teams", d); if (!d.source) status = d; }
       else if (p.by === AUTHOR && d?.kind === "channels") addDir(d);
       // выбор каналов: пост владельца или эхо процесса — какие каналы он читает сейчас (переживает вытеснение из
@@ -79,7 +93,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, state: sends.get(d.rid)?.state || "wait" });
-      else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) { const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); }
+      else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) { const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id); }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
       else if (p.by === AUTHOR && d?.kind === "config") signature = String(d.signature || "").trim();
