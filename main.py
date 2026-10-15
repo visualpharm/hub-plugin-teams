@@ -864,6 +864,10 @@ def due(at, now=None):
     return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) <= (now or datetime.now(timezone.utc))
 
 
+def outgoing_text(text, reply_to=None, quote=None):
+    return f"> {' '.join(quote.split())[:300]}\n\n{text}" if quote and reply_to else text
+
+
 def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, quote=None):
     if not ref:
         raise OSError("отсюда ответить нельзя: не знаю, куда")
@@ -873,8 +877,7 @@ def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, q
         return sources.reply(ref, text, files=files, reply_to=reply_to, quote=quote)
     if files:
         raise OSError("в Teams файл вложением не уйдёт — пришли ссылкой на него")
-    if quote and reply_to:
-        text = f"> {' '.join(quote.split())[:300]}\n\n{text}"   # у чата Teams нет ответа на сообщение — цитата текстом
+    text = outgoing_text(text,reply_to,quote)  # у чата Teams цитата текстом
     if not reader.mcp:
         reader.connect(st)
     if emoji:
@@ -967,7 +970,12 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put({"kind": "canceled", "id": held["id"], "rid": q["cancel"]})
                 save(st)
             continue
-        if q["rid"] in done or q["rid"] in later:
+        if q["rid"] in done:
+            if q.get('inbox') is not None or q.get('automatic'):
+                put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
+                    'error':'Completed request does not match this source and payload'})
+            continue
+        if q["rid"] in later:
             continue
         if q.get("at") and not due(q["at"], now):
             later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q}
@@ -1246,12 +1254,15 @@ def send_guarded(st, reader, q, put=post, now=None):
              'inbox':inbox_delivery.context(st,q['id']),
              'error':'Delivery outcome needs reconciliation; no automatic retry'})
         return
-    inbox_delivery.finish(st,claim,'sent',receipt)
+    sent_text=outgoing_text((q.get('text') or '')[:POST_MAX],q.get('reply_to'),q.get('quote'))
+    source_text=collect.plain(collect.html_body(sent_text)['body']['content'])
+    inbox_delivery.confirmed(st,claim,receipt,source_text)
     st.setdefault('sent_rids',[]).append(q['rid'])
     (st.get('open') or {}).pop(q['id'],None)
     save(st)
     put({'kind':'sent','id':q['id'],'rid':q['rid'],'at':iso(datetime.now(timezone.utc)),
-         'inbox':inbox_delivery.context(st,q['id']),'submitted_inbox':q['inbox'],'receipt':receipt})
+         'inbox':inbox_delivery.context(st,q['id']),
+         'submitted_inbox':inbox_delivery.store(st)['claims'][claim]['submitted_inbox'],'receipt':receipt})
     put({'kind':'answered','id':q['id']})
 
 
@@ -1274,6 +1285,29 @@ def preflight_guarded(st,reader,q):
     rows=data.get('value')
     if not isinstance(rows,list):
         raise ValueError('Current source verification is incomplete')
+    followup=row.get('followup')
+    if followup:
+        if q.get('automatic') or followup['thread_version'] != inbox_delivery.store(st)['threads'].get(row['thread']):
+            raise ValueError('Follow-up source changed; review the current conversation')
+        original=next((m for m in rows if m.get('id')==followup['id']),None)
+        if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
+                or collect.sender(original).get('id') != me
+                or collect.plain((original.get('body') or {}).get('content')) != followup['text']
+                or original.get('attachments')):
+            raise ValueError('The confirmed outgoing source changed; reply retained')
+        try:
+            anchor_at=datetime.fromisoformat(original['createdDateTime'].replace('Z','+00:00'))
+            if anchor_at.tzinfo is None:
+                raise ValueError('Missing source timezone')
+            for other in rows:
+                if other.get('id')==followup['id'] or other.get('deletedDateTime'):
+                    continue
+                at=datetime.fromisoformat(other['createdDateTime'].replace('Z','+00:00'))
+                if at.tzinfo is None or at >= anchor_at:
+                    raise ValueError('Newer conversation facts require re-evaluation')
+        except (KeyError,TypeError,AttributeError) as e:
+            raise ValueError('Incomplete follow-up source verification') from e
+        return
     original=next((m for m in rows if m.get('id')==ref['msg']),None)
     if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
             or collect.sender(original).get('id') in (None,me)

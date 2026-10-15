@@ -20,13 +20,14 @@ sequenceDiagram
     Collector->>Collector: persist shared claim
     Collector->>Source: one transport submission
     Source-->>Collector: actual message ID, or unresolved outcome
-    Collector-->>Client: sent with receipt, or retained uncertain state
+    Collector-->>Client: sent with receipt + submitted/current token, or uncertain state
+    Note over Client,Collector: Only confirmed delivery grants a manual follow-up token; each next claim rechecks its source
 ```
 
 ## Current item and editor
 
 New canonical `msg` posts may include `inbox`:
-`{v:1, version:<opaque source/conversation hash>, edit_version:<integer>, held:<boolean>, holder:<editor ID or null>}`.
+`{v:1, version:<opaque source/conversation hash>, edit_version:<integer>, held:<boolean>, holder:<editor ID or null>, manual_followup:<boolean>}`.
 This token binds the collector's account, exact destination, current source facts
 and conversation generation. It is a consistency token, not a signature.
 
@@ -112,6 +113,41 @@ The collector checks conversation hold and source/editor versions again at the
 final claim after preflight. A hold acquired while source reads are in progress
 cannot be bypassed. A deliberate matching-client Send consumes its conversation
 hold and stores its current-source claim in one persisted mutation.
+
+### Manual replies after a confirmed Send
+
+Only a real successful transport receipt advances the conversation source version.
+The collector persists the sent message ID and normalized outgoing body as the next
+source anchor, then returns `sent` with the actual `receipt`, canonical
+`submitted_inbox` for the committed request and a fresh current `inbox` token.
+Its additive `manual_followup:true` permits another deliberate manual text reply
+to the same selected conversation without a new inbound or reopening automatic work.
+Use a new request ID, that exact token and the persistent `editor`; actual typing
+acquires the shared hold as usual. Never invent, rebase or increment a token locally.
+An omitted or false capability does not grant this closed-item exception.
+
+Before each follow-up claim the collector checks the actual source account and
+reads the latest ordered chat page. Its recorded sent ID must still be a message
+from that account with exactly the normalized sent body, no attachments/deletion,
+a valid timestamp and no newer incoming or outgoing facts. A subsequent confirmed
+Send issues another fresh token. New source facts invalidate the old follow-up
+anchor; changed/missing source, unsupported adapters and unanchored legacy Sent
+records fail closed. There is no client-side legacy-token upgrade.
+
+Automatic replies always require a current open incoming item; a manual follow-up
+token never opens that path. Uncertain delivery produces no next source version
+and sets `manual_followup:false`; it never authorizes a retry. Holds and unresolved
+claims continue to exclude other clients and automatic work.
+
+`send_duplicate` requires the original source/account and exact text/files/quote/
+reply-target payload. It includes the persisted receipt/state, original submitted
+token when recorded, and current collector `inbox`; different payload receives no
+old Sent receipt. Replaying the identical completed request after restart returns
+this evidence without transport IO, including if the original `sent` post was lost.
+Changing intent under the same request ID is rejected. A duplicate receipt is a
+readback of the earlier commit, never acknowledgement of a different reply.
+This manual-send capability does not authorize a private revision against a closed
+original post; that path still requires its independently verified current source.
 
 Before submission, the existing connected Graph reader verifies current user and
 the exact text-only chat source against the latest ordered message page; newer

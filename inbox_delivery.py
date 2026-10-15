@@ -105,7 +105,14 @@ def context(st, key):
         return None
     edit = editor_state(st,row)
     holders = edit['holders']
-    return {'v':1, 'version':digest([row['thread'],row['facts'],db['threads'].get(row['thread'])]),
+    version = [row['thread'],row['facts'],db['threads'].get(row['thread'])]
+    followup = row.get('followup')
+    if followup:
+        version.append(followup)
+    manual = bool(followup and followup['thread_version'] == db['threads'].get(row['thread'])
+                  and not any(c['thread']==row['thread'] and c['state'] in ('claimed','uncertain')
+                              for c in db['claims'].values()))
+    return {'v':1, 'version':digest(version), 'manual_followup':manual,
             'edit_version':edit['edit_version'], 'held':bool(holders),
             'holder':holders[0] if len(holders)==1 else None}
 
@@ -171,7 +178,10 @@ def check(st, q):
         raise ValueError('Shared editor protection is not activated')
     if ctx['held'] and (q.get('automatic') or not q.get('editor') or q.get('editor') != ctx.get('holder')):
         raise ValueError('Owner is editing or directing this conversation; explicit release required')
-    if q['id'] not in (st.get('open') or {}):
+    if ctx['manual_followup'] and (q.get('automatic') or not isinstance(q.get('editor'),str)
+                                  or not 0 < len(q['editor']) <= 100):
+        raise ValueError('A manual follow-up requires a stable client editor')
+    if q['id'] not in (st.get('open') or {}) and not ctx['manual_followup']:
         raise ValueError('The canonical source item is no longer open')
     if not isinstance(q.get('text'),str) or not q['text'].strip() or q.get('files'):
         raise ValueError('A supported nonempty text reply is required')
@@ -186,8 +196,9 @@ def check(st, q):
 
 def claim(st,q):
     key,row=check(st,q)
+    submitted = context(st,q['id'])
     store(st)['claims'][key] = {'rid':q['rid'], 'id':q['id'], 'state':'claimed',
-                   'thread':row['thread'], 'payload':digest([q.get('text'),q.get('files'),q.get('reply_to'),q.get('quote')])}
+                   'thread':row['thread'], 'submitted_inbox':submitted, 'payload':payload(q)}
     edit = editor_state(st,row)
     if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
         edit['holders']=[]
@@ -200,6 +211,24 @@ def finish(st, key, state, receipt=None):
     row['state'] = state
     if receipt is not None:
         row['receipt'] = receipt
+
+
+def confirmed(st, key, receipt, source_text):
+    """Advance only from this collector's verified transport receipt, never client input."""
+    db = store(st)
+    claim = db['claims'][key]
+    row = db['items'][claim['id']]
+    if claim['state'] != 'claimed' or receipt.get('source') != 'teams' \
+            or receipt.get('destination') != digest(row['ref']) or claim['thread'] != row['thread']:
+        raise ValueError('Confirmed delivery does not match its source claim')
+    finish(st,key,'sent',receipt)
+    db['threads'][row['thread']] += 1
+    row['followup'] = {'id':receipt['id'], 'text':source_text,
+                       'thread_version':db['threads'][row['thread']]}
+
+
+def payload(q):
+    return digest([q.get('text'),q.get('files'),q.get('reply_to'),q.get('quote')])
 
 
 def receipt(result, ref):
@@ -215,7 +244,7 @@ def previous(st,q):
     token=q.get('inbox') or {}
     claim=store(st)['claims'].get(token.get('version')) if isinstance(token,dict) else None
     row=store(st)['items'].get(q.get('id'))
-    if not claim or not row or claim['id'] != q.get('id'):
+    if not claim or not row or claim['id'] != q.get('id') or claim.get('payload') != payload(q):
         return None
     try:
         same=identity(st,(st.get('refs') or {}).get(q['id'])) == claim['thread']
@@ -225,4 +254,6 @@ def previous(st,q):
         return None
     return {'kind':'send_duplicate','id':q['id'],'rid':q['rid'],'original_rid':claim['rid'],
             'version':token['version'],'state':'uncertain' if claim['state']=='claimed' else claim['state'],
+            'inbox':context(st,q['id']),
+            **({'submitted_inbox':claim['submitted_inbox']} if claim.get('submitted_inbox') else {}),
             **({'receipt':claim['receipt']} if claim.get('receipt') else {})}

@@ -26,6 +26,10 @@ Check the actual account/source
 immediately before transport; require a real message ID. Unknown outcomes stay held.
 Bind private proposals to canonical Hub generation, request nonce, source and editor;
 publish a plugin-authored explicit-Apply proposal, never an unsafe raw replacement.
+After a verified Send, issue a fresh source token anchored to its actual outgoing
+receipt/body for manual-only follow-ups. Recheck that own message against the source
+before the next claim; keep automatic work closed. Match payload before returning
+a duplicate receipt, and replay a completed versioned request without transport IO.
 
 ## How to apply
 Use docs/inbox-management.md and the full offline local gate. Keep guard disabled

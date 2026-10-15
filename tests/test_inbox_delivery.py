@@ -217,6 +217,152 @@ class Delivery(unittest.TestCase):
         self.assertTrue(delivery.context(st,'b')['held'])
         self.assertEqual(delivery.context(st,'b')['holder'],'client-a')
 
+    def test_confirmed_send_issues_fresh_manual_followup_token_without_reopening_auto_work(self):
+        st=state(); st['cfg']['inbox_guard']=False
+        q={**self.request(st),'editor':'client-a'}
+        out,calls,_=self.run_send(st,[q],{'id':'own-1'})
+        token=out[0]['inbox']
+        self.assertNotEqual(token['version'],q['inbox']['version'])
+        self.assertTrue(token['manual_followup'])
+        self.assertNotIn('a',st['open'])
+        follow={**q,'rid':'follow','text':'Additional reply','inbox':token}
+        out,calls,_=self.run_send(st,[follow],{'id':'own-2'})
+        self.assertEqual(len(calls),1)
+        self.assertEqual(out[0]['kind'],'sent')
+        self.assertNotEqual(out[0]['inbox']['version'],token['version'])
+        self.assertTrue(out[0]['inbox']['manual_followup'])
+        self.assertNotIn('a',st['open'])
+
+    def test_duplicate_receipt_requires_same_payload_and_returns_current_collector_token(self):
+        st=state(); q={**self.request(st),'editor':'client-a'}
+        sent,_,_=self.run_send(st,[q],{'id':'own-1'})
+        out,calls,_=self.run_send(st,[{**q,'rid':'same-replay'}],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_duplicate')
+        self.assertEqual(out[0]['inbox'],sent[0]['inbox'])
+        self.assertEqual(out[0]['submitted_inbox'],q['inbox'])
+        out,calls,_=self.run_send(st,[{**q,'rid':'different-payload','text':'Different additional reply'}],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_blocked')
+        self.assertNotIn('receipt',out[0])
+
+    def test_lost_sent_post_replay_returns_persisted_receipt_and_next_token_without_resending(self):
+        st=state(); q={**self.request(st),'editor':'client-a'}
+        sent,_,_=self.run_send(st,[q],{'id':'own-1'})
+        st=json.loads(json.dumps(st))
+        out,calls,_=self.run_send(st,[q],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_duplicate')
+        self.assertEqual(out[0]['receipt']['id'],'own-1')
+        self.assertEqual(out[0]['inbox'],sent[0]['inbox'])
+        out,calls,_=self.run_send(st,[{**q,'text':'Different intent with reused ID'}],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_blocked')
+
+    def test_followup_requires_manual_current_token_and_respects_shared_hold(self):
+        st=state(); q={**self.request(st),'editor':'client-a'}
+        out,_,_=self.run_send(st,[q],{'id':'own-1'})
+        follow={**q,'text':'Additional reply','inbox':out[0]['inbox']}
+        for extra in ({'automatic':True},{'editor':None}):
+            request={**follow,**extra,'rid':'invalid-'+str(extra)}
+            out,calls,_=self.run_send(st,[request],{'id':'must-not-submit'})
+            self.assertFalse(calls)
+            self.assertEqual(out[0]['kind'],'send_blocked')
+        token=self.edit(st,editor='client-b',rid='other-editor')
+        out,calls,_=self.run_send(st,[{**follow,'rid':'conflict','inbox':token}],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_blocked')
+
+    def test_new_incoming_source_invalidates_closed_item_manual_followup_even_with_refreshed_token(self):
+        st=state(); q={**self.request(st),'editor':'client-a'}
+        self.run_send(st,[q],{'id':'own-1'})
+        self.new_source(st)
+        token=delivery.context(st,'a')
+        self.assertFalse(token['manual_followup'])
+        out,calls,_=self.run_send(st,[{**q,'rid':'after-new-inbound','inbox':token}],{'id':'must-not-submit'})
+        self.assertFalse(calls)
+        self.assertEqual(out[0]['kind'],'send_blocked')
+
+    def test_followup_uncertainty_survives_restart_without_fresh_token_or_retry(self):
+        st=state(); q={**self.request(st),'editor':'client-a'}
+        out,_,_=self.run_send(st,[q],{'id':'own-1'})
+        st=json.loads(json.dumps(st))
+        follow={**q,'rid':'follow','text':'Additional reply','inbox':out[0]['inbox']}
+        out,calls,_=self.run_send(st,[follow],None,TimeoutError('unknown submission'))
+        self.assertEqual(len(calls),1)
+        self.assertEqual(out[-1]['kind'],'send_uncertain')
+        self.assertEqual(out[-1]['inbox']['version'],follow['inbox']['version'])
+        self.assertFalse(out[-1]['inbox']['manual_followup'])
+        st=json.loads(json.dumps(st))
+        self.assertFalse(self.run_send(st,[{**follow,'rid':'retry'}],{'id':'must-not-submit'})[1])
+
+    def test_followup_preflight_verifies_latest_own_receipt_against_actual_account_and_body(self):
+        from unittest.mock import Mock
+        st=state(); st['refs']['a']['msg']='original-source'
+        # The canonical source ref includes the exact incoming message ID.
+        delivery.observe(st,{**incoming(),'ref':st['refs']['a']})
+        q={**self.request(st),'editor':'client-a'}
+        out,_,_=self.run_send(st,[q],{'id':'own-1'})
+        follow={**q,'rid':'follow','inbox':out[0]['inbox'],'text':'Additional reply'}
+        anchor={'id':'own-1','messageType':'message','createdDateTime':'2026-10-15T12:01:00Z',
+                'from':{'user':{'id':'account-a'}},'body':{'content':'<p>Verified reply</p>'}}
+        for change in ('none','account','missing','sender','body','deleted','media','new-incoming','new-owner','bad-time'):
+            rows=[copy.deepcopy(anchor)]
+            if change=='missing': rows=[]
+            elif change=='sender': rows[0]['from']['user']['id']='other'
+            elif change=='body': rows[0]['body']['content']='Edited outside collector'
+            elif change=='deleted': rows[0]['deletedDateTime']='2026-10-15T12:02:00Z'
+            elif change=='media': rows[0]['attachments']=[{'id':'attachment'}]
+            elif change=='bad-time': rows[0]['createdDateTime']='unknown'
+            elif change in ('new-incoming','new-owner'):
+                rows.insert(0,{**anchor,'id':'later','createdDateTime':'2026-10-15T12:02:00Z',
+                               'from':{'user':{'id':'other' if change=='new-incoming' else 'account-a'}}})
+            mcp=Mock();mcp.call.side_effect=[{'id':'account-b' if change=='account' else 'account-a'},{'value':rows}]
+            reader=type('Reader',(),{'mcp':mcp})()
+            with self.subTest(change=change):
+                if change=='none': main.preflight_guarded(st,reader,follow)
+                else:
+                    with self.assertRaises(ValueError): main.preflight_guarded(st,reader,follow)
+
+    def test_actual_collector_followups_verify_each_own_graph_source_and_reject_unseen_new_inbound(self):
+        from unittest.mock import Mock
+        st=state(); st['cfg']['inbox_guard']=False
+        ref={'chat':'chat-a','msg':'original-source'};st['refs']['a']=ref
+        delivery.observe(st,{**incoming(),'ref':ref})
+        rows=[{'id':ref['msg'],'messageType':'message','createdDateTime':incoming()['at'],
+               'from':{'user':{'id':'counterpart'}},'body':{'content':'Verified facts'}}]
+        commits=[];saved=[];out=[]
+        def graph(tool,args,**kw):
+            if tool=='get-current-user': return {'id':'account-a'}
+            if tool=='list-chat-messages': return {'value':copy.deepcopy(rows)}
+            self.assertEqual(tool,'send-chat-message')
+            self.assertEqual(args['chatId'],'chat-a')
+            self.assertTrue(any(c['state']=='claimed' for c in saved[-1]['inbox_delivery']['claims'].values()))
+            mid='own-'+str(len(commits)+1)
+            commits.append(mid)
+            rows.insert(0,{'id':mid,'messageType':'message',
+                'createdDateTime':f'2026-10-15T12:0{len(commits)}:00Z',
+                'from':{'user':{'id':'account-a'}},'body':args['body']['body']})
+            return {'id':mid,'chatId':'chat-a'}
+        reader=type('Reader',(),{'mcp':Mock()})()
+        reader.mcp.call.side_effect=graph
+        with patch.object(main,'save',side_effect=lambda s:saved.append(copy.deepcopy(s))):
+            first={**self.request(st),'editor':'client-a','quote':'Verified facts','reply_to':'original-source'}
+            main.send_replies(st,reader,[first],out.append)
+            token=next(d['inbox'] for d in out if d['kind']=='sent')
+            second={**first,'rid':'follow','text':'Additional  reply\n\nWith another line','inbox':token}
+            main.send_replies(st,reader,[second],out.append)
+            sent=[d for d in out if d['kind']=='sent']
+            self.assertEqual(len(sent),2)
+            self.assertEqual(commits,['own-1','own-2'])
+            self.assertTrue(sent[-1]['inbox']['manual_followup'])
+            rows.insert(0,{'id':'new-inbound','messageType':'message','createdDateTime':'2026-10-15T12:03:00Z',
+                           'from':{'user':{'id':'counterpart'}},'body':{'content':'New verified facts'}})
+            main.send_replies(st,reader,[{**second,'rid':'after-unseen-inbound','inbox':sent[-1]['inbox']}],out.append)
+            self.assertEqual(commits,['own-1','own-2'])
+            self.assertEqual(out[-1]['kind'],'send_blocked')
+            self.assertNotIn('a',st['open'])
+
     def test_new_facts_and_destination_change_refuse_old_version(self):
         for change in ('new-message','same-item','account','destination'):
             st = state(); q = self.request(st)

@@ -78,3 +78,18 @@ Migration preserves all legacy holders; conflicts require each holder's explicit
 Account/destination changes neither import a different identity's hold nor delete its original hold.
 Undo: reconcile active conversation holds before reverting; old row-only code cannot enforce them.
 By: agent within the existing shared-editor race correction.
+
+## 2026-10-15 · Manual follow-up source lifecycle
+Decided: a verified successful collector send advances the conversation version from its
+actual Graph receipt and normalized outgoing body, issuing a fresh token with additive
+manual_followup capability. Deliberate current-token/editor sends may continue the selected
+closed conversation; automatic work still requires a current open incoming source.
+Verify the latest own receipt/body/account and absence of newer source facts before each
+follow-up claim. Unknown delivery creates no next version or permission to retry.
+Why: keeping only an incoming source version blocks legitimate additional replies, while
+loosening its old claim could duplicate work or misattribute an earlier receipt.
+Only exact prior source/payload matches return duplicate receipts; identical completed
+request replay returns persisted evidence without resending. Clients never invent tokens.
+Undo: settle pending claims and coordinate client downgrade; retained receipt/source
+evidence stays in collector state, and unanchored legacy sends are never silently upgraded.
+By: agent within the existing native manual-reply compatibility requirement.
