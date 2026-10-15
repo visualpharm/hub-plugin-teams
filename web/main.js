@@ -806,6 +806,7 @@ function panel() {
 }
 
 function build(root) {
+  root.classList.add("tm-container");
   const wrap = el("div", "tm");
   const head = el("header", "tm-top");
   const title = el("div", "tm-title-row");

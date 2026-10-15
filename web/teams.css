@@ -104,6 +104,7 @@
 [data-app] .tm-title-row { display: none; }
 
 /* The same shell, composer and reading order as the shared client design. */
+.tm-container { container-type: inline-size; }
 .tm { display: grid; grid-template-columns: minmax(280px,336px) minmax(0,1fr); }
 .tm-list-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--muted); }
 .tm-top { padding: var(--space-4); border: 0; }
@@ -136,6 +137,12 @@
 .tm-whole-prompt .composer textarea, .tm-shared-compose .composer textarea { font-size: var(--text-base); }
 .tm-shared-compose .composer:has(.attach:not(:is([hidden]))) { padding-right: var(--space-3); }
 @media (max-width: 680px) {
+  .tm { display: flex; }
+  .tm-list-pane { flex: 1; }
+  .tm-detail-open .tm-list-pane { display: none; }
+  .tm-detail { flex: 1; padding: var(--space-4); }
+}
+@container (max-width: 680px) {
   .tm { display: flex; }
   .tm-list-pane { flex: 1; }
   .tm-detail-open .tm-list-pane { display: none; }

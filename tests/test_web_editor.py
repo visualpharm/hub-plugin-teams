@@ -9,6 +9,16 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_tablet_detail_uses_the_available_content_width(self):
+        self.seed_inbox(); self.queued("draft_control")
+        got = self.page({"shot": str(Path(self.state) / "tablet-detail.png"), "width": 834, "height": 900},
+                        {"eval": "({detail:document.querySelector('.tm-detail').clientWidth,list:getComputedStyle(document.querySelector('.tm-list-pane')).display,overflow:document.documentElement.scrollWidth-innerWidth})"})
+        row = got[-1]["eval"]
+        self.assertGreaterEqual(row["detail"], 440, row)
+        self.assertEqual(row["list"], "none", row)
+        self.assertEqual(row["overflow"], 0, row)
+        self.shot("tablet-detail")
+
     def test_whole_inbox_instruction_preserves_exact_text_and_is_dispatch_only(self):
         self.seed_inbox()
         self.queued("draft_control")
