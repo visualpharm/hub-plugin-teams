@@ -43,3 +43,18 @@ Undo: revert this prompt/helper change; no source state, credential, recipient o
 These are source instructions and parser fixtures, not proof of actual model output, result-generation
 authentication, native acceptance or release. Native owners retain response/hub/thread/edit protection.
 By: agent within the existing Inbox producer task; install/activation remains separately coordinated.
+
+## 2026-10-15 · Routine authority and current-version delivery
+Decided: routine correspondence within established delegated authority may proceed
+without repeated approval; owner presence/inactivity never adds authority. Preserve
+money/legal/health/infrastructure/strategic and owner-information decisions. This
+supersedes the previous blanket recipient-approval wording for routine handling.
+Technical choice: existing collector owns one durable manual/auto claim, explicit
+editor holds, source preflight and actual transport receipts. Private revisions
+return authenticated explicit-Apply proposals. Whole requests preserve exact private
+text and report canonical coverage limits. See inbox-management.md for the wire.
+Why: prompt-only approval and client-local versions cannot prevent duplicate sends
+or unsafe late editor replacement. Unknown outcomes cannot authorize retries.
+Undo: revert candidate source while preserving journal/claim history; do not clear
+uncertainty or enable an older automatic path. By: agent within authorized scope.
+Source is not installed; all-client adoption and coordinated activation remain required.
