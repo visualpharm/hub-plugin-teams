@@ -11,6 +11,12 @@ const cases = [
   ["Текст\n\n ---  \n\nпочему: так", "Текст", "так"],
   ["👍\n---\nПочему: хватит реакции", "👍", "хватит реакции"],
   ["a --- b", "a --- b", ""],
+  ["Perfecto, confirmo mañana.\n---\nContext: The sender asks for tomorrow; acceptance is not confirmed.\nNext action: Review this draft and approve Send.",
+   "Perfecto, confirmo mañana.", "Context: The sender asks for tomorrow; acceptance is not confirmed.\nNext action: Review this draft and approve Send."],
+  ["---\nContext: The original recipient cannot be verified.\nNext action: Verify the source before preparing a reply.",
+   "", "Context: The original recipient cannot be verified.\nNext action: Verify the source before preparing a reply."],
+  ["\n---\nContext: Source history is unavailable; the promised date is unknown.\nNext action: Read the verified thread before committing to a date.",
+   "", "Context: Source history is unavailable; the promised date is unknown.\nNext action: Read the verified thread before committing to a date."],
 ];
 let fail = 0;
 for (const [input, text, why] of cases) {

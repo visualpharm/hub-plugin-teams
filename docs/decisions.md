@@ -32,3 +32,14 @@ legacy provenance fails closed. This is identity consistency, not a signed sourc
 Undo: revert this source change; never delete correction or original journal posts.
 By: agent, within the authorized Inbox repair; runtime activation and rendered
 acceptance remain held pending coordinated producer, web and native adoption.
+
+## 2026-10-15 · One Inbox suggestion contract across assistant request paths
+Decided: retain the selected server's canonical Hub route, plugin authorship and existing raw reply-to-post
+format. Share owner cfg.prompt and verified-context/one-next-action guidance across automatic, manual draft
+and work request builders. A leading separator permits private context without inventing recipient text.
+Keep recipient approval and source/identity restrictions; do not force browser/source fallbacks for a draft.
+Why: manual requests previously omitted the owner's instructions, and one-phrase Why did not explain what to do.
+Undo: revert this prompt/helper change; no source state, credential, recipient or client schema migration.
+These are source instructions and parser fixtures, not proof of actual model output, result-generation
+authentication, native acceptance or release. Native owners retain response/hub/thread/edit protection.
+By: agent within the existing Inbox producer task; install/activation remains separately coordinated.
