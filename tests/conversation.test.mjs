@@ -1,0 +1,11 @@
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=readFileSync(process.argv[2],'utf8').replace(/^import .*;\s*$/gm,'').replace(/^export default /gm,'').replace(/^export /gm,'');
+const ctx={console,URL,Map,Set};vm.createContext(ctx);
+vm.runInContext(source+'\nglobalThis.t={byPerson};',ctx);
+const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
+assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
+assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-a')]).size,1);
+assert.equal(ctx.t.byPerson([message('a',null),message('b',null)]).size,2,'Missing identities must not merge histories');
+console.log('Inbox grouping preserves exact conversations despite repeated display names');

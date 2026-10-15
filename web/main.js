@@ -7,6 +7,7 @@
 // «В работу» и «Черновик ответа» — сообщение хабу (/api/send); черновик хаб кладёт ответом на пост сообщения
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
+import { InboxEditor, boundedRequest } from "./editor-state.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -29,6 +30,30 @@ let signature = "";         // подпись под черновиками ха
 const signed = (text) => (!signature || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
+const editorStates = new Map();
+const editorDrafts = new Map();
+let inboxProtocol = null;
+const promptState = { text: "", rid: null, status: "" };
+function editorIdentity() {
+  const key = "hub.teams.editor";
+  try {
+    let id = sessionStorage.getItem(key);
+    if (!id) { id = "web-" + crypto.randomUUID(); sessionStorage.setItem(key, id); }
+    return id;
+  } catch { return editorIdentity.fallback ||= "web-" + Math.random().toString(36).slice(2); }
+}
+const requestId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+function editorFact(d) {
+  const source = msgs.get(d.id);
+  if (source && d.inbox?.v === 1 && ["draft_state", "sent", "send_uncertain"].includes(d.kind)) source.inbox = d.inbox;
+  for (const [id, state] of editorStates) if (state.receive(d)) {
+    const st = composing.get(id), m = msgs.get(id);
+    if (m && state.token) m.inbox = state.token;
+    if (st) st.error = state.error;
+    if (st?.closing && !state.control && !state.token.held) composing.delete(id);
+    if (state.delivery?.state === "sent") { composing.delete(id); editorDrafts.delete(id); st?.box?.set({text:""}); }
+  }
+}
 const replyOk = new Set();   // id сообщений, запощенных до «Ответить»: процесс дописал им адрес ответа (пост reply)
 const WAIT_MAX = 150;        // с: процесс отвечает за пару секунд; дольше — он не запущен
 // пусто: что чтение идёт, а нового нет — со ссылкой на последнее входящее (последний пост status процесса)
@@ -62,12 +87,19 @@ async function sync() {
       since = Math.max(since, Number(p.id.slice(1)));
       let d = null;
       try { d = JSON.parse(p.text); } catch { /* не JSON — черновик текстом */ }
+      if (p.by === AUTHOR && d) editorFact(d);
+      if (p.by === AUTHOR && ["manage_asked", "manage_failed"].includes(d?.kind) && d.rid === promptState.rid) {
+        promptState.rid = null;
+        promptState.status = d.kind === "manage_failed" ? d.error || "The instruction was refused."
+          : "Instruction sent for review.";
+      }
       if (p.by === AUTHOR && d?.kind === "msg") {
         // src "support" — так ранние версии сборщика звали выбранный канал и постили и ответы внутри треда (в where —
         // « · тред»): ответ без упоминания не показываем, только первое сообщение треда
         const reply = d.src === "support" && d.where?.includes(" · ");
         if (reply && !d.mention) continue;
         msgs.set(d.id, { ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id });
+        editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
       } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
       else if (p.by === AUTHOR && d?.kind === "reopened") {
@@ -93,12 +125,23 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, state: sends.get(d.rid)?.state || "wait" });
-      else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) { const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id); }
+      else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
+        const guarded = msgs.get(d.id)?.inbox?.v === 1 || inboxProtocol?.version === 1;
+        if (guarded && !d.receipt?.id) continue;
+        const delivery = editorStates.get(d.id)?.delivery;
+        if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
+        const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
+        if (!guarded) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); editorDrafts.delete(d.id); }
+      }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
-      else if (p.by === AUTHOR && d?.kind === "config") signature = String(d.signature || "").trim();
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; }
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "ошибка" });
+      else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });
+      else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid)
+        sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.state === "sent" && d.receipt?.id ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
       else if (p.reply_to && p.by !== AUTHOR && p.by !== "owner") {
+        if (["revision_result", "draft_proposal"].includes(d?.kind)) continue;
         replies.set(p.reply_to, [...(replies.get(p.reply_to) || []), { by: p.by, text: p.text, ts: p.ts }]);
       }
     }
@@ -236,18 +279,20 @@ function button(text, cls, fn, label) {
 
 // личка — группа по человеку (владелец 09.10: «видел одно сообщение от человека последнее, захочу — в чела, там всё»):
 // items уже отсортированы по времени убыв. (list()) — первое в группе и есть последнее сообщение человека
+const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
 function byPerson(items) {
   const groups = new Map();
   for (const m of items) {
-    const key = m.from || "—";
+    const key = conversationKey(m);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(m);
   }
   return groups;
 }
 
-function personRow(name, group) {
+function personRow(key, group) {
   const latest = group[0];
+  const name = latest.from || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   const head = el("div", "tm-head");
   head.append(el("span", `tm-src tm-src-${latest.src}`, SRC[latest.src] || latest.src), el("b", "tm-from", name));
@@ -256,11 +301,11 @@ function personRow(name, group) {
   row.append(head);
   const text = el("div", "tm-text tm-clamp", latest.text);
   row.append(text);
-  row.addEventListener("click", () => { dmPerson = name; toBottom = true; paint(); });
+  row.addEventListener("click", () => { dmPerson = key; toBottom = true; paint(); });
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
   row.setAttribute("aria-label", `Переписка с ${name}, ${group.length} сообщени${group.length === 1 ? "е" : "й"}`);
-  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dmPerson = name; toBottom = true; paint(); } });
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dmPerson = key; toBottom = true; paint(); } });
   return row;
 }
 
@@ -352,15 +397,100 @@ function line(m) {
 
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
-function openCompose(m, text = "", why = "") {
-  composing.set(m.id, { text, why });
+function openCompose(m, text, why = "") {
+  text = text === undefined ? editorDrafts.get(m.id) || "" : text;
+  const state = inboxProtocol?.version === 1 || m.inbox?.v === 1 ? new InboxEditor(m, editorIdentity(), text) : null;
+  if (state) editorStates.set(m.id, state);
+  const st = { text, why, state };
+  composing.set(m.id, st);
+  if (state) confirmEditor(m, st);
   focusId = m.id;
   paint();
+}
+
+async function confirmEditor(m, st, action = "hold") {
+  try {
+    const q = st.state.hold(requestId(), m.inbox, action);
+    st.closing = action === "release";
+    if (!(await mark(q.kind, q))) st.error = "Editor confirmation is pending. Your draft is retained.";
+  } catch (e) { st.error = e.message; }
+  paint();
+}
+
+function sharedReply(m, st) {
+  if (!st.root) {
+    const wrap = st.root = el("div", "tm-compose tm-shared-compose");
+    const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
+    const guidance = el("div", "tm-guidance", st.why || "");
+    if (st.why) wrap.append(guidance);
+    if (st.state) {
+      const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
+      const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
+      directive.setAttribute("aria-label", "Private draft instruction");
+      directive.addEventListener("input", () => st.state.direct(directive.value));
+      const revise = button("Revise draft", "quiet", async () => {
+        try { const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
+        catch (e) { st.error = e.message; }
+        paint();
+      });
+      st.proposal = el("div", "tm-proposal");
+      details.append(summary, directive, revise, st.proposal); wrap.append(details);
+    }
+    const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
+      label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
+      sentLabel: "Queued. Waiting for delivery confirmation.",
+      onChange(text) { st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); },
+      async send({ text, attachments }) {
+        if (attachments?.length) return { error: "This destination accepts text only." };
+        if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
+          return { error: "A reply is awaiting confirmation. Your draft is retained." };
+        let q;
+        if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
+        try { q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
+        catch (e) { return { error: e.message }; }
+        st.text = text; editorDrafts.set(m.id, text);
+        sends.set(q.rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
+        if (!(await mark(q.kind, q))) {
+          sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
+          return { error: "Submission is awaiting confirmation. Your draft is retained." };
+        }
+        paint(); return {};
+      },
+      onSent() { if (composing.get(m.id) === st) box.set({text:st.text}); },
+    });
+    box.node.querySelector("textarea").dataset.compose = m.id;
+    const close = button("Close editor", "quiet", () => {
+      if (st.state) confirmEditor(m, st, "release");
+      else { composing.delete(m.id); paint(); }
+    });
+    wrap.append(box.node, feedback, close);
+  }
+  st.box.set({});
+  const state = st.state, p = state?.proposal;
+  if (st.proposal) {
+    st.proposal.dataset.rid = p?.rid || "";
+    const sig = JSON.stringify([p, state.revision]);
+    if (st.proposal.dataset.sig !== sig) {
+      st.proposal.dataset.sig = sig; st.proposal.replaceChildren();
+      if (p) {
+        st.proposal.append(el("p", null, p.context), el("p", null, p.next_action), el("p", "tm-proposed-text", p.text),
+          button("Apply draft", "", () => {
+            try { const applied = state.apply(); st.text = applied.text; editorDrafts.set(m.id, st.text); st.box.set({text:st.text}); st.error = ""; }
+            catch (e) { st.error = e.message; }
+            paint();
+          }));
+      }
+    }
+  }
+  st.feedback.textContent = st.error || state?.error || (state?.control ? "Confirming editor…" : "");
+  st.feedback.hidden = !st.feedback.textContent;
+  return st.root;
 }
 
 async function sendReply(m, text) {
   text = text.trim();
   if (!text) return;
+  if (inboxProtocol?.version === 1 || m.inbox?.v === 1) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
   composing.delete(m.id);
@@ -372,6 +502,7 @@ async function sendReply(m, text) {
 
 function composer(m) {
   const st = composing.get(m.id);
+  if (hub.capabilities?.composerTransport === 1) return sharedReply(m, st);
   const wrap = el("div", "tm-compose");
   const ta = el("textarea", "tm-compose-ta");
   ta.value = st.text;
@@ -432,6 +563,7 @@ function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const late = x.state === "wait" && Date.now() / 1000 - x.ts > WAIT_MAX;
   const stateText = x.state === "ok" ? "отправлено" : x.state === "fail" ? `не отправлено: ${x.error}`
+    : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
     : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
     : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
   const by = el("div", "tm-draft-by", "Вы · ");
@@ -453,11 +585,12 @@ function thread(ms) {   // ms — по возрастанию времени
   for (const k of new Set(ms.map((m) => m.src))) head.append(el("span", `tm-src tm-src-${k}`, SRC[k] || k));
   head.append(el("b", "tm-from", last.from || "—"));
   box.append(head);
+  const history = el("div", "tm-history"); box.append(history);
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
   let prev = null;
   for (const m of ms) {
-    if (!prev || Date.parse(m.at) - Date.parse(prev.at) >= GAP || (prev.where || "") !== (m.where || "")) box.append(divider(m));
-    box.append(line(m));
+    if (!prev || Date.parse(m.at) - Date.parse(prev.at) >= GAP || (prev.where || "") !== (m.where || "")) history.append(divider(m));
+    history.append(line(m));
     prev = m;
   }
 
@@ -466,11 +599,11 @@ function thread(ms) {   // ms — по возрастанию времени
   if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
   if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
   if (ms.every((m) => hidden.has(m.id))) notes.push("Скрыто");
-  if (notes.length) box.append(el("p", "tm-note", notes.join(" · ")));
+  if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
 
   for (const m of ms) {
-    if (!composing.has(m.id)) for (const r of replies.get(m.post) || []) box.append(draftBlock(m, r));
-    for (const [rid, x] of sends) if (x.id === m.id) box.append(sentBlock(m, rid, x));
+    if (!composing.has(m.id)) for (const r of replies.get(m.post) || []) history.append(draftBlock(m, r));
+    for (const [rid, x] of sends) if (x.id === m.id) history.append(sentBlock(m, rid, x));
   }
   const composeFor = ms.find((m) => composing.has(m.id));
   if (composeFor) box.append(composer(composeFor));
@@ -537,6 +670,11 @@ function paint() {
 const withN = (t, n, sep = " ") => (n ? `${t}${sep}${n}` : t);
 
 function paintAll() {
+  if (ui.prompt) {
+    ui.prompt.hidden = inboxProtocol?.version !== 1;
+    ui.promptFeedback.textContent = promptState.status;
+    ui.promptFeedback.hidden = !promptState.status;
+  }
   const open = (m) => !done(m);
   const pool = (m) => (tab === "new" ? open(m) : done(m));
   ui.tabs.replaceChildren(seg([["new", withN("Новые", count(open))], ["done", withN("Разобранные", count(done))]],
@@ -576,20 +714,24 @@ function paintAll() {
   // группировка по людям — в «Личке» и в «Все» (владелец 09.10: «во вкладке все тоже сделай по людям группировку
   // как и в личке»); в «Упоминания»/«Каналы» — как раньше, по сообщению (там чаще важен порядок/канал, не человек)
   const grouped = src === "dm" || src === "all";
-  if (grouped && dmPerson && !items.some((m) => (m.from || "—") === dmPerson)) dmPerson = null;   // ушёл из пула (сменилась вкладка) — назад к списку людей
+  if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) dmPerson = null;   // ушёл из пула (сменилась вкладка) — назад к списку людей
 
+  ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
+  ui.detail.hidden = !(grouped && dmPerson);
   if (!loaded) ui.list.replaceChildren(el("p", "tm-empty", "Загружаю…"));
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"
       ? (msgs.size ? "Новых сообщений нет. Разобранные — во вкладке рядом." : emptyNote())
       : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
-    const back = el("button", "btn small quiet tm-back", "← Все люди");
+    const back = el("button", "btn quiet tm-close-conversation");
+    back.append(hub.icon("close")); back.setAttribute("aria-label", "Close conversation");
     back.type = "button";
     back.addEventListener("click", () => { dmPerson = null; paint(); });
-    const mine = items.filter((m) => (m.from || "—") === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
-    ui.list.replaceChildren(back, thread(mine));
-    if (toBottom) { ui.list.scrollTop = ui.list.scrollHeight; toBottom = false; }
+    const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
+    ui.list.replaceChildren(...[...byPerson(items)].map(([key, group]) => personRow(key, group)));
+    ui.detail.replaceChildren(back, thread(mine));
+    if (toBottom) { const h = ui.detail.querySelector('.tm-history'); h.scrollTop = h.scrollHeight; toBottom = false; }
   } else if (grouped) {
     ui.list.replaceChildren(...[...byPerson(items)].map(([name, group]) => personRow(name, group)));
   } else ui.list.replaceChildren(...items.map((m) => thread([m])));
@@ -679,10 +821,34 @@ function build(root) {
   const alerts = el("div", "tm-alerts");
   alerts.setAttribute("role", "status");
   head.append(title, bar, panelNode, alerts);
-  const listNode = el("div", "tm-list");
-  wrap.append(head, listNode);
+  let prompt = null, promptFeedback = null;
+  if (hub.capabilities?.composerTransport === 1) {
+    prompt = el("div", "tm-whole-prompt");
+    promptFeedback = el("p", "tm-editor-feedback"); promptFeedback.setAttribute("role", "status");
+    const input = hub.input({ key: "whole-inbox", to: hubName(), label: "Ask about your whole Inbox", placeholder: "Ask about your Inbox…",
+      attachments: false, maxLength: 1500, sentLabel: "Queued for Inbox review.",
+      onChange(text) { promptState.text = text; },
+      async send() {
+        if (inboxProtocol?.version !== 1) return { error: "The Inbox service needs an update before accepting this instruction." };
+        if (promptState.rid) return { error: "Your instruction is awaiting confirmation." };
+        promptState.rid = requestId(); promptState.status = "Queued for Inbox review.";
+        let q;
+        try { q = boundedRequest({ kind: "manage", rid: promptState.rid, text: promptState.text }); }
+        catch (e) { promptState.rid = null; promptState.status = ""; return { error: e.message }; }
+        const r = await hub.postFeed(JSON.stringify(q));
+        if (r.error) return { error: "Submission is awaiting confirmation. Your instruction is retained." };
+        paint(); return {};
+      },
+      onSent() { input.set({text:promptState.text}); },
+    });
+    prompt.append(input.node, promptFeedback); head.append(prompt);
+  }
+  const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
+  listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
+  listPane.append(head, listNode); detail.hidden = true;
+  wrap.append(listPane, detail);
   root.replaceChildren(wrap);
-  ui = { root, list: listNode, tabs, srcs, bulk, alerts, pick, panel: panelNode };
+  ui = { root, wrap, detail, list: listNode, tabs, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —

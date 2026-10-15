@@ -102,3 +102,42 @@
 }
 /* внутри приложения заголовок раздела рисует само приложение */
 [data-app] .tm-title-row { display: none; }
+
+/* The same shell, composer and reading order as the shared client design. */
+.tm { display: grid; grid-template-columns: minmax(280px,336px) minmax(0,1fr); }
+.tm-list-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--muted); }
+.tm-top { padding: var(--space-4); border: 0; }
+.tm-list { padding: 0 var(--space-2) var(--space-4); gap: var(--space-1); }
+.tm-card { border: 0; background: transparent; box-shadow: none; min-width: 0; }
+.tm-person:hover, .tm-person:focus-visible { background: var(--accent); }
+.tm-person .tm-head { gap: var(--space-2); }
+.tm-src, .tm-count { padding: 0; background: transparent; color: var(--foreground); border-radius: 0; }
+.tm-head .ago, .tm-where, .tm-src, .tm-count, .tm-draft-by, .tm-note, .tm-hint { font-size: var(--text-base); }
+.tm-draft { border: 0; padding: var(--space-3); }
+.tm-team legend { text-transform: none; letter-spacing: normal; font-size: var(--text-base); }
+.tm .btn.small, .tm .seg button, .tm-find, .tm-chan { min-height: var(--control-size); font-size: var(--text-base); }
+.tm-detail { position: relative; display: flex; min-width: 0; min-height: 0; padding: var(--space-4); }
+.tm-detail > .tm-thread { flex: 1; min-height: 0; max-width: 760px; margin-inline: auto; padding: 0; gap: var(--space-4); }
+.tm-detail > .tm-thread > .tm-head { padding-right: var(--control-size); min-height: var(--control-size); align-items: center; }
+.tm-close-conversation { position: absolute; top: var(--space-4); right: var(--space-4); min-width: var(--control-size); min-height: var(--control-size); }
+.tm-close-conversation .icon { width: 24px; height: 24px; }
+.tm-history { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.tm-detail .tm-history { flex: 1; }
+.tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
+.tm-instruction { max-height: min(30dvh,240px); overflow: auto; }
+.tm-instruction summary { min-height: var(--control-size); cursor: pointer; align-content: center; }
+.tm-instruction textarea { max-height: 132px; }
+.tm-proposal { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
+.tm-proposal p { margin: 0; }
+.tm-proposed-text { white-space: pre-wrap; }
+.tm-editor-feedback { margin: 0; font-size: var(--text-base); color: var(--foreground); overflow-wrap: anywhere; }
+.tm-whole-prompt { min-width: 0; display: grid; gap: var(--space-2); }
+.tm-whole-prompt .composer, .tm-shared-compose .composer { margin: 0; width: 100%; }
+.tm-whole-prompt .composer textarea, .tm-shared-compose .composer textarea { font-size: var(--text-base); }
+.tm-shared-compose .composer:has(.attach:not(:is([hidden]))) { padding-right: var(--space-3); }
+@media (max-width: 680px) {
+  .tm { display: flex; }
+  .tm-list-pane { flex: 1; }
+  .tm-detail-open .tm-list-pane { display: none; }
+  .tm-detail { flex: 1; padding: var(--space-4); }
+}

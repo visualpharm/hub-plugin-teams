@@ -66,3 +66,16 @@ guidance through bounded hashed chunks independently of the legacy settings size
 Why: transport recovery must not resurrect old actions, and truncated/stale owner
 guidance cannot govern automated replies. Undo: revert source without deleting
 request, claim or instruction history. By: agent within the same authorized slice.
+
+## 2026-10-15 — Web Inbox uses the shared composer and collector confirmations
+
+The web consumer reuses the page composer only when composerTransport:1 is advertised.
+The existing node/focus/set facade remains intact. Provider submission uses an explicit callback;
+it never falls through to a session send. New collector-protocol editors require an acknowledged
+current hold, private revision stays source/request/editor-bound, and Apply remains local and explicit.
+Serialized envelopes are bounded before the 2000-character feed limit can truncate them.
+Queued and uncertain submissions retain drafts; a matching actual receipt closes the editor.
+Conversation grouping follows contact/box identity and never guesses from a repeated name.
+Unsupported guarded adapters and attachments remain held under the collector contract.
+Undo: revert this web consumer slice; it changes no collector policy, account or journal schema.
+Installation and live acceptance require the existing scoped integration safe point.
