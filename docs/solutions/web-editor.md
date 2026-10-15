@@ -35,3 +35,9 @@ reply or private instruction input confirms it; intentional empty edits remain
 held. Existing holds survive navigation, and closing a never-edited preview does
 not release another editor. Incidental group/filter totals are omitted; explicit
 bulk-action confirmation counts remain.
+
+## Proposal visibility
+The proposal body is bounded and scrolls separately from its Apply button. It
+lives outside the private instruction disclosure, so receiving a result never
+hides Apply below that disclosure's clipping boundary or moves the pinned reply.
+The real-browser check verifies hit-testing the visible Apply action on390px.

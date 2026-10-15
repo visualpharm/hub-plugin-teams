@@ -131,6 +131,10 @@ class InboxWebAcceptance(PageInChrome):
                     "next_action": "Review the reply.", "requires_apply": True}
         self.feed(proposal)
         self.page({"wait": "Apply draft"})
+        got = self.page({"shot": str(Path(self.state) / "proposal-fit.png"), "width": 390, "height": 844},
+                        {"eval": "(()=>{const b=document.querySelector('.tm-proposal button'),r=b.getBoundingClientRect();return {visible:r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===b,replyBottom:document.querySelector('.tm-shared-compose .composer').getBoundingClientRect().bottom}})()"})
+        self.assertTrue(got[-1]["eval"]["visible"], got)
+        self.assertLessEqual(got[-1]["eval"]["replyBottom"], 844, got)
         got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "Owner exact edit")
         self.edit("Newer owner edit")

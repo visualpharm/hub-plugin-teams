@@ -441,7 +441,7 @@ function sharedReply(m, st) {
         paint();
       });
       st.proposal = el("div", "tm-proposal");
-      details.append(summary, directive, revise, st.proposal); wrap.append(details);
+      details.append(summary, directive, revise); wrap.append(details, st.proposal);
     }
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
@@ -481,8 +481,9 @@ function sharedReply(m, st) {
     if (st.proposal.dataset.sig !== sig) {
       st.proposal.dataset.sig = sig; st.proposal.replaceChildren();
       if (p) {
-        st.proposal.append(el("p", null, p.context), el("p", null, p.next_action), el("p", "tm-proposed-text", p.text),
-          button("Apply draft", "", () => {
+        const body = el("div", "tm-proposal-body");
+        body.append(el("p", "tm-proposed-text", p.text), el("p", null, p.context), el("p", null, p.next_action));
+        st.proposal.append(body, button("Apply draft", "", () => {
             try { const applied = state.apply(); st.text = applied.text; editorDrafts.set(m.id, st.text); st.box.set({text:st.text}); st.error = ""; }
             catch (e) { st.error = e.message; }
             paint();

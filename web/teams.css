@@ -129,6 +129,8 @@
 .tm-instruction summary { min-height: var(--control-size); cursor: pointer; align-content: center; }
 .tm-instruction textarea { max-height: 132px; }
 .tm-proposal { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
+.tm-proposal:empty { display: none; }
+.tm-proposal-body { display: grid; gap: var(--space-2); max-height: min(18dvh,160px); overflow: auto; }
 .tm-proposal p { margin: 0; }
 .tm-proposed-text { white-space: pre-wrap; }
 .tm-editor-feedback { margin: 0; font-size: var(--text-base); color: var(--foreground); overflow-wrap: anywhere; }
