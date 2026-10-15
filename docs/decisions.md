@@ -93,3 +93,12 @@ request replay returns persisted evidence without resending. Clients never inven
 Undo: settle pending claims and coordinate client downgrade; retained receipt/source
 evidence stays in collector state, and unanchored legacy sends are never silently upgraded.
 By: agent within the existing native manual-reply compatibility requirement.
+
+## 2026-10-15 · Native compatibility evidence binding
+Decided: retain source-derived synthetic native wire fixtures with immutable source
+revisions and file hashes; test their requests through the real producer parser and
+collector, including native omission of additive token metadata.
+Why: a historical native source checkpoint cannot certify later receipt semantics
+or replace native execution and UI acceptance. Keep known consumer gaps explicit.
+Undo: update fixture provenance after reviewing a new native source revision; do not
+relabel old artifacts or broaden their acceptance scope. By: agent.

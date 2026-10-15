@@ -168,6 +168,16 @@ uses a new request ID; existing verified delivery state is returned when present
 
 ## Activation gate
 
+`tests/fixtures/native-inbox-v1.json` binds synthetic request shapes to immutable
+native `6bb89c9` and later `05afabb` source hashes. `test_native_inbox_wire.py` sends
+those shapes through the real Choice parser and collector, including empty private
+drafts, editor holds, fresh-token manual follow-up and uncertain outcomes. This is
+producer compatibility evidence, not captured Swift execution or native UI proof.
+The historical `6bb89c9` lacks current sent-token/outcome adoption; the inspected
+`05afabb` updates current tokens but still maps confirmed duplicate receipts to
+failed/uncertain. Receipt/submitted/current-token adoption remains with the native
+owner; no producer fixture turns those missing consumer behaviors into acceptance.
+
 Adopt the complete contract in all active clients; validate exact source coverage
 and every required source adapter; run permitted runtime/model and rendered checks;
 coordinate one allowed plugin activation. Only then enable the shared guard and
