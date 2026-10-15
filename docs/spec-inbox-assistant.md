@@ -24,6 +24,13 @@ Automatic collection retains its existing bounded fresh-key batch and triage-plu
 requests retain existing `rid` deduplication/rate limiting and the exact parent post reference. Work/plan requests
 retain their existing action-approval boundary. None of these request paths invokes recipient delivery.
 
+If `sources.json.triage` delegates automatic handling to another plugin, Teams intentionally skips `autodraft`;
+that plugin's existing producer owns automatic guidance. Updating this helper does not update the other producer
+or change its approved autonomy levels. For the existing proactivity integration, the configured `triager` chooses
+an existing session; `auto` uses the literal `inbox` session when present, otherwise the canonical `hub` alias.
+This is independent of the destination of a direct whole-Inbox owner prompt. Do not replace either route based
+on a transcription or mistake a dormant automatic builder's tests for live automatic-triage acceptance.
+
 Suggestions are existing plain-text replies to the canonical incoming plugin post:
 
 ```text
