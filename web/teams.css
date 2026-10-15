@@ -30,6 +30,7 @@
 .tm-src-whatsapp, .tm-src-email { background: color-mix(in oklch, var(--success) 16%, var(--card)); color: var(--foreground); }
 .tm-src-mention { background: color-mix(in oklch, var(--warning) 18%, var(--card)); color: var(--foreground); }
 .tm-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.tm-text.tm-task-text { white-space: normal; min-width: 0; }
 .tm-text.tm-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .tm-note { margin: 0; color: var(--muted-foreground); font-size: var(--text-xs); }
 .tm-draft { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--primary); border-radius: var(--radius);

@@ -268,10 +268,60 @@ function divider(m) {
   return el("div", "tm-divider", `${where}${dayLabel(m.at)}`);
 }
 
+// Optional explicit core task identity. Incoming prose never grants a task action.
+const taskBodies = new Map();
+function updateTaskBody(r, snap) {
+  const item = typeof r.message.task_id === "string" ? (snap?.todo || []).find((x) => x.id === r.message.task_id) : null;
+  if (item && r.item && item.since > r.item.since && ["done", "closed"].includes(r.phase)) r.phase = "open";
+  if (item) r.item = item;
+  r.live = !!item;
+  if (!item && r.item) r.phase = r.phase === "pending" ? "done" : r.phase === "done" ? "done" : "closed";
+  const sig = JSON.stringify([item, r.phase, r.error, r.message.text]);
+  if (r.sig === sig) return;
+  r.sig = sig;
+  if (!item && r.decision) {
+    for (const control of r.decision.querySelectorAll("button,input,textarea")) control.disabled = true;
+    if (!r.decisionResult) { r.decisionResult = el("p", "task-result", r.phase === "done" ? "Done" : "Closed"); r.decision.append(r.decisionResult); }
+    r.node.replaceChildren(r.decision); return;
+  }
+  const decision = item && hub.taskDecision?.(item);
+  if (decision) { r.decision = decision; r.node.replaceChildren(decision); return; }
+  const source = r.item || { text: r.message.text };
+  const checkable = item && ["action", "asked", "review"].includes(item.kind);
+  const opts = { pending: r.phase === "pending", result: r.error ||
+    (r.phase === "pending" ? "Waiting for confirmation…" : r.phase === "done" ? "Done" : r.phase === "closed" ? "Closed" : "") };
+  if (checkable) opts.onDone = async () => {
+    if (r.busy || r.phase === "pending") return { error: "This task already has an action in progress." };
+    r.busy = true; r.phase = "pending"; r.error = "";
+    let result;
+    try { result = await hub.post("/api/todo/done", { id: item.id }); }
+    catch { result = { error: "The hub did not respond. Try again." }; }
+    finally { r.busy = false; }
+    r.error = result?.error || "";
+    r.phase = r.error ? "error" : r.live ? "pending" : "done";
+    r.sig = null;
+    return result;
+  };
+  r.node.replaceChildren(hub.taskBody(source, opts));
+}
+
+function messageBody(m) {
+  if (!hub.taskBody) return el("span", null, m.text);
+  let r = taskBodies.get(m.id);
+  if (!r || r.message.task_id !== m.task_id) {
+    r = { node: el("div", "tm-task-body"), phase: "open", error: "" };
+    taskBodies.set(m.id, r);
+  }
+  r.message = m;
+  updateTaskBody(r, hub.snapshot());
+  return r.node;
+}
+
 function line(m) {
   const row = el("div", "tm-line" + (done(m) ? " tm-done" : ""));
-  const text = el("div", "tm-text", m.text);
-  if (m.text.length > 400 || m.text.split("\n").length > 6) {
+  const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
+  text.append(messageBody(m));
+  if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
     text.classList.add("tm-clamp");
     text.addEventListener("click", () => text.classList.toggle("tm-clamp"));
     text.title = "Нажмите, чтобы развернуть";
@@ -637,6 +687,7 @@ function registerView() {
     badge: badgeShown,
     full: true,
     async render(root, snap) {
+      for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
       if (!ui || ui.root !== root) { build(root); paint(); }
       const last = snap?.feeds?.teams || 0;
       if (!loaded || last > since) {

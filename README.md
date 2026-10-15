@@ -103,7 +103,22 @@ Teams — сообщение само уходит в «Разобранные»
 ```
 PYTHONPATH=<папка хаба> python3.12 -m unittest discover -s tests
 node tests/suspicious.test.mjs web/main.js
+node tests/task-body.test.mjs web/main.js
 ```
+
+### Operational task content (Hub Plugin API 1.17)
+
+New hubs expose `hub.taskBody` and `hub.taskDecision`. Inbox feature-detects them
+and keeps the older literal-text fallback. Authored ordered instructions and exact
+inline destinations use the same body as core To-do and thread cards; navigation
+never completes work. Existing source, reply, draft and delivery actions remain.
+
+A plugin-channel message may explicitly include `task_id`, identifying a real row
+in `snapshot.todo`. Matching procedural tasks can call core completion; matching
+decisions use the core question/permission controls. Message text and unknown IDs
+never create an action. The collector does not invent this association. Failed and
+queued completion stays in the body; disappearance from a later snapshot confirms
+closure. No synthetic destination, gallery, device context or secret field is added.
 
 ## Telegram
 
