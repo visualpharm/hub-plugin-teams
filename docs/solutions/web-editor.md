@@ -28,3 +28,10 @@ use an isolated real journal and synthetic collector facts, never provider accou
 Assert prerequisite acknowledgements and matching proposal IDs before clicking.
 Capture both themes and responsive widths. Offline receipts establish controller
 behavior only; installation, policy activation and live delivery remain separate.
+
+## Actual editing boundary
+Opening or prefilling the editor does not acquire a new hold. The first owner
+reply or private instruction input confirms it; intentional empty edits remain
+held. Existing holds survive navigation, and closing a never-edited preview does
+not release another editor. Incidental group/filter totals are omitted; explicit
+bulk-action confirmation counts remain.

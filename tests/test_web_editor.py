@@ -65,7 +65,7 @@ class InboxWebAcceptance(PageInChrome):
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 
-    def seed_inbox(self):
+    def seed_inbox(self, start_editing=True):
         cfg = Path(self.state) / "inbox.json"
         cfg.write_text(json.dumps({"extensions": {"teams": {"path": str(Path(__file__).resolve().parents[1]), "web": "web/main.js"}}}))
         env = mock.patch.dict(os.environ, {"HUB_CONFIG": str(cfg)}); env.start(); self.addCleanup(env.stop)
@@ -78,6 +78,23 @@ class InboxWebAcceptance(PageInChrome):
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
                   {"eval": "document.querySelector('.tm-person').click();true"},
                   {"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();true"})
+
+        if start_editing:
+            self.edit("")
+
+    def test_open_and_generated_fill_do_not_hold_until_owner_input(self):
+        self.seed_inbox(start_editing=False)
+        got = self.page({"eval": "document.querySelector('.tm-shared-compose textarea').value"})
+        self.assertEqual(got[-1]["eval"], "")
+        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
+        self.page({"click": "Close editor"}, {"until": "!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
+        self.page({"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();document.querySelector('.tm-instruction summary').click();true"},
+                  {"eval": "(()=>{const t=document.querySelector('.tm-instruction textarea');t.value='Keep my wording';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        self.acknowledge(self.queued("draft_control"))
+        self.edit("Intentional owner reply")
+        self.edit("")
+        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
 
     def queued(self, kind):
         posts = [json.loads(e["data"]["text"]) for e in self.spooled() if e["type"] == "ext.post"]

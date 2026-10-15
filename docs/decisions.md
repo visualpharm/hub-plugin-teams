@@ -79,3 +79,9 @@ Conversation grouping follows contact/box identity and never guesses from a repe
 Unsupported guarded adapters and attachments remain held under the collector contract.
 Undo: revert this web consumer slice; it changes no collector policy, account or journal schema.
 Installation and live acceptance require the existing scoped integration safe point.
+
+## 2026-10-15 — Acquire web editor holds on owner input
+A reply preview or generated fill alone does not acquire a hold. The first actual
+reply/private-instruction edit does, including intentional empty edits. Existing
+holds persist through navigation; provider delivery still requires the matching
+collector receipt.

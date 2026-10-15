@@ -296,7 +296,6 @@ function personRow(key, group) {
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   const head = el("div", "tm-head");
   head.append(el("span", `tm-src tm-src-${latest.src}`, SRC[latest.src] || latest.src), el("b", "tm-from", name));
-  if (group.length > 1) head.append(el("span", "tm-count", `${group.length}`));
   head.append(stamp(secs(latest.at)));
   row.append(head);
   const text = el("div", "tm-text tm-clamp", latest.text);
@@ -403,9 +402,16 @@ function openCompose(m, text, why = "") {
   if (state) editorStates.set(m.id, state);
   const st = { text, why, state };
   composing.set(m.id, st);
-  if (state) confirmEditor(m, st);
   focusId = m.id;
   paint();
+}
+
+function beginEditing(m, st) {
+  if (!st.state || st.started) return;
+  st.started = true;
+  const token = st.state.token;
+  if (token?.held && token.holder === st.state.editor) return;
+  confirmEditor(m, st);
 }
 
 async function confirmEditor(m, st, action = "hold") {
@@ -427,8 +433,9 @@ function sharedReply(m, st) {
       const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
       directive.setAttribute("aria-label", "Private draft instruction");
-      directive.addEventListener("input", () => st.state.direct(directive.value));
+      directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
       const revise = button("Revise draft", "quiet", async () => {
+        beginEditing(m, st);
         try { const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
         catch (e) { st.error = e.message; }
         paint();
@@ -439,11 +446,12 @@ function sharedReply(m, st) {
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
       sentLabel: "Queued. Waiting for delivery confirmation.",
-      onChange(text) { st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); },
+      onChange(text) { st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); beginEditing(m, st); },
       async send({ text, attachments }) {
         if (attachments?.length) return { error: "This destination accepts text only." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
+        beginEditing(m, st);
         let q;
         if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
         try { q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
@@ -460,7 +468,7 @@ function sharedReply(m, st) {
     });
     box.node.querySelector("textarea").dataset.compose = m.id;
     const close = button("Close editor", "quiet", () => {
-      if (st.state) confirmEditor(m, st, "release");
+      if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
     });
     wrap.append(box.node, feedback, close);
@@ -666,9 +674,6 @@ function paint() {
   focusId = null;
 }
 
-// число рядом с названием — только когда оно не ноль («0» ничего не говорит)
-const withN = (t, n, sep = " ") => (n ? `${t}${sep}${n}` : t);
-
 function paintAll() {
   if (ui.prompt) {
     ui.prompt.hidden = inboxProtocol?.version !== 1;
@@ -677,12 +682,12 @@ function paintAll() {
   }
   const open = (m) => !done(m);
   const pool = (m) => (tab === "new" ? open(m) : done(m));
-  ui.tabs.replaceChildren(seg([["new", withN("Новые", count(open))], ["done", withN("Разобранные", count(done))]],
+  ui.tabs.replaceChildren(seg([["new", "Новые"], ["done", "Разобранные"]],
     tab, (v) => { tab = v; dmPerson = null; }, "Какие сообщения показать"));
   const active = new Set([...msgs.values()].map((m) => m.src));
   const on = (k) => TEAMS_SRCS.includes(k) || active.has(k) || statuses.has(k);
   ui.srcs.replaceChildren(seg([["all", "Все"], ...Object.entries(SRCS).filter(([k]) => on(k))
-    .map(([k, t]) => [k, t, count((m) => pool(m) && m.src === k)]).filter(([k, , n]) => n || k === src).map(([k, t, n]) => [k, withN(t, n)])],
+    .map(([k, t]) => [k, t, count((m) => pool(m) && m.src === k)]).filter(([k, , n]) => n || k === src).map(([k, t, n]) => [k, t])],
     src, (v) => { src = v; dmPerson = null; }, "Откуда"));
 
   const items = list();
@@ -696,7 +701,7 @@ function paintAll() {
     }
   }
 
-  ui.pick.textContent = withN("Выбрать каналы", watching().length, " · ");
+  ui.pick.textContent = "Выбрать каналы";
   ui.pick.setAttribute("aria-expanded", String(!!picking));
   ui.panel.hidden = !picking;
   if (picking && ui.panel.dataset.sig !== String(directory ? directory.items.length + ":" + directory.items[0]?.[0] : "")) panel();
