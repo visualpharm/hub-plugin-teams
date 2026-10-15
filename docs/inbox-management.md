@@ -38,8 +38,20 @@ identical request returns current state; reused request IDs with different input
 are rejected. A fresh same-client hold increments edit_version, even if already
 held, invalidating older proposals; replay of the same request does not increment.
 Another client cannot take or release an acknowledged hold. Navigation, inactivity
-and restart never release a hold. Cancellation
+and restart never release a hold. Hold ownership and `edit_version` belong to the
+verified source account plus exact conversation, rather than an incoming row ID.
+A newly observed row immediately exposes any existing conversation hold; already
+observed sibling rows share it too. A client does not need to poll or reassert the
+hold to prevent an automatic send after a new message arrives. Source `version`
+still binds each item and the current conversation facts; old source tokens fail.
+Cancellation
 of a protected scheduled reply retains the item and acquires a hold.
+
+Candidate state upgrades legacy row holds into conversation editor records,
+preserving every active holder and the highest edit revision. Conflicting legacy
+holders block sends; each may explicitly release only its own hold with a current
+token. No client may take over the other holder. An unowned cancellation hold must
+be explicitly adopted before release. This state upgrade does not enable the guard.
 
 Clients must acquire and confirm the hold when an editor or private directive
 becomes active, preserve intentional empty edits, and handle a competing committed
@@ -96,6 +108,10 @@ persisted claim serialize both paths, across restart and differing request IDs.
 New source facts, destination/account changes, active edits and unresolved claims
 reject a send. A losing request receives `send_duplicate` with original request,
 version and actual state/receipt when known. It does not authorize another attempt.
+The collector checks conversation hold and source/editor versions again at the
+final claim after preflight. A hold acquired while source reads are in progress
+cannot be bypassed. A deliberate matching-client Send consumes its conversation
+hold and stores its current-source claim in one persisted mutation.
 
 Before submission, the existing connected Graph reader verifies current user and
 the exact text-only chat source against the latest ordered message page; newer
@@ -121,3 +137,5 @@ and every required source adapter; run permitted runtime/model and rendered chec
 coordinate one allowed plugin activation. Only then enable the shared guard and
 the separately chosen routine-management policy. Keep unverified source routes
 and unresolved delivery outcomes held. Source checks alone do not release this gate.
+Before downgrading this candidate, settle active conversation holds: older code
+only understands row-scoped editor state and cannot preserve this exclusion.

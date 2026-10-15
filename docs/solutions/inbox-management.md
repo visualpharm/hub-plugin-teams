@@ -17,7 +17,12 @@ and transport exit success lacked source-bound completion evidence.
 
 ## Solution
 The one collector writer persists a source/account/conversation claim before IO.
-Versioned editor holds persist across restart. Check the actual account/source
+Versioned editor holds persist across restart at verified account/conversation
+scope, so a new incoming row cannot race client polling or inherit an unheld state.
+Per-item source tokens remain current-version CAS; matching manual Send consumes
+the conversation hold and claim atomically. Legacy row holders migrate without
+dropping conflicts, and canceled deferred replies hold the conversation too.
+Check the actual account/source
 immediately before transport; require a real message ID. Unknown outcomes stay held.
 Bind private proposals to canonical Hub generation, request nonce, source and editor;
 publish a plugin-authored explicit-Apply proposal, never an unsafe raw replacement.

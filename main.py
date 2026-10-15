@@ -958,14 +958,11 @@ def send_replies(st, reader, queue, put=post, now=None):
             held = later.pop(q["cancel"], None)
             if held:   # снятое не уйдёт и после перезапуска (журнал читается заново)
                 if held.get('inbox'):
-                    row=inbox_delivery.store(st)['items'].get(held['id'])
-                    if row:
-                        row['held']=True
-                        row['holder']=row.get('holder') or q.get('editor')
-                        row['edit_version']+=1
+                    token=inbox_delivery.cancel_hold(st,held['id'],q.get('editor'))
+                    if token:
                         save(st)
                         put({'kind':'draft_state','id':held['id'],'rid':q['cancel'],
-                             'inbox':inbox_delivery.context(st,held['id'])})
+                             'inbox':token})
                 done.append(q["cancel"])
                 put({"kind": "canceled", "id": held["id"], "rid": q["cancel"]})
                 save(st)

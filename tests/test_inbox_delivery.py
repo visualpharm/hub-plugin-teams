@@ -101,6 +101,122 @@ class Delivery(unittest.TestCase):
         fresh=delivery.control(st,{**q,'rid':'new-edit','inbox':held})
         self.assertEqual(fresh['edit_version'],held['edit_version']+1)
 
+    def new_source(self, st, key='b', chat='chat-a'):
+        item=incoming(key,'New verified facts',chat)
+        st.setdefault('refs',{})[key]=item['ref']
+        st.setdefault('open',{})[key]=[chat,item['at']]
+        delivery.observe(st,item)
+
+    def edit(self, st, key='a', editor='client-a', rid='hold'):
+        return delivery.control(st,{'id':key,'rid':rid,'inbox':delivery.context(st,key),
+                                    'action':'hold','editor':editor})
+
+    def test_conversation_hold_blocks_new_key_before_client_poll_and_after_restart(self):
+        st=state(); self.edit(st)
+        self.new_source(st)
+        st=json.loads(json.dumps(st))
+        token=delivery.context(st,'b')
+        self.assertTrue(token['held'])
+        self.assertEqual(token['holder'],'client-a')
+        q={**self.request(st,'auto-new',True),'id':'b','inbox':token}
+        out,calls,_=self.run_send(st,[q],{'id':'must-not-submit'})
+        self.assertEqual(calls,[])
+        self.assertFalse(any(p['kind']=='sent' for p in out))
+
+    def test_hold_covers_already_observed_sibling_and_other_client_cannot_release(self):
+        st=state(); self.new_source(st)
+        before=delivery.context(st,'b')
+        self.edit(st)
+        token=delivery.context(st,'b')
+        self.assertTrue(token['held'])
+        self.assertGreater(token['edit_version'],before['edit_version'])
+        for action in ('hold','release'):
+            with self.assertRaises(ValueError):
+                delivery.control(st,{'id':'b','rid':action,'inbox':token,
+                                     'action':action,'editor':'client-b'})
+
+    def test_new_key_manual_send_consumes_conversation_hold_with_claim_atomically(self):
+        st=state(); st['cfg']['inbox_guard']=False
+        self.edit(st); old=self.request(st)
+        self.new_source(st)
+        old['editor']='client-a'
+        self.assertFalse(self.run_send(st,[old],{'id':'must-not-submit'})[1])
+        token=delivery.context(st,'b')
+        q={**self.request(st,'new-manual'),'id':'b','inbox':token,'editor':'client-a'}
+        out,calls,saved=self.run_send(st,[q],{'id':'new-receipt'})
+        self.assertTrue(token['held'])
+        self.assertEqual(len(calls),1)
+        self.assertEqual(out[0]['kind'],'sent')
+        claimed=next(s for s in saved if s['inbox_delivery']['claims'])
+        self.assertFalse(delivery.context(claimed,'a')['held'])
+        self.assertFalse(delivery.context(claimed,'b')['held'])
+        self.assertEqual(len(claimed['inbox_delivery']['claims']),1)
+
+    def test_only_explicit_current_token_release_clears_conversation_hold(self):
+        st=state(); old=self.edit(st)
+        self.new_source(st)
+        with self.assertRaises(ValueError):
+            delivery.control(st,{'id':'a','rid':'stale','inbox':old,'action':'release','editor':'client-a'})
+        token=delivery.context(st,'b')
+        self.assertTrue(token['held'])
+        delivery.control(st,{'id':'b','rid':'release','inbox':token,'action':'release','editor':'client-a'})
+        self.assertFalse(delivery.context(st,'a')['held'])
+        self.assertFalse(delivery.context(st,'b')['held'])
+
+    def test_hold_identity_is_account_and_conversation_not_source_key(self):
+        st=state(); self.edit(st)
+        self.new_source(st,'other-chat','chat-b')
+        self.assertFalse(delivery.context(st,'other-chat')['held'])
+        st['me']['id']='account-b'
+        self.new_source(st,'other-account')
+        self.assertFalse(delivery.context(st,'other-account')['held'])
+        st['me']['id']='account-a'
+        self.new_source(st,'back-to-account-a')
+        self.assertTrue(delivery.context(st,'back-to-account-a')['held'])
+
+    def test_legacy_conflicting_row_holds_migrate_without_releasing_either_editor(self):
+        st=state(); self.new_source(st)
+        db=st['inbox_delivery']; del db['editors']
+        for key,editor,version in (('a','client-a',1),('b','client-b',2)):
+            db['items'][key].update(held=True,holder=editor,edit_version=version)
+        self.new_source(st,'c')
+        st=json.loads(json.dumps(st))
+        ctx=delivery.context(st,'c')
+        self.assertTrue(ctx['held'])
+        self.assertIsNone(ctx['holder'])
+        self.assertEqual(ctx['edit_version'],2)
+        q={**self.request(st,'blocked-migration',True),'id':'c','inbox':ctx}
+        self.assertFalse(self.run_send(st,[q],{'id':'must-not-submit'})[1])
+        with self.assertRaises(ValueError): self.edit(st,'c','client-c','steal')
+        delivery.control(st,{'id':'c','rid':'release-a','inbox':ctx,'action':'release','editor':'client-a'})
+        ctx=delivery.context(st,'c')
+        self.assertEqual(ctx['holder'],'client-b')
+        self.assertTrue(ctx['held'])
+        delivery.control(st,{'id':'c','rid':'release-b','inbox':ctx,'action':'release','editor':'client-b'})
+        self.assertFalse(delivery.context(st,'a')['held'])
+        self.assertFalse(delivery.context(st,'c')['held'])
+
+    def test_new_conversation_hold_during_preflight_blocks_final_claim(self):
+        st=state(); self.new_source(st)
+        q={**self.request(st,'auto-race',True),'id':'b','inbox':delivery.context(st,'b')}
+        with patch.object(main,'save'),patch.object(main,'deliver') as send, \
+                patch.object(main,'preflight_guarded',side_effect=lambda *_:self.edit(st)):
+            main.send_replies(st,None,[q],lambda _:None)
+            send.assert_not_called()
+        self.assertTrue(delivery.context(st,'b')['held'])
+        self.assertFalse(st['inbox_delivery']['claims'])
+
+    def test_cancel_scheduled_old_source_holds_new_conversation_source(self):
+        from datetime import datetime,timezone
+        st=state(); q={**self.request(st),'at':'2030-01-01T08:00:00Z','editor':'client-a'}
+        with patch.object(main,'save'),patch.object(main,'deliver') as send:
+            main.send_replies(st,None,[q],lambda _:None,datetime(2026,1,1,tzinfo=timezone.utc))
+            self.new_source(st)
+            main.send_replies(st,None,[{'cancel':q['rid'],'editor':'client-a'}],lambda _:None)
+            send.assert_not_called()
+        self.assertTrue(delivery.context(st,'b')['held'])
+        self.assertEqual(delivery.context(st,'b')['holder'],'client-a')
+
     def test_new_facts_and_destination_change_refuse_old_version(self):
         for change in ('new-message','same-item','account','destination'):
             st = state(); q = self.request(st)

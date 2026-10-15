@@ -42,7 +42,24 @@ def digest(value):
 
 
 def store(st):
-    return st.setdefault('inbox_delivery', {'items':{}, 'threads':{}, 'claims':{}, 'controls':{}})
+    db = st.setdefault('inbox_delivery', {'items':{}, 'threads':{}, 'claims':{}, 'controls':{}})
+    if 'editors' not in db:
+        # Upgrade candidate row-scoped holds without dropping any active holder.
+        # Multiple legacy holders remain conflicting until each releases its own hold.
+        editors = {}
+        for row in db['items'].values():
+            edit = editors.setdefault(row['thread'], {'edit_version':0, 'holders':[]})
+            edit['edit_version'] = max(edit['edit_version'], row.get('edit_version',0))
+            if row.get('held') and row.get('holder') not in edit['holders']:
+                edit['holders'].append(row.get('holder'))
+            for field in ('held','holder','edit_version'):
+                row.pop(field,None)
+        db['editors'] = editors
+    return db
+
+
+def editor_state(st, row):
+    return store(st)['editors'].setdefault(row['thread'], {'edit_version':0, 'holders':[]})
 
 
 def identity(st, ref):
@@ -74,12 +91,10 @@ def observe(st, item):
     if row and row['facts'] == facts and row['thread'] == thread:
         return context(st,key)
     db['threads'][thread] = db['threads'].get(thread,0) + 1
-    # An identity change retains old claims, and cannot release an editor hold.
+    # Old identities retain their claims and holds; new identities never inherit them.
     db['items'][key] = {'thread':thread, 'facts':facts, 'ref':item['ref'],
                         'source_at':item.get('at'),'source_text':item.get('text'),
-                        'source_media':bool(item.get('media') or item.get('links')),
-                        'edit_version':(row or {}).get('edit_version',0),
-                        'held':(row or {}).get('held',False),'holder':(row or {}).get('holder')}
+                        'source_media':bool(item.get('media') or item.get('links'))}
     return context(st,key)
 
 
@@ -88,8 +103,11 @@ def context(st, key):
     row = db['items'].get(key)
     if not row:
         return None
+    edit = editor_state(st,row)
+    holders = edit['holders']
     return {'v':1, 'version':digest([row['thread'],row['facts'],db['threads'].get(row['thread'])]),
-            'edit_version':row['edit_version'], 'held':row['held'],'holder':row.get('holder')}
+            'edit_version':edit['edit_version'], 'held':bool(holders),
+            'holder':holders[0] if len(holders)==1 else None}
 
 
 def current(st, q):
@@ -119,25 +137,40 @@ def control(st, q):
     row,ctx = current(st,q)
     if q.get('action') not in ('hold','release'):
         raise ValueError('Explicit hold or release action required')
-    if row['held'] and row.get('holder') not in (None,editor):
+    edit = editor_state(st,row)
+    holders = edit['holders']
+    if holders and editor not in holders and holders != [None]:
         raise ValueError('Another client holds this editor; retain local text')
-    if row['held'] and row.get('holder') is None and q['action']=='release':
+    if holders == [None] and q['action']=='release':
         raise ValueError('Adopt the unowned cancellation hold before releasing it')
+    if q['action']=='hold' and any(h not in (None,editor) for h in holders):
+        raise ValueError('Another client holds this editor; retain local text')
     if ctx['version'] in db['claims'] and db['claims'][ctx['version']]['state'] != 'held':
         raise ValueError('Delivery already claimed; reconcile its outcome')
-    row['held'] = q['action'] == 'hold'
-    row['holder'] = editor if row['held'] else None
-    row['edit_version'] += 1
+    edit['holders'] = [editor] if q['action']=='hold' else [h for h in holders if h != editor]
+    edit['edit_version'] += 1
     db['controls'][q['rid']] = {'id':q['id'],'input':fingerprint}
     return context(st,q['id'])
+
+
+def cancel_hold(st, key, editor=None):
+    """A canceled deferred send preserves the whole conversation's editor exclusion."""
+    row = store(st)['items'].get(key)
+    if not row:
+        return None
+    edit = editor_state(st,row)
+    if not edit['holders']:
+        edit['holders'] = [editor if isinstance(editor,str) and 0 < len(editor) <= 100 else None]
+    edit['edit_version'] += 1
+    return context(st,key)
 
 
 def check(st, q):
     row,ctx = current(st,q)
     if q.get('automatic') and not (st.get('cfg') or {}).get('inbox_guard'):
         raise ValueError('Shared editor protection is not activated')
-    if row['held'] and (q.get('automatic') or not q.get('editor') or q.get('editor') != row.get('holder')):
-        raise ValueError('Owner is editing or directing this item; explicit release required')
+    if ctx['held'] and (q.get('automatic') or not q.get('editor') or q.get('editor') != ctx.get('holder')):
+        raise ValueError('Owner is editing or directing this conversation; explicit release required')
     if q['id'] not in (st.get('open') or {}):
         raise ValueError('The canonical source item is no longer open')
     if not isinstance(q.get('text'),str) or not q['text'].strip() or q.get('files'):
@@ -155,10 +188,10 @@ def claim(st,q):
     key,row=check(st,q)
     store(st)['claims'][key] = {'rid':q['rid'], 'id':q['id'], 'state':'claimed',
                    'thread':row['thread'], 'payload':digest([q.get('text'),q.get('files'),q.get('reply_to'),q.get('quote')])}
-    if row['held']:  # explicit matching-client manual Send: consume hold+claim together
-        row['held']=False
-        row['holder']=None
-        row['edit_version']+=1
+    edit = editor_state(st,row)
+    if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
+        edit['holders']=[]
+        edit['edit_version']+=1
     return key
 
 

@@ -66,3 +66,15 @@ guidance through bounded hashed chunks independently of the legacy settings size
 Why: transport recovery must not resurrect old actions, and truncated/stale owner
 guidance cannot govern automated replies. Undo: revert source without deleting
 request, claim or instruction history. By: agent within the same authorized slice.
+
+## 2026-10-15 · Conversation-scoped editor holds
+Decided: retain editor holders and edit revision once per verified source-account/conversation
+identity in the existing collector state. New and existing source rows share that exclusion;
+source version and delivery claim remain bound to the exact current item and conversation facts.
+Final claim rechecks after preflight, and an explicit matching-client manual Send consumes
+the hold and stores its claim atomically, independently of automatic-policy activation.
+Why: row-only holds let a new incoming row race the client's next poll and automatic delivery.
+Migration preserves all legacy holders; conflicts require each holder's explicit CAS release.
+Account/destination changes neither import a different identity's hold nor delete its original hold.
+Undo: reconcile active conversation holds before reverting; old row-only code cannot enforce them.
+By: agent within the existing shared-editor race correction.
