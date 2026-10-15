@@ -360,14 +360,14 @@ class Ignore(unittest.TestCase):
         main.tick(st, [self.item("k1", "Бот")], {}, self.NOW, put=posts.append)
         self.assertEqual([p["kind"] for p in posts], ["msg"])
         main.ignore(st, "k1", put=posts.append)
-        self.assertEqual([p["kind"] for p in posts[1:]], ["answered", "config"])       # карточка пропала, список — в config
-        cfg = posts[-1]
+        self.assertEqual([p["kind"] for p in posts[1:]], ["answered", "config", "triage_config", "triage_prompt"])
+        cfg = next(p for p in reversed(posts) if p['kind']=='config')
         self.assertEqual((cfg["v"], [(x["contact"], x["name"]) for x in cfg["ignored"]]), (3, [("tg:77", "Бот")]))
         posts.clear()
         fresh = main.tick(st, [self.item("k2", "Бот", "2026-10-12T11:30:00Z")], {}, self.NOW, put=posts.append)
         self.assertEqual((posts, fresh), ([], []))                                       # ни карточки, ни черновика
         main.unignore(st, "tg:77", put=posts.append)
-        self.assertEqual(posts[-1]["ignored"], [])
+        self.assertEqual(next(p for p in reversed(posts) if p['kind']=='config')["ignored"], [])
         main.tick(st, [self.item("k3", "Бот", "2026-10-12T11:40:00Z")], {}, self.NOW, put=posts.append)
         self.assertEqual([p["id"] for p in posts if p["kind"] == "msg"], ["k3"])
 

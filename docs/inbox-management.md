@@ -75,6 +75,10 @@ Owner `manage` carries unique `rid` and exact `text` (nonempty, at most 2000
 characters). The collector retains the exact text and its whole known-open
 manifest, independent of a client's loaded page, and sends bounded batches through
 the canonical Hub route with existing `cfg.prompt`. `manage_asked` is dispatch only.
+Separate trusted `triage_config`/`triage_prompt` facts transmit exact owner guidance
+in envelope-bounded chunks with a content hash. Proactivity acts only after the
+whole guidance is verified, and binds verdicts to that guidance ID. Large settings
+cannot silently leave an older prompt governing automatic actions.
 Coverage reports `scope:"collector-known-open"`, count, unavailable post/token count,
 source warnings and `upstream_exhaustive:false`. Missing original posts or failed
 source pages stay explicit blockers. No request, receipt or snapshot claims that
@@ -106,6 +110,9 @@ message ID is required for `sent` and closure. Empty success, generic stdout and
 exceptions remain `send_uncertain`; they never retry automatically. Unresolved
 claims also block new-version sends in the same conversation until independently
 reconciled. There is intentionally no command to clear that uncertainty by fiat.
+Pre-submission rejections are also durable: replaying the journal after recovery
+cannot turn an already rejected request into an unseen send. A re-evaluated action
+uses a new request ID; existing verified delivery state is returned when present.
 
 ## Activation gate
 

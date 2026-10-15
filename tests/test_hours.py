@@ -155,10 +155,10 @@ class Gate(unittest.TestCase):
         owner({"kind": "hours_for", "id": "k2", "weekends": True})
         main.settings(self.st, c, self.out.append)
         main.send_replies(self.st, self.R(), c.take_sends(), self.out.append)
-        h = self.out[-1]["hours"]
+        h = next(p for p in reversed(self.out) if p['kind']=='config')["hours"]
         self.assertEqual((h["from"], h["to"], h["weekends"], h["except"]), ("09:00", "18:00", False, [{"contact": "wa:2", "name": "Лена"}]))
         main.hours_for(self.st, "k2", None, self.out.append)          # «как у всех»
-        self.assertEqual(self.out[-1]["hours"]["except"], [])
+        self.assertEqual(next(p for p in reversed(self.out) if p['kind']=='config')["hours"]["except"], [])
 
 
 if __name__ == "__main__":

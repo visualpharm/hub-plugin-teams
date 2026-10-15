@@ -58,3 +58,11 @@ or unsafe late editor replacement. Unknown outcomes cannot authorize retries.
 Undo: revert candidate source while preserving journal/claim history; do not clear
 uncertainty or enable an older automatic path. By: agent within authorized scope.
 Source is not installed; all-client adoption and coordinated activation remain required.
+
+## 2026-10-15 · Rejection replay and complete guidance
+Decided: persist pre-submission rejection disposition, so journal replay cannot
+turn a previously rejected request into a new send. Publish complete exact triage
+guidance through bounded hashed chunks independently of the legacy settings size.
+Why: transport recovery must not resurrect old actions, and truncated/stale owner
+guidance cannot govern automated replies. Undo: revert source without deleting
+request, claim or instruction history. By: agent within the same authorized slice.

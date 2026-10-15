@@ -13,6 +13,17 @@ import inbox_delivery as delivery
 
 
 class WholeInbox(unittest.TestCase):
+    def test_long_owner_guidance_is_exact_in_bounded_triage_chunks(self):
+        import hashlib
+        text=('"\n\t'+'x'*7)*200
+        out=[]
+        with patch.object(main,'triage_plugin',return_value='proactivity'):
+            main.config({'cfg':{'prompt':text}},out.append)
+        chunks=[p for p in out if p['kind']=='triage_prompt']
+        self.assertTrue(all(len(json.dumps(p,ensure_ascii=False))<=1800 for p in chunks))
+        self.assertEqual(''.join(p['text'] for p in chunks),text)
+        self.assertEqual(chunks[0]['guidance_id'],hashlib.sha256(text.encode()).hexdigest())
+
     def test_recent_id_and_projection_caps_do_not_drop_open_work(self):
         from datetime import datetime,timezone
         st={'open':{f'k{n}':['thread','2026-10-15T12:00:00Z'] for n in range(3200)},

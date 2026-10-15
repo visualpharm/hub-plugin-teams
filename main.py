@@ -21,6 +21,7 @@ react_failed, {"kind": "config"} — действующие настройки (
 расширения: файл, который меняется каждый тик, перезагружал бы открытые вкладки (страница следит за mtime файлов
 расширения)."""
 import json
+import hashlib
 import os
 import re
 import sys
@@ -602,6 +603,23 @@ def config(st, put=post):
                            'receipt_sources':['teams'],'requires_all_clients':True},
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
+    # This compact companion is authoritative for triage even when a large legacy
+    # settings/UI post exceeds the feed envelope. Never truncate owner guidance.
+    guidance=str(cfg.get('prompt') or '')
+    ident=hashlib.sha256(guidance.encode()).hexdigest()
+    parts=[]; current=''
+    for char in guidance:
+        candidate={'kind':'triage_prompt','guidance_id':ident,'part':99,'of':99,'text':current+char}
+        if len(json.dumps(candidate,ensure_ascii=False))>1800:
+            parts.append(current); current=char
+        else:
+            current+=char
+    parts.append(current)
+    put({'kind':'triage_config','triage':triage_plugin(),'inbox_guard':cfg.get('inbox_guard') is True,
+         'signature':cfg.get('signature') or '', 'autodraft':cfg.get('autodraft') is not False,
+         'guidance_id':ident,'guidance_parts':len(parts)})
+    for n,text in enumerate(parts):
+        put({'kind':'triage_prompt','guidance_id':ident,'part':n,'of':len(parts),'text':text})
     st["config_at"] = time.time()
 
 
@@ -1175,21 +1193,32 @@ def send_one(st, reader, q, put=post, now=None):
 
 def send_guarded(st, reader, q, put=post, now=None):
     """The one serialized manual/auto boundary; durable claim before transport."""
+    rejected=st.setdefault('inbox_rejections',{})
+    fingerprint=inbox_delivery.digest({k:q[k] for k in ('id','inbox','text','editor','automatic','files','reply_to','quote') if k in q})
+    if q['rid'] in rejected:
+        old=rejected[q['rid']]
+        put((inbox_delivery.previous(st,q) or old['result']) if old['fingerprint']==fingerprint else
+            {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Request ID reused with different input'})
+        return
+    def reject(event):
+        rejected[q['rid']]={'fingerprint':fingerprint,'result':event}
+        save(st)  # a rejected request cannot silently become a send after restart
+        put(event)
     try:
         inbox_delivery.check(st,q)
     except ValueError as e:
-        put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':str(e)})
+        reject(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':str(e)})
         return
     try:
         preflight_guarded(st,reader,q)
     except Exception:
-        put({'kind':'send_blocked','id':q['id'],'rid':q['rid'],
+        reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],
              'error':'Current source verification unavailable or changed; reply retained'})
         return
     try:
         claim=inbox_delivery.claim(st,q)  # source/editor may change during a slow read
     except ValueError as e:
-        put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':str(e)})
+        reject(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':str(e)})
         return
     save(st)  # crash after this point is unresolved, even with another request ID
     if q.get('automatic'):

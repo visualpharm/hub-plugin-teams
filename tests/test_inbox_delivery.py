@@ -176,6 +176,32 @@ class Delivery(unittest.TestCase):
         self.assertEqual(out[0]['held'],'hours')
         self.assertIn(q['rid'],st['later'])
 
+    def test_preflight_failure_is_not_silently_retried_from_journal_after_restart(self):
+        st=state(); q=self.request(st)
+        out=[]
+        with patch.object(main,'save'),patch.object(main,'preflight_guarded',side_effect=OSError('unavailable')), \
+                patch.object(main,'deliver') as send:
+            main.send_replies(st,None,[q],out.append)
+            send.assert_not_called()
+        self.assertEqual(out[-1]['kind'],'send_blocked')
+        self.assertFalse(st['inbox_delivery']['claims'])
+        st=json.loads(json.dumps(st))
+        self.assertEqual(self.run_send(st,[q],{'id':'must-not-send'})[1],[])
+        self.assertEqual(len(self.run_send(st,[{**q,'rid':'deliberate-new-request'}],{'id':'verified-id'})[1]),1)
+
+    def test_cancel_scheduled_version_preserves_item_and_owns_hold(self):
+        from datetime import datetime,timezone
+        st=state(); q={**self.request(st),'at':'2030-01-01T08:00:00Z','editor':'client-a'}
+        out=[]
+        with patch.object(main,'save'),patch.object(main,'deliver') as send:
+            main.send_replies(st,None,[q,{'cancel':q['rid'],'editor':'client-a'}],out.append,
+                              datetime(2026,1,1,tzinfo=timezone.utc))
+            send.assert_not_called()
+        self.assertIn('a',st['open'])
+        self.assertTrue(delivery.context(st,'a')['held'])
+        self.assertEqual(delivery.context(st,'a')['holder'],'client-a')
+        self.assertNotIn(q['rid'],st['later'])
+
     def test_precommit_claim_survives_crash(self):
         st=state(); q=self.request(st)
         delivery.claim(st,q)
@@ -197,7 +223,7 @@ class PrivateInstruction(unittest.TestCase):
         main.settings(st,choice,out.append)
         main.settings(st,choice,out.append)
         self.assertTrue(st['cfg']['inbox_guard'])
-        self.assertEqual(len(out),1)
+        self.assertEqual(sum(p['kind']=='config' for p in out),1)
 
     def test_choice_preserves_private_instruction_and_intentional_empty_draft(self):
         choice=main.Choice('/unused')
