@@ -351,6 +351,39 @@ class Replies(unittest.TestCase):
             os.rmdir(inside)
         self.assertEqual(main.send_files("x"), [])
 
+    def test_long_reply_body_comes_from_an_attachment_file(self):
+        # 16.10: конверт send в канале — до 2000 знаков (ядро отвечает 413); длинный ответ клиент кладёт файлом через
+        # /api/upload/raw и шлёт text_file — плагин берёт тело только из папки вложений хаба и не длиннее TEXT_FILE_MAX
+        import json, tempfile
+        inside = os.path.join(main.STATE, "attachments", "zz-test-text")
+        os.makedirs(inside, exist_ok=True)
+        good = os.path.join(inside, "body.txt")
+        long = "Строка ответа. " * 300
+        with open(good, "w", encoding="utf-8") as f:
+            f.write(long)
+        big = os.path.join(inside, "big.txt")
+        with open(big, "w", encoding="utf-8") as f:
+            f.write("x" * (main.TEXT_FILE_MAX + 1))
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as outside:
+                outside.write("чужой файл")
+            c = main.Choice("/dev/null")
+            def line(body):
+                return json.dumps({"seq": 1, "type": "ext.post", "data": {"plugin": "teams", "text": json.dumps(body),
+                                                                          "owner": True, "channel": "web"}}).encode()
+            c.line(line({"kind": "send", "id": "k1", "rid": "r1", "text_file": good}))
+            self.assertEqual([q["text"] for q in c.sends], [long])
+            for bad in (outside.name, big, "/nope/x"):
+                c.line(line({"kind": "send", "id": "k1", "rid": "r-" + bad[-3:], "text_file": bad}))
+            self.assertEqual(len(c.sends), 1)                        # чужой, слишком длинный, несуществующий — мимо
+            c.line(line({"kind": "send_new", "rid": "r9", "to": "a@b.c", "text_file": good}))
+            self.assertEqual(c.sends[-1].get("text"), long)
+        finally:
+            for p in (good, big):
+                os.unlink(p)
+            os.rmdir(inside)
+            os.unlink(outside.name)
+
     def test_only_owner_send_posts_are_taken_and_each_is_sent_once(self):
         import json
         import tempfile

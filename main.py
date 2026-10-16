@@ -169,6 +169,11 @@ class Choice:
             if not (own_correction or who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
                     and body.get("kind") in ("send", "cancel", "dismiss")):
                 return
+        if isinstance(body, dict) and body.get("kind") in ("send", "send_new") and "text_file" in body:
+            long = text_file(body.get("text_file"))
+            if long is None:
+                return   # тело не прочиталось — не отправлять пустое или чужое
+            body = {**body, "text": long}
         if isinstance(body, dict) and body.get("kind") == "send":   # только слово владельца: сессии так не отправят
             files = send_files(body.get("files"))
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid")) and (
@@ -349,6 +354,25 @@ class Reader:
 def contact(i):
     """Кто это для «Не показывать»: источник сам называет (`contact`), иначе переписка/канал (`box`), иначе имя."""
     return str(i.get("contact") or i.get("box") or f"{i.get('src')}:{i.get('from')}")
+
+
+TEXT_FILE_MAX = 30000   # знаков тела из файла: потолок Teams-сообщения (send teams), WhatsApp/почта больше
+
+
+def text_file(raw):
+    """Длинное тело ответа (16.10): конверт в канале — до 2000 знаков, ядро отвечает 413; клиент кладёт тело файлом
+    через /api/upload/raw и шлёт его путь. Только внутри папки вложений хаба, UTF-8, не длиннее TEXT_FILE_MAX — иначе
+    None (как у send_files: пост владельца не читает любой файл с диска)."""
+    root = os.path.realpath(os.path.join(STATE, "attachments")) + os.sep
+    p = os.path.realpath(os.path.expanduser(str(raw or "")))
+    if not raw or not p.startswith(root) or not os.path.isfile(p) or os.path.getsize(p) > TEXT_FILE_MAX * 4:
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text if text.strip() and len(text) <= TEXT_FILE_MAX else None
 
 
 def send_files(raw):
