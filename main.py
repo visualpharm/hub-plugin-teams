@@ -678,6 +678,8 @@ OLD_SIGNATURES = ("_Хаб (по просьбе Ивана)_",)
 def settings(st, choice, put=post):
     fresh = False
     merged={**(st.get('cfg') or {}),**choice.settings} if choice.settings is not None else None
+    if merged is None and (st.get("cfg") or {}).get("signature") in OLD_SIGNATURES:   # настройки без нового поста
+        merged = dict(st["cfg"])
     if merged is not None and merged.get("signature") in OLD_SIGNATURES:
         merged["signature"] = APPROVED_SIGNATURE
     if merged is not None and merged != st.get("cfg"):

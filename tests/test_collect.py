@@ -683,6 +683,11 @@ class Later(unittest.TestCase):
         main.settings(st, C(), self.out.append)
         self.assertEqual((st["cfg"]["signature"], self.out[0]["signature"]), (main.APPROVED_SIGNATURE,) * 2)
         self.assertEqual(main.APPROVED_SIGNATURE, "🤖 _Хаб, вычитано Иваном_")
+        class Quiet:
+            settings = None
+        kept = {"config_at": 9e12, "cfg": {"signature": "_Хаб (по просьбе Ивана)_", "autodraft": True}}
+        main.settings(kept, Quiet(), self.out.append)   # сохранённая прежняя, поста настроек нет — тоже новая
+        self.assertEqual(kept["cfg"]["signature"], main.APPROVED_SIGNATURE)
 
     def test_history_comes_in_parts_once_and_never_from_a_replayed_journal(self):
         import time
