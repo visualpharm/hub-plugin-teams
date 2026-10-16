@@ -1256,7 +1256,8 @@ def send_guarded(st, reader, q, put=post, now=None):
         return
     try:
         preflight_guarded(st,reader,q)
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — владельцу общая фраза, в лог — настоящая причина
+        print(f"teams: сверка источника {q.get('id')} {q.get('rid')}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],
              'error':'Current source verification unavailable or changed; reply retained'})
         return
@@ -1306,6 +1307,11 @@ def send_guarded(st, reader, q, put=post, now=None):
     put({'kind':'answered','id':q['id']})
 
 
+def media_attachments(message):
+    """Вложения, кроме цитаты ответа (messageReference): ответ с цитатой — тот же текст, не файл (16.10, p404553)."""
+    return [a for a in message.get('attachments') or [] if a.get('contentType') != 'messageReference']
+
+
 def preflight_guarded(st,reader,q):
     """Read current account and exact Graph source immediately before claiming.
     No connection/credential fallback is created for a blocked collector.
@@ -1333,7 +1339,7 @@ def preflight_guarded(st,reader,q):
         if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
                 or collect.sender(original).get('id') != me
                 or collect.plain((original.get('body') or {}).get('content')) != followup['text']
-                or original.get('attachments')):
+                or media_attachments(original)):
             raise ValueError('The confirmed outgoing source changed; reply retained')
         try:
             anchor_at=datetime.fromisoformat(original['createdDateTime'].replace('Z','+00:00'))
@@ -1353,7 +1359,7 @@ def preflight_guarded(st,reader,q):
             or collect.sender(original).get('id') in (None,me)
             or original.get('createdDateTime')!=row['source_at']
             or collect.plain((original.get('body') or {}).get('content')) != row.get('source_text')
-            or original.get('attachments')):
+            or media_attachments(original)):
         raise ValueError('Source facts changed; re-evaluate the current conversation')
     if any(m.get('id')!=ref['msg'] and (m.get('createdDateTime') or '') >= row['source_at']
            and not m.get('deletedDateTime') for m in rows):

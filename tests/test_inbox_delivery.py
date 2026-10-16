@@ -411,9 +411,12 @@ class Delivery(unittest.TestCase):
         delivery.observe(st,item)
         original={'id':'source-id','messageType':'message','createdDateTime':item['at'],
                   'from':{'user':{'id':'counterpart'}},'body':{'content':'Verified facts'}}
-        for change in ('none','account','source-text','new-incoming','new-owner','missing'):
+        for change in ('none','quote','account','source-text','new-incoming','new-owner','missing','file'):
             rows=[copy.deepcopy(original)]
             if change=='source-text': rows[0]['body']['content']='Changed source'
+            # ответ с цитатой — вложение messageReference, не файл (16.10, p404553: ответ Паше держался «source changed»)
+            if change=='quote': rows[0]['attachments']=[{'contentType':'messageReference','content':'{}'}]
+            if change=='file': rows[0]['attachments']=[{'contentType':'reference','name':'a.pdf'}]
             if change in ('new-incoming','new-owner'):
                 rows.insert(0,{**original,'id':'later-id','createdDateTime':'2026-10-15T12:01:00Z',
                                'from':{'user':{'id':'account-a' if change=='new-owner' else 'counterpart'}}})
@@ -422,7 +425,7 @@ class Delivery(unittest.TestCase):
                                             {'value':rows,'@odata.nextLink':'older-page'}]
             reader=type('Reader',(),{'mcp':mcp})()
             with self.subTest(change=change):
-                if change=='none': main.preflight_guarded(st,reader,{'id':'a'})
+                if change in ('none','quote'): main.preflight_guarded(st,reader,{'id':'a'})
                 else:
                     with self.assertRaises(ValueError): main.preflight_guarded(st,reader,{'id':'a'})
 
