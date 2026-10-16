@@ -675,6 +675,15 @@ class Later(unittest.TestCase):
                                   'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True}}])
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
+    def test_the_old_signature_becomes_the_approved_one(self):
+        # 16.10 (слово Ивана m398582): текст, что отправил Иван из Inbox, подписан «вычитано Иваном», не «по просьбе»
+        class C:
+            settings = {"signature": "_Хаб (по просьбе Ивана)_", "autodraft": True}
+        st = {"config_at": 9e12}
+        main.settings(st, C(), self.out.append)
+        self.assertEqual((st["cfg"]["signature"], self.out[0]["signature"]), (main.APPROVED_SIGNATURE,) * 2)
+        self.assertEqual(main.APPROVED_SIGNATURE, "🤖 _Хаб, вычитано Иваном_")
+
     def test_history_comes_in_parts_once_and_never_from_a_replayed_journal(self):
         import time
         rows = [{"at": f"2026-10-10T08:{n:02d}:00Z", "from": "Алекс", "me": n % 2 == 0, "text": "слово " * 120} for n in range(8)]

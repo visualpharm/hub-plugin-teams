@@ -448,7 +448,7 @@ COLLEAGUES_DEFAULT = {"sources": [], "domains": [], "names": []}
 
 
 def colleague(i, rules):
-    """Подпись «_Хаб (по просьбе Ивана)_» — только коллегам и Дженни (правило владельца); местным контрагентам и
+    """Подпись хаба («🤖 _Хаб от лица Ивана_» / «🤖 _Хаб, вычитано Иваном_») — только коллегам и Дженни (правило владельца); местным контрагентам и
     всем остальным — нет. Кто коллега — `colleagues` в sources.json: источники целиком (teams), домены почты, имена."""
     r = {**COLLEAGUES_DEFAULT, **(rules or {})}
     src = i.get("src") or "teams"
@@ -669,9 +669,17 @@ def hours_for(st, key, weekends, put=post):
     config(st, put)
 
 
+# Подписи (слово Ивана 16.10, m398582): посторонним — никакой, близким от хаба — «🤖 _Хаб от лица Ивана_», текст одобрил
+# Иван (отправил из Inbox) — эта. Прежняя подпись из его настроек читается как новая.
+APPROVED_SIGNATURE = "🤖 _Хаб, вычитано Иваном_"
+OLD_SIGNATURES = ("_Хаб (по просьбе Ивана)_",)
+
+
 def settings(st, choice, put=post):
     fresh = False
     merged={**(st.get('cfg') or {}),**choice.settings} if choice.settings is not None else None
+    if merged is not None and merged.get("signature") in OLD_SIGNATURES:
+        merged["signature"] = APPROVED_SIGNATURE
     if merged is not None and merged != st.get("cfg"):
         st["cfg"], fresh = merged, True
     new = getattr(choice, "hours", None)
