@@ -34,7 +34,8 @@ const work = new Map();      // id → ts: передано хабу в рабо
 const draft = new Map();     // id → ts: черновик запрошен
 const replies = new Map();   // номер поста сообщения → [{by, text, ts}] — черновики от сессий
 let signature = "";         // подпись под черновиками хаба — настройка плагина (пост config), задаётся в приложениях
-const signed = (text) => (!signature || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
+// подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
+const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
 let reacting = null;
@@ -668,11 +669,11 @@ function draftBlock(m, r) {
   const { text, why } = splitDraft(r.text);
   d.append(by, el("div", "tm-draft-text", text));
   if (why) d.append(el("div", "tm-draft-why", `Почему: ${why}`));
-  const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text)));
+  const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
-    a.append(button("Отправить", "primary", () => sendReply(m, signed(text)), `Отправить черновик: ${m.from}`),
-      button("Править", "", () => openCompose(m, signed(text), why), `Править черновик: ${m.from}`));
+    a.append(button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${m.from}`),
+      button("Править", "", () => openCompose(m, signed(text, m), why), `Править черновик: ${m.from}`));
     d.append(a);
   }
   return d;
