@@ -678,8 +678,14 @@ OLD_SIGNATURES = ("_Хаб (по просьбе Ивана)_",)
 def settings(st, choice, put=post):
     fresh = False
     merged={**(st.get('cfg') or {}),**choice.settings} if choice.settings is not None else None
-    if merged is None and (st.get("cfg") or {}).get("signature") in OLD_SIGNATURES:   # настройки без нового поста
-        merged = dict(st["cfg"])
+    if merged is None and ((st.get("cfg") or {}).get("signature") in OLD_SIGNATURES
+                           or "inbox_guard" not in (st.get("cfg") or {})):   # настройки без нового поста
+        merged = dict(st.get("cfg") or {})
+    if merged is not None and "inbox_guard" not in merged:
+        # автоотправка Inbox — по слову Ивана 16.10 (m403281: «разговаривай сам и всё делай сам, не давай мне вычитывать
+        # ответы»); выключить — его настройка inbox_guard: false. Клиент без удержания редактора: отправка ждёт grace-минуты
+        # в «отложенных», где её можно отменить
+        merged["inbox_guard"] = True
     if merged is not None and merged.get("signature") in OLD_SIGNATURES:
         merged["signature"] = APPROVED_SIGNATURE
     if merged is not None and merged != st.get("cfg"):

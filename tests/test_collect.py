@@ -671,7 +671,7 @@ class Later(unittest.TestCase):
         hours = self.out[0].pop("hours")   # рабочие часы по умолчанию — подробно в test_hours
         self.assertEqual((hours["from"], hours["to"], hours["weekends"], hours["except"]), ("08:00", "20:00", False, []))
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
-                                  'inbox_guard':False,'inbox_protocol':{'version':1,'private_proposal':True,
+                                  'inbox_guard':True,'inbox_protocol':{'version':1,'private_proposal':True,
                                   'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True}}])
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
@@ -688,6 +688,23 @@ class Later(unittest.TestCase):
         kept = {"config_at": 9e12, "cfg": {"signature": "_Хаб (по просьбе Ивана)_", "autodraft": True}}
         main.settings(kept, Quiet(), self.out.append)   # сохранённая прежняя, поста настроек нет — тоже новая
         self.assertEqual(kept["cfg"]["signature"], main.APPROVED_SIGNATURE)
+
+    def test_automatic_inbox_sending_is_on_by_the_owners_word_unless_he_turns_it_off(self):
+        # 16.10 (m403281): «разговаривай сам и всё делай сам, не давай мне вычитывать ответы»
+        class Old:
+            settings = {"signature": "x", "autodraft": True}
+        class Off:
+            settings = {"signature": "x", "autodraft": True, "inbox_guard": False}
+        class Quiet:
+            settings = None
+        st = {"config_at": 9e12}
+        main.settings(st, Old(), self.out.append)
+        self.assertIs(st["cfg"]["inbox_guard"], True)
+        main.settings(st, Off(), self.out.append)
+        self.assertIs(st["cfg"]["inbox_guard"], False)              # выключил сам — так и остаётся
+        kept = {"config_at": 9e12, "cfg": {"signature": "x"}}
+        main.settings(kept, Quiet(), self.out.append)
+        self.assertIs(kept["cfg"]["inbox_guard"], True)
 
     def test_history_comes_in_parts_once_and_never_from_a_replayed_journal(self):
         import time
