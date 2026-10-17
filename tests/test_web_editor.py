@@ -9,6 +9,25 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_open_conversation_has_reply_without_opening_keyboard_or_holding_editor(self):
+        self.seed_inbox(start_editing=False,open_editor=False)
+        got=self.page({"eval":"({reply:!!document.querySelector('.tm-shared-compose .composer textarea'),focused:document.activeElement.tagName,extra:!!document.querySelector('[aria-label=\"Ответить: Review colleague\"]')})"})[-1]["eval"]
+        self.assertTrue(got["reply"],got);self.assertNotEqual(got["focused"],"TEXTAREA",got);self.assertFalse(got["extra"],got)
+        self.assertFalse([e for e in self.spooled() if e['type']=='ext.post'])
+        self.edit("Preserved while browsing");self.acknowledge(self.queued("draft_control"))
+        self.page({"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],"Preserved while browsing")
+
+    def test_initial_plain_draft_is_selected_without_claiming_editor(self):
+        self.seed_inbox(start_editing=False)
+        post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.page({"click":"Close editor"})
+        self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply")
+        self.page({"wait":"Suggested exact reply"},{"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
+        got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
+        self.assertEqual(got,{"text":"Suggested exact reply","start":0,"end":21},got)
+        self.assertFalse([e for e in self.spooled() if e['type']=='ext.post'])
+
     def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
         self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Keep this Inbox reply")
         for mid,name in (("sent-one","Sent colleague"),("archived-one","Archived colleague"),("failed-one","Failed colleague"),("later-one","Scheduled colleague")):
@@ -194,7 +213,7 @@ class InboxWebAcceptance(PageInChrome):
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 
-    def seed_inbox(self, start_editing=True):
+    def seed_inbox(self, start_editing=True, open_editor=True):
         cfg = Path(self.state) / "inbox.json"
         cfg.write_text(json.dumps({"extensions": {"teams": {"path": str(Path(__file__).resolve().parents[1]), "web": "web/main.js"}}}))
         env = mock.patch.dict(os.environ, {"HUB_CONFIG": str(cfg)}); env.start(); self.addCleanup(env.stop)
@@ -205,8 +224,9 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
                    "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
-                  {"eval": "document.querySelector('.tm-person').click();true"},
-                  {"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();true"})
+                  {"eval": "document.querySelector('.tm-person').click();true"})
+        if open_editor:
+            self.page({"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]')?.click();true"})
 
         if start_editing:
             self.edit("")
