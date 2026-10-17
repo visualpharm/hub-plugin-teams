@@ -53,12 +53,13 @@ function savedDraft(m) {
   try {
     const value=JSON.parse(localStorage.getItem(key) || "null");
     if (value && typeof value.text==="string" && (value.pendingRid==null || typeof value.pendingRid==="string")) {
+      value.files=Array.isArray(value.files) ? value.files.filter(f=>f && typeof f.path==="string") : [];
       editorDrafts.set(key,value);return value;
     }
   } catch { /* A blocked store never prevents typing in the current page. */ }
 }
-function saveDraft(m,text,pendingRid=null) {
-  const key=draftKey(m),value={text,pendingRid};editorDrafts.set(key,value);
+function saveDraft(m,text,pendingRid=null,files=savedDraft(m)?.files || []) {
+  const key=draftKey(m),value={text,pendingRid,files};editorDrafts.set(key,value);
   try { localStorage.setItem(key,JSON.stringify(value));return true; } catch { return false; }
 }
 function acceptDraft(m,rid) {
@@ -67,13 +68,14 @@ function acceptDraft(m,rid) {
   try { localStorage.removeItem(key); } catch { /* Keep the accepted tombstone in this page. */ }
   editorDrafts.set(key,undefined);return true;
 }
-const hasOwnerDraft=m=>!!savedDraft(m)?.text.trim() && !savedDraft(m).pendingRid;
+const hasOwnerDraft=m=>!!(savedDraft(m)?.text.trim() || savedDraft(m)?.files?.length || composing.get(m?.id)?.uploading) && !savedDraft(m)?.pendingRid;
 let inboxProtocol = null;
 let historyAvailable = false;
 const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
 // A collector capability is not a token for every source. Explicit tokens stay
 // guarded; Teams and unknown sources fail closed when CAS is advertised.
 const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_REPLIES.includes(m?.src);
+const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
 const histories = new Map();
 function historyState(id) {
   if (!histories.has(id)) histories.set(id,{items:null,parts:new Map(),loading:false,error:"",more:false,revealed:false,before:null});
@@ -252,7 +254,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) hidden.delete(id);
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
@@ -260,7 +262,7 @@ async function sync() {
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
         const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
         acceptDraft(msgs.get(d.id),d.rid);
-        if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); }
+        if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:"",files:[]}); composing.delete(d.id); }
       }
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
@@ -728,7 +730,7 @@ function openCompose(m, text, why = "", focus = true) {
   }
   const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
   if (state) editorStates.set(m.id, state);
-  const st = { text, why, state, suggested };
+  const st = { text, why, state, suggested, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
   composing.set(m.id, st);
   if (focus) focusId = m.id;
   paint();
@@ -776,9 +778,9 @@ function sharedReply(m, st) {
     options.addEventListener("focusout",e=>{if(e.relatedTarget && !options.contains(e.relatedTarget))options.open=false;});
     const discard=st.discard=button("","quiet tm-discard",()=>{
       if(st.state?.control || st.state?.delivery)return;
-      st.text="";st.suggested=false;st.why="";st.error="";saveDraft(m,"");
+      st.text="";st.files=[];st.suggested=false;st.why="";st.error="";saveDraft(m,"",null,[]);
       if(st.state){st.state.edit("");st.state.proposal=null;}
-      st.box.set({text:""});paint();
+      st.box.set({text:"",files:[]});paint();
     },"Discard draft");
     discard.append(nativeIcon("trash"));
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
@@ -797,20 +799,26 @@ function sharedReply(m, st) {
       st.proposal = el("div", "tm-proposal");
       details.append(summary, directive, revise); optionsBody.append(details); wrap.append(st.proposal);
     }
-    const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
-      label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
+    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: m.from || "recipient", text: st.text,
+      label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: acceptsFiles(m), maxLength: 1500,
       leading: hub.capabilities?.composerActions ? ()=>discard : undefined,
       sentLabel: "Queued. Waiting for delivery confirmation.",
-      onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!text.trim(); if (!saveDraft(m,text)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
+      onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!(text.trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
+      onFilesChange({files,text,uploading}) {
+        st.files=files;st.uploading=uploading;st.text=text;st.suggested=false;
+        st.discard.hidden=!(text.trim() || files.length || uploading);
+        if (!saveDraft(m,text,null,files)) st.error="This browser could not save the draft. Keep this page open.";
+      },
       async send({ text, attachments }) {
-        if (attachments?.length) return { error: "This destination accepts text only." };
+        if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
+        if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
         const revision=st.state?.revision;
         beginEditing(m, st);
         let q;
         if (guardedReply(msgs.get(m.id)) && !st.state) return { error: "Reopen this editor using the current conversation." };
-        try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
+        try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) }); }
         catch (e) {
           // The shared composer restores the attempted reply before any text typed while waiting.
           // Persist that same recovery, so a reload cannot lose either unsent edit.
@@ -818,16 +826,17 @@ function sharedReply(m, st) {
           saveDraft(m,st.text);st.state?.edit(st.text);
           return { error: e.message };
         }
-        st.text = text; if (!saveDraft(m,text,q.rid)) st.error="This browser could not save the draft. Keep this page open.";
-        sends.set(q.rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
+        st.text = text; st.files=attachments || []; if (!saveDraft(m,text,q.rid,st.files)) st.error="This browser could not save the draft. Keep this page open.";
+        sends.set(q.rid, { id: m.id, text, files: q.files, ts: Date.now() / 1000, state: "wait" });
         if (!(await mark(q.kind, q))) {
           sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
           return { error: "Submission is awaiting confirmation. Your draft is retained." };
         }
         paint(); return {};
       },
-      onSent() { if (composing.get(m.id) === st) box.set({text:st.text}); },
+      onSent() { if (composing.get(m.id) === st) box.set({text:st.text,...(!st.uploading ? {files:st.files} : {})}); },
     });
+    if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
     const close = button("Close editor", "quiet", () => {
@@ -839,7 +848,7 @@ function sharedReply(m, st) {
   }
   st.box.set({});
   const state = st.state, p = state?.proposal;
-  st.discard.hidden=!st.text.trim();st.discard.disabled=!!(state?.control || state?.delivery);
+  st.discard.hidden=!(st.text.trim() || st.files?.length || st.uploading);st.discard.disabled=!!(state?.control || state?.delivery);
   if (st.proposal) {
     st.proposal.dataset.rid = p?.rid || "";
     const sig = JSON.stringify([p, state.revision]);
@@ -943,6 +952,10 @@ function sentBlock(m, rid, x) {
   const by = el("div", "tm-draft-by", x.mine ? "Вы · " : "Хаб · ");   // автоответ разбора — не слова владельца
   by.append(stamp(x.ts), ` · ${stateText}`);
   d.append(by, el("div", "tm-draft-text", x.text));
+  for (const f of x.files || []) {
+    const path=typeof f==="string" ? f : f?.path, url=path && mediaURL(path);
+    if (url) { const a=el("a","tm-sent-file",path.split("/").pop());a.href=url;a.target="_blank";a.rel="noopener";d.append(a); }
+  }
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
     const a = el("div", "tm-acts");
     a.append(button("Повторить", "", () => openCompose(m, x.text), `Повторить ответ: ${m.from}`));

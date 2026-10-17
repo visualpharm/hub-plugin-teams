@@ -178,3 +178,7 @@ Inbox defaults to importance, using the highest-ranked open message in each exac
 
 ### 2026-10-17 — Быстрое сообщение хабу из Inbox
 Молния открывает общее поле хаба, не меняя переписку и её ответ. Собственный текст сохраняется по хабу в localStorage, закрытие/перезагрузка не отправляют его. Только принятая отправка очищает этот текст; отказ оставляет диалог и текст. Активную запись нельзя скрыть закрытием. Сценарии проверяют точного адресата, одну отправку, независимость двух черновиков, отказ и Escape;3 затронутых16.11s, финальные2 —9.91s. Четыре кадра360/402/834/1240 с проверкой фактической темы просмотрены. Исправление общего поля b04ed1f нужно для переноса уже введённого текста при сужении. Полная визуальная идентичность маленькому окну Mac ещё открыта; первый проход реализует действие и сохранность данных.
+
+
+### 2026-10-17 — Web Inbox file replies use the existing source transport
+Enable attachments only for modern WhatsApp, Telegram and email messages without an explicit guarded token, and only when the core advertises composerFiles. Teams/CAS remains text-only; collector code and file-path containment checks are unchanged. Uploaded metadata is saved with the exact origin/source/conversation/message draft until a matching receipt, and the shared input uses that identity rather than only message id. Refusals retain the caption and exact file; file-only replies work, and Discard clears both. Synthetic raw uploads, three sources, reload, cross-source isolation, late refusal/retry and discard are checked before publication.
