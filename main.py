@@ -180,6 +180,8 @@ class Choice:
                     isinstance(body.get("text"), str) and body["text"] or files):
                 q = {k: body[k] for k in ("id", "rid", "at") if isinstance(body.get(k), str)}
                 q["text"] = body["text"] if isinstance(body.get("text"), str) else ""
+                if ev.get("ts"):
+                    q["ts"] = ev["ts"]   # повтор rid отвечаем итогом только на свежую просьбу (reply_outcome)
                 if not from_owner(d):
                     q['automatic'] = True
                 if isinstance(body.get('inbox'), dict):
@@ -204,7 +206,7 @@ class Choice:
                 self.sends.append({"reopen": body["post"], "corrects": body["corrects"]})
         elif isinstance(body, dict) and body.get("kind") == "react":
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid", "emoji")) and len(body["emoji"]) <= 16:
-                self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"],
+                self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"], **({"ts": ev["ts"]} if ev.get("ts") else {}),
                                    **({"reply_to": body["msg"][:200]} if isinstance(body.get("msg"), str) and body["msg"] else {})})
         elif isinstance(body, dict) and body.get("kind") == "cancel" and isinstance(body.get("rid"), str):
             self.sends.append({"cancel": body["rid"],**({'editor':body['editor']} if isinstance(body.get('editor'),str) else {})})
@@ -1036,6 +1038,8 @@ def send_replies(st, reader, queue, put=post, now=None):
             if q.get('inbox') is not None or q.get('automatic'):
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
+            elif time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # старая просьба из перечитанного журнала — молча
+                put(reply_outcome(st, q))
             continue
         if q["rid"] in later:
             continue
@@ -1251,13 +1255,36 @@ def history(st, reader, q, put=post, now=None):
              "more": len(items) >= limit and not search})   # страница полная — старше, возможно, ещё есть
 
 
+def reply_outcome(st, q):
+    """Повтор того же rid обычного ответа (клиент не получил итога): прежний итог; ждёт своего часа — «отложено»;
+    оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10, codex m458240)."""
+    held = (st.get("later") or {}).get(q["rid"])
+    if held:
+        return {"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at")}
+    o = (st.get("reply_out") or {}).get(q["rid"]) or {}
+    if o.get("event"):
+        return o["event"]
+    return {"kind": "react_failed" if q.get("react") else "send_failed", "id": q["id"], "rid": q["rid"],
+            "error": UNKNOWN_OUTCOME, "unresolved": True}
+
+
 def send_one(st, reader, q, put=post, now=None):
     if not q.get('react') and (q.get('automatic') or q.get('inbox') is not None or (st.get('cfg') or {}).get('inbox_guard')):
         return send_guarded(st,reader,q,put,now)
-    done = st.setdefault("sent_rids", [])
+    done, outs = st.setdefault("sent_rids", []), st.setdefault("reply_out", {})
     done.append(q["rid"])
     del done[:-500]
+    outs[q["rid"]] = {"state": "pending", "id": q["id"]}
+    for k in list(outs)[:-500]:
+        del outs[k]
     save(st)
+    _put = put
+
+    def put(event):   # итог rid помним до того, как его увидит клиент: повтор получит тот же
+        if event.get("rid") == q["rid"] and event.get("kind") != "scheduled":
+            outs[q["rid"]] = {"state": "done", "id": q["id"], "event": event}
+            save(st)
+        _put(event)
 
     emoji = q.get("react")
     try:
