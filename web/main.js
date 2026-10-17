@@ -13,6 +13,7 @@ import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
 import { messageMenus } from "./message-menu.js";
 import { conversationPins } from "./conversation-pins.js";
+import { localReadState } from "./read-state.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -29,8 +30,7 @@ const msgs = new Map();      // id → сообщение (+ post — номер
 const seen = new Set();
 try { for (const id of JSON.parse(localStorage.getItem("hub.inbox.seen") || "[]")) if (typeof id === "string") seen.add(id); } catch { /* private browsing */ }
 function see(group) {
-  for (const m of group) seen.add(m.id);
-  try { localStorage.setItem("hub.inbox.seen", JSON.stringify([...seen].slice(-2000))); } catch { /* session state still works */ }
+  reads.set(group,false);
 }
 const answered = new Set();
 const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
@@ -463,6 +463,7 @@ function action(text, name, fn, label) {
 const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
 const pins = conversationPins(hubName);
 const pinKey = m => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, conversationKey(m)]);
+const reads = localReadState(hubName, m=>JSON.stringify([pinKey(m),m.id]), seen);
 function conversationOptions(m) {
   const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
@@ -477,7 +478,16 @@ function conversationOptions(m) {
     [...ui.root.querySelectorAll('.tm-conversation-options')].find(n => n.checkVisibility() && n.dataset.optionKey === menu.dataset.optionKey)?.querySelector('summary')?.focus();
   });
   toggle.dataset.action = "pin-conversation";
-  body.append(toggle); menu.append(summary, body);
+  const unread = button("Mark unread", "quiet", () => {
+    const group = [...msgs.values()].filter(message=>pinKey(message)===id);
+    if (!reads.set(group,true)) { error="Could not save unread state. Your draft is retained."; menu.open=false;paint();return; }
+    if(error==="Could not save unread state. Your draft is retained.")error="";
+    if(dmPerson===conversationKey(m))dmPerson=null;
+    menu.open=false;paint();
+    [...ui.root.querySelectorAll('.tm-person')].find(row=>row.dataset.conversation===conversationKey(m))?.focus();
+  });
+  unread.dataset.action="mark-unread";
+  body.append(toggle,unread); menu.append(summary, body);
   menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
   menu.addEventListener('focusout',e=>{if(e.relatedTarget && !menu.contains(e.relatedTarget))menu.open=false;});
   return menu;
@@ -628,6 +638,7 @@ function personRow(key, group) {
   const name = latest.from || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
+  row.dataset.conversation=key;
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
   if (pins.has(pinKey(latest))) {
@@ -635,7 +646,7 @@ function personRow(key, group) {
     pin.removeAttribute("aria-hidden"); pin.setAttribute("role", "img"); pin.setAttribute("aria-label", "Pinned"); head.append(pin);
   }
   head.append(stamp(secs(latest.at)));
-  if (!seen.has(latest.id) && latest.unread !== false && latest.unread !== 0) {
+  if (reads.isUnread(latest)) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
   }
   row.append(head);
@@ -1252,7 +1263,7 @@ function paint() {
     const state = optionStates.find(s=>s.key===options.dataset.optionKey);
     if (!state) continue;
     options.open = state.open;
-    if (state.focus) options.querySelector(state.focus === 'summary' ? 'summary' : '[data-action="pin-conversation"]')?.focus();
+    if (state.focus) options.querySelector(state.focus === 'summary' ? 'summary' : `[data-action="${CSS.escape(state.focus)}"]`)?.focus();
   }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
@@ -1571,7 +1582,7 @@ function registerView() {
 export default function register(h) {
   hub = h;
   newComposer = newMessage(h);
-  window.addEventListener('storage',e=>{if(e.key===null || e.key==='hub.inbox.pinned.v1:'+hubName())paint();});
+  window.addEventListener('storage',e=>{if(e.key===null || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки

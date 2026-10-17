@@ -119,3 +119,12 @@ a cache keyed only by Hub silently loses changes made in another already-open ta
 Use the storage event to refresh visible state, preserving the current draft.
 Shared menu styling does not justify reusing an editor-specific selector on an
 unrelated conversation control: give each control its own semantic class.
+
+
+### Local unread is a reminder, not a provider action
+Do not implement Mark unread by deleting a seen ID alone: a provider unread=false
+flag would immediately hide the reminder. Store an explicit local override using
+exact Hub/source/conversation/message identity. Opening sets a local read override
+without sending any provider action. Copy the cached Map before a write: a refused
+setItem must not mutate the visible reminder. Keep draft storage independent and
+return focus to the exact conversation row after marking unread.
