@@ -57,6 +57,19 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'tapSelector':'.tm-new-trigger'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-new-text').value"})[-1]['eval'],'Keep current draft')
 
+    def test_new_message_collector_uncertainty_never_becomes_a_new_delivery(self):
+        self.prepare_new_message()
+        self.page({'tapSelector':'.tm-new-send'},{'sleep':100});q=self.queued('send_new')
+        self.feed({'kind':'send_failed','rid':q['rid'],'to':q['to'],'unresolved':True,'error':'Synthetic unknown provider outcome'})
+        got=self.page({'until':"document.querySelector('.tm-new-status').textContent.includes('Synthetic unknown')"});self.assertTrue(got[-1]['until'],got)
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-new-chosen button').disabled"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-new-send'},{'sleep':100})
+        self.assertEqual(self.queued('send_new'),q)
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"!!document.querySelector('.tm-new-trigger')"},{'tapSelector':'.tm-new-trigger'},
+          {'tapSelector':'.tm-new-send'},{'sleep':100})
+        self.assertEqual(self.queued('send_new'),q)
+
     def test_new_message_missing_receipt_watchdog_retries_only_original(self):
         self.prepare_new_message()
         self.page({'eval':"window.__timeout=window.setTimeout;window.setTimeout=(f,ms,...a)=>{if(ms===30000){window.__watchdog=f;return 0}return __timeout(f,ms,...a)};true"},
@@ -149,6 +162,73 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':"!document.querySelector('.tm-new[open]')"});self.assertTrue(got[-1]['until'],got)
         self.page({'tapSelector':'.tm-person'},{'until':"!!document.querySelector('.tm-shared-compose textarea')"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Existing conversation draft')
+
+    def test_scheduled_cancel_waits_for_exact_receipt_and_keeps_newer_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Original scheduled reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        q=self.queued('send')
+        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
+        got=self.page({'until':"!!document.querySelector('.tm-unschedule')"});self.assertTrue(got[-1]['until'],got)
+        self.edit('Newer separate reply')
+        self.page({'tapSelector':'.tm-unschedule'},{'sleep':100})
+        cancel=self.queued('cancel');self.assertEqual(cancel['rid'],q['rid']);self.assertEqual(cancel['id'],q['id'])
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-mine-later') && document.querySelector('.tm-unschedule').disabled"})[-1]['eval'])
+        self.feed({'kind':'canceled','id':'wrong-source','rid':q['rid']})
+        self.page({'sleep':100});self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-mine-later')"})[-1]['eval'])
+        self.feed({'kind':'canceled','id':q['id'],'rid':q['rid']})
+        got=self.page({'until':"!document.querySelector('.tm-mine-later')"});self.assertTrue(got[-1]['until'],got)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer separate reply')
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer separate reply')
+        self.assertEqual(self.non_history_actions(),[])
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});new=self.queued('send')
+        self.page(
+          {'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertEqual(self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.v1:')&&k.includes('external-telegram')).map(k=>JSON.parse(localStorage.getItem(k)).pendingRid)"})[-1]['eval'],[new['rid']])
+        self.feed({'kind':'sent','id':new['id'],'rid':new['rid']})
+        got=self.page({'until':"!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose textarea')"});self.assertTrue(got[-1]['until'],got)
+
+    def test_scheduled_cancel_preserves_collector_editor_hold(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Guarded scheduled reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
+        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
+        self.page({'until':"!!document.querySelector('.tm-unschedule')"},{'tapSelector':'.tm-unschedule'},{'sleep':100})
+        cancel=self.queued('cancel');self.assertEqual(cancel['editor'],q['editor'])
+        token={**self.token,'edit_version':self.token['edit_version']+1}
+        self.feed({'kind':'draft_state','id':q['id'],'rid':q['rid'],'inbox':token})
+        self.feed({'kind':'canceled','id':q['id'],'rid':q['rid']})
+        got=self.page({'until':"!document.querySelector('.tm-mine-later')"});self.assertTrue(got[-1]['until'],got)
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        retry=self.queued('send');self.assertEqual(retry['inbox'],token);self.assertEqual(retry['editor'],q['editor'])
+        self.assertEqual(retry['text'],q['text']);self.assertNotEqual(retry['rid'],q['rid'])
+
+    def test_scheduled_cancel_recovers_original_reply_after_refused_request(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('whatsapp');self.edit('Keep scheduled reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
+        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
+        got=self.page({'until':"!!document.querySelector('.tm-unschedule')"});self.assertTrue(got[-1]['until'],got)
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for width,theme in ((402,'light'),(1240,'dark')):
+                got=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'unschedule-{theme}-{width}.png'),'width':width,'height':874},
+                  {'eval':"({theme:getComputedStyle(document.documentElement).colorScheme,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]['eval']
+                self.assertEqual(got,{'theme':theme,'overflow':0})
+        self.page({'eval':"window.__fetch=window.fetch;window.fetch=async(url,opts)=>{if(String(url).endsWith('/api/feed/post')&&JSON.parse(opts?.body||'{}').text?.includes('cancel'))return new Response(JSON.stringify({error:'Synthetic cancel refusal'}),{status:503});return __fetch(url,opts)};true"},
+          {'tapSelector':'.tm-unschedule'},{'until':"!!document.querySelector('.tm-cancel-error')"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-mine-later') && !document.querySelector('.tm-unschedule').disabled"})[-1]['eval'])
+        self.page({'eval':'window.fetch=__fetch;true'},{'tapSelector':'.tm-unschedule'},{'sleep':100})
+        self.assertEqual(self.queued('cancel')['rid'],q['rid'])
+        self.feed({'kind':'canceled','id':q['id'],'rid':q['rid']})
+        self.page({'until':"!document.querySelector('.tm-mine-later')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep scheduled reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        retry=self.queued('send');self.assertNotEqual(retry['rid'],q['rid']);self.assertEqual(retry['text'],q['text']);self.assertEqual(retry['id'],q['id'])
 
     def test_scheduled_hub_reply_keeps_text_time_and_distinct_owner_attribution(self):
         self.seed_inbox(start_editing=False)

@@ -146,6 +146,11 @@ export function newMessage(hub) {
       s.errors = Object.entries(d.errors || {}).map(([name,error]) => `${name}: ${error}`).join(" · "); draw(s);
     }
     if (!["sent","send_failed"].includes(d.kind) || !s.pending || d.rid !== s.pending.rid || d.to !== s.pending.to) return;
+    if (d.kind === "send_failed" && d.unresolved === true) {
+      clearTimeout(s.sendTimer); s.uncertain = true;
+      s.status = d.error || T("Итог отправки неизвестен. Проверьте переписку.", "Delivery outcome is unknown. Check the conversation.");
+      save(s); draw(s); return;
+    }
     const p = s.pending, same = s.to?.to === p.to && s.text === p.text && (p.subject || "") === (s.to?.src === "email" ? s.subject : "");
     clearTimeout(s.sendTimer);
     s.pending = null; s.uncertain = false;

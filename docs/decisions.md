@@ -194,3 +194,7 @@ Use the existing contacts/send_new collector contract, preserving its opaque rec
 
 ### 2026-10-17 — Interrupted new-message delivery stays bound to its original payload
 Hostile source review exposed two reproduced browser failures: a never-settling send stayed disabled after reload, and Enter in contact search submitted the form. Recovery now reuses the original rid, locks the recipient until a receipt, and displays the original message when retrying; later edits are retained. Missing receipts time out to explicit recovery, without automatic sends. Storage failures are visible and search results are announced. The collector reservation-without-outcome crash case is owned separately; web does not invent successful delivery.
+
+
+### 2026-10-17 — Unschedule and uncertain delivery receipts
+The web exposes native Unschedule for deferred replies and waits for the exact collector receipt. Newer unsent text survives cancellation and reload; the guarded editor resumes with the collector-provided hold token. Wrong-source receipts do nothing. Unknown new-message outcomes from the collector remain pending and can only replay the original id; they never become an automatic new attempt. Provider and collector code are unchanged in this slice.
