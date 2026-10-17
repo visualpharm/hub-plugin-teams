@@ -190,3 +190,7 @@ The Inbox QuickSend dialog persists uploaded metadata beside its origin/Hub-scop
 
 ### 2026-10-17 — Native New message on the web
 Use the existing contacts/send_new collector contract, preserving its opaque recipient key and rid. Search responses bind to exact query/rid; user content is text, never HTML. New-message draft is origin+Hub scoped and survives close/reload, separately from replies and QuickSend. A collector refusal permits a new explicit attempt; unknown HTTP acknowledgement retries the SAME id, never invents delivery. Exact rid+recipient receipt closes only the unchanged sent draft, retaining newer edits. Actual synthetic browser checks cover email subject, source selection, refusal/reload/retry, stale search/receipt, duplicate submit, unknown acknowledgement, Escape and four rendered widths/themes. Collector/provider code is unchanged.
+
+
+### 2026-10-17 — Interrupted new-message delivery stays bound to its original payload
+Hostile source review exposed two reproduced browser failures: a never-settling send stayed disabled after reload, and Enter in contact search submitted the form. Recovery now reuses the original rid, locks the recipient until a receipt, and displays the original message when retrying; later edits are retained. Missing receipts time out to explicit recovery, without automatic sends. Storage failures are visible and search results are announced. The collector reservation-without-outcome crash case is owned separately; web does not invent successful delivery.

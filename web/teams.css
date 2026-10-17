@@ -331,6 +331,9 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-new-contact { display: block; width: 100%; text-align: left; min-height: 44px; overflow-wrap: anywhere; }
 .tm-new-send { justify-self: end; }
 .tm-new-status { margin: 0; overflow-wrap: anywhere; }
+.tm-new-pending { padding: 12px; border: 1px solid var(--border); border-radius: 8px; overflow-wrap: anywhere; }
+.tm-new-pending p { margin: 8px 0 0; white-space: pre-wrap; }
+.tm-new-storage { margin: 0; }
 .tm-new-trigger, .tm-new-close { min-width: 44px; min-height: 44px; padding: 10px; }
 .tm-new-trigger .icon { width: 24px; height: 24px; }
 @media (max-width: 479px) { .tm-new-field { grid-template-columns: minmax(0,1fr); gap: 4px; } .tm-new-field > span { padding-block: 0; } }

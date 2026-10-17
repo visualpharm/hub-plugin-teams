@@ -59,3 +59,7 @@ row, so retaining an old row wholesale loses text. Refresh its non-media childre
 and retain only the identical media subtree. The pinned native fixture with a
 valid synthetic MP4 proves playback, pause and audio continuity during an unrelated
 incoming message; the normal plugin gate also checks node identity and retained text.
+
+
+### New-message interrupted delivery
+A pending POST restored after reload is uncertain, not permanently sending. Keep its original rid, recipient and payload; lock recipient switching and show the original message beside an explicitly labelled retry. Text edited meanwhile remains a separate draft. A 30s receipt watchdog offers the same recovery without automatic submission. Search Enter must search rather than implicitly submit the form. Failed browser storage must be visible, and contact results need live announcements and an explicit control relationship. Hostile-review findings were reproduced with real synthetic browser interactions before repair; no provider calls.
