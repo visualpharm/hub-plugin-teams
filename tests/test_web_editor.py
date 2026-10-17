@@ -96,6 +96,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.page({'key':'Enter'})
         self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
+        self.page({'key':'Enter'},{'eval':"const menu=document.activeElement.closest('.tm-conversation-options');menu.querySelector('[data-action=mark-unread]').focus();true"},{'key':'Enter'})
+        self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_mark_unread_persists_reminder_and_draft_without_provider_action(self):
@@ -124,6 +126,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"window.__saveRead=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.read.'))throw Error('quota');return window.__saveRead.call(this,k,v)};true"},
           {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
         self.assertTrue(self.page({'eval':"document.body.innerText.includes('Could not save unread state')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Never discard this reminder draft')
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
         self.page({'eval':'Storage.prototype.setItem=window.__saveRead;true'},
