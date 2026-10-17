@@ -468,6 +468,8 @@ function conversationOptions(m) {
   const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
   menu.dataset.optionKey = JSON.stringify([id,m.id]);
+  const focusMenu = () => [...ui.root.querySelectorAll('.tm-conversation-options')]
+    .find(n=>n.checkVisibility() && n.dataset.optionKey===menu.dataset.optionKey)?.querySelector('summary')?.focus();
   const summary = el("summary", "btn quiet");
   summary.setAttribute("aria-label", "Conversation options"); summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
@@ -475,16 +477,17 @@ function conversationOptions(m) {
     if (!pins.toggle(id)) { error = "Could not save the pin. Try again."; }
     else if (error === "Could not save the pin. Try again.") error = "";
     menu.open = false; paint();
-    [...ui.root.querySelectorAll('.tm-conversation-options')].find(n => n.checkVisibility() && n.dataset.optionKey === menu.dataset.optionKey)?.querySelector('summary')?.focus();
+    focusMenu();
   });
   toggle.dataset.action = "pin-conversation";
   const unread = button("Mark unread", "quiet", () => {
     const group = [...msgs.values()].filter(message=>pinKey(message)===id);
-    if (!reads.set(group,true)) { error="Could not save unread state. Your draft is retained."; menu.open=false;paint();return; }
+    if (!reads.set(group,true)) { error="Could not save unread state. Your draft is retained."; menu.open=false;paint();focusMenu();return; }
     if(error==="Could not save unread state. Your draft is retained.")error="";
     if(dmPerson===conversationKey(m))dmPerson=null;
     menu.open=false;paint();
-    [...ui.root.querySelectorAll('.tm-person')].find(row=>row.dataset.conversation===conversationKey(m))?.focus();
+    const row=[...ui.root.querySelectorAll('.tm-person')].find(row=>row.checkVisibility() && row.dataset.conversation===conversationKey(m));
+    if(row)row.focus();else focusMenu();
   });
   unread.dataset.action="mark-unread";
   body.append(toggle,unread); menu.append(summary, body);

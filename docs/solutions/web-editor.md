@@ -128,3 +128,8 @@ exact Hub/source/conversation/message identity. Opening sets a local read overri
 without sending any provider action. Copy the cached Map before a write: a refused
 setItem must not mutate the visible reminder. Keep draft storage independent and
 return focus to the exact conversation row after marking unread.
+
+Unread failure and flat-card actions restore focus to the same visible menu
+summary. After a failed storage write, rendering a closed menu cannot focus its
+now-hidden action; an explicit summary target is required. A grouped reminder
+returns focus to its exact conversation row instead.
