@@ -75,10 +75,10 @@ export class InboxEditor {
     if (d.kind === "sent" && same(d.submitted_inbox, this.delivery.token) && d.receipt?.id) {
       this.delivery.state = "sent"; this.text = ""; this.token = d.inbox; return true;
     }
-    if (["send_blocked", "send_failed"].includes(d.kind)) {
+    if (["send_blocked", "send_failed"].includes(d.kind) && !d.unresolved) {
       this.delivery = null; this.error = d.error || "The reply was not sent."; return true;
     }
-    if (["send_uncertain", "send_duplicate", "scheduled"].includes(d.kind)) {
+    if (["send_uncertain", "send_duplicate", "scheduled"].includes(d.kind) || d.kind==="send_failed" && d.unresolved) {
       this.delivery.state = d.kind === "scheduled" ? "scheduled" : "unresolved";
       this.error = d.error || "Delivery is awaiting confirmation. The draft is retained."; return true;
     }

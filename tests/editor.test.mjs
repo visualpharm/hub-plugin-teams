@@ -34,6 +34,10 @@ assert.equal(accepted.receive({kind:'sent',id:'source',rid:'send',submitted_inbo
 assert.equal(accepted.receive({kind:'send_uncertain',id:'source',rid:'send',error:'Unresolved'}),true);
 assert.throws(()=>accepted.send('send2','Again'),/Unresolved/);
 assert.equal(accepted.text,'Could we meet at 11?');
+const uncertain=start();confirm(uncertain);uncertain.send('unknown','Exact reply');
+assert.equal(uncertain.receive({kind:'send_failed',id:'source',rid:'unknown',unresolved:true,error:'Unknown delivery'}),true);
+assert.equal(uncertain.delivery?.state,'unresolved');
+assert.throws(()=>uncertain.send('new-request','Exact reply'),/Unknown delivery/);
 const done=start();const version=confirm(done);done.send('send','Owner reply');
 assert.equal(done.receive({kind:'sent',id:'source',rid:'send',submitted_inbox:{...version,version:'other'},receipt:{id:'id'}}),false);
 assert.equal(done.receive({kind:'sent',id:'source',rid:'send',submitted_inbox:version,inbox:{...version,held:false},receipt:{id:'real-id'}}),true);
