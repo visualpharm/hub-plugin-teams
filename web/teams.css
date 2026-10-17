@@ -164,8 +164,12 @@
 .tm-line.tm-own { align-items: flex-end; }
 .tm-line.tm-own > .tm-text { background: var(--primary); color: var(--primary-foreground); }
 .tm-line.tm-own > .tm-text a, .tm-line.tm-own > .tm-text a * { color: inherit; }
-.tm-guidance { flex: none; }
-.tm-earlier { flex: none; align-self: center; min-height: 44px; }
+.tm-guidance { flex: none; border-top: 1px solid var(--border); padding-top: 12px; color: var(--muted-foreground); }
+.tm-guidance strong { display: block; margin-bottom: 4px; }
+.tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
+.tm-detail .tm-divider { justify-content: center; }
+.tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
+.tm-message-time { padding-inline: 8px; color: var(--muted-foreground); font-size: var(--text-base); }
 .tm-history-error { margin: 0; color: var(--foreground); }
 .tm-detail .tm-history { flex: 1; }
 .tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
@@ -235,7 +239,14 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-close-conversation { left: var(--space-4); right: auto; width: 44px; padding: 0; }
 .tm-close-conversation .tm-native-icon { width: 24px; height: 24px; }
 .tm-icon-back { --tm-icon: url("icons/back.svg"); }
+.tm-icon-trash { --tm-icon: url("icons/trash.svg"); }
+.tm-narrow .tm-close-conversation { border-radius: 50%; background: var(--card); box-shadow: var(--shadow-lift); }
+.tm-detail .tm-head > .tm-link { color: var(--primary); border-radius: 22px; background: var(--muted); }
 .tm-conversation-source { text-align: center; color: var(--muted-foreground); }
+.tm-discard { color: var(--destructive, #d92d20); min-width: 44px; min-height: 44px; padding: 8px; }
+.tm-discard .tm-native-icon { width: 22px; height: 22px; }
+.tm-shared-compose .composer .send .icon { display: none; }
+.tm-shared-compose .composer .send::before { content: ""; width: 22px; height: 22px; background: currentColor; mask: url("icons/send-now.svg") center / contain no-repeat; }
 .tm-editor-options { position: relative; flex: none; }
 .tm-editor-options > summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; list-style: none; }
 .tm-editor-options > summary::-webkit-details-marker { display: none; }
