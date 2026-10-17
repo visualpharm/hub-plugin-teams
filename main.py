@@ -949,6 +949,9 @@ def send_replies(st, reader, queue, put=post, now=None):
     (hold). Модель всех исходов — hub-ios docs/send-model."""
     done = st.setdefault("sent_rids", [])
     later = st.setdefault("later", {})
+    if "rid_tombs" not in st:   # состояние до отпечатков: уже отправленные rid — тоже под защитой
+        for r in done:
+            tomb(st, r)
     for q in queue:
         if q.get('manage'):
             manage_inbox(st,q,put)
@@ -1031,10 +1034,13 @@ def send_replies(st, reader, queue, put=post, now=None):
                         put({'kind':'draft_state','id':held['id'],'rid':q['cancel'],
                              'inbox':token})
                 done.append(q["cancel"])
-                put({"kind": "canceled", "id": held["id"], "rid": q["cancel"]})
+                tomb(st, q["cancel"])
+                gone = {"kind": "canceled", "id": held["id"], "rid": q["cancel"]}
+                st.setdefault("reply_out", {})[q["cancel"]] = {"state": "done", "id": held["id"], "event": gone}
+                put(gone)
                 save(st)
             continue
-        if q["rid"] in done:
+        if q["rid"] in done or (q.get('inbox') is None and not q.get('automatic') and entombed(st, q["rid"])):
             if q.get('inbox') is not None or q.get('automatic'):
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
@@ -1157,7 +1163,7 @@ def send_new(st, reader, q, put=post, now=None):
     не уйдёт. Итог rid тоже помним (new_out): повтор того же rid (клиент не получил ответа) получает прежний итог, а
     оборванная посреди отправки — «итог неизвестен», без переотправки (17.10, ревью codex: повтор молчал навсегда)."""
     done, outs = st.setdefault("sent_rids", []), st.setdefault("new_out", {})
-    if q["rid"] in done:
+    if q["rid"] in done or entombed(st, q["rid"]):
         if (now or time.time()) - (q.get("ts") or 0) > HISTORY_FRESH:
             return   # старая просьба из перечитанного журнала: итог уже в ленте
         o = outs.get(q["rid"]) or {}
@@ -1170,6 +1176,7 @@ def send_new(st, reader, q, put=post, now=None):
         return
     done.append(q["rid"])
     del done[:-500]
+    tomb(st, q["rid"])
     outs[q["rid"]] = {"state": "pending", "to": q["send_new"]}
     for k in list(outs)[:-500]:
         del outs[k]
@@ -1255,6 +1262,17 @@ def history(st, reader, q, put=post, now=None):
              "more": len(items) >= limit and not search})   # страница полная — старше, возможно, ещё есть
 
 
+def tomb(st, rid):
+    """Отпечаток rid (12 знаков sha1) ушедшего к источнику — навсегда, без вытеснения (~15 байт на отправку): повтор
+    rid, выпавшего из sent_rids/reply_out (по 500), не уйдёт второй раз, а получит «итог неизвестен». Пишется в том же
+    save, что и pending-итог (17.10, codex m460182/m460350: любой потолок лишь откладывал повторную отправку)."""
+    st.setdefault("rid_tombs", []).append(hashlib.sha1(rid.encode()).hexdigest()[:12])
+
+
+def entombed(st, rid):
+    return hashlib.sha1(rid.encode()).hexdigest()[:12] in (st.get("rid_tombs") or ())
+
+
 def reply_outcome(st, q):
     """Повтор того же rid обычного ответа (клиент не получил итога): прежний итог; ждёт своего часа — «отложено»;
     оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10, codex m458240)."""
@@ -1274,6 +1292,7 @@ def send_one(st, reader, q, put=post, now=None):
     done, outs = st.setdefault("sent_rids", []), st.setdefault("reply_out", {})
     done.append(q["rid"])
     del done[:-500]
+    tomb(st, q["rid"])
     outs[q["rid"]] = {"state": "pending", "id": q["id"]}
     for k in list(outs)[:-500]:
         del outs[k]
