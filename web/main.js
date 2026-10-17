@@ -625,8 +625,6 @@ function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
     const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
-    const guidance = el("div", "tm-guidance", st.why || "");
-    if (st.why) wrap.append(guidance);
     if (st.state) {
       const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
@@ -731,7 +729,6 @@ function composer(m) {
   foot.append(go, button("Отмена", "quiet", () => { composing.delete(m.id); paint(); }),
     el("span", "tm-hint", `Уйдёт в ${SRC_FROM(m)} от вашего имени`));
   wrap.append(ta);
-  if (st.why) wrap.append(el("div", "tm-draft-why", `Почему: ${st.why}`));   // заметка хаба — рядом, не в поле и не в отправке
   wrap.append(foot);
   return wrap;
 }
@@ -889,6 +886,8 @@ function thread(ms) {   // ms — по возрастанию времени
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
   }
+  const guidance = composeFor && composing.get(composeFor.id)?.why;
+  if (guidance) box.append(el("div", "tm-guidance", guidance));
   const reactionTarget = ms.find(m=>m.id === reacting);
   box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
   if (composeFor) box.append(composer(composeFor));

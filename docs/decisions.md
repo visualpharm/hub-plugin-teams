@@ -137,3 +137,7 @@ Opening a reply-capable conversation requests its collector history without mark
 
 ## 2026-10-17 — Native conversation sorting
 Inbox defaults to importance, using the highest-ranked open message in each exact conversation and native verdict/urgency/risk weights; equal priority retains newest-first order. Time is an explicit persisted alternative. Rank-feed failure preserves the list and offers Retry. The sort menu reuses the native Icons8 asset, keeps 44px targets, dismisses with Escape/outside focus, and preserves folders/search/drafts. Verified174Python plus Node contracts and four rendered menu sizes. Ivan explicitly approved publishing these Inbox fixes to the existing public visualpharm/hub-plugin-teams fork; the verified branch through3655926 was pushed and remote SHA confirmed. The earlier hold is resolved for this destination.
+
+
+### 2026-10-17 — Чтение переписки как в нативном клиенте
+Короткая история прижата к действиям и полю ответа; длинная остаётся прокручиваемой, позиция чтения сохраняется. Пояснение черновика стоит перед действиями и не попадает в отправку. Ссылки исходящих пузырей наследуют контрастный цвет текста; файлы используют акцент хаба вместо браузерного синего/фиолетового подчёркивания. Две воспроизведённые визуальные регрессии, полный gate175Python+Node и три проверки после последней правки ссылок зелёные.

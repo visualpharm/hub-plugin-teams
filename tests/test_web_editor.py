@@ -9,6 +9,22 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_short_history_stacks_above_actions_and_own_links_stay_readable(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
+            {"id":"own-link","me":True,"at":"2026-01-01T12:00:00Z","text":"See https://example.test/meeting"}]})
+        self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"})
+        for width,theme in ((360,"light"),(402,"dark"),(1440,"light")):
+            got=self.page({"media":theme},{"viewport":{"width":width,"height":874}},
+                {"eval":"""(()=>{const h=document.querySelector('.tm-history'),last=h.lastElementChild,a=document.querySelector('.tm-own .tm-text a'),bubble=a.closest('.tm-text');return {
+                  gap:h.getBoundingClientRect().bottom-last.getBoundingClientRect().bottom,
+                  foreground:getComputedStyle(a).color,background:getComputedStyle(bubble).backgroundColor,
+                  overflow:document.documentElement.scrollWidth-innerWidth};})()"""})[-1]['eval']
+            self.assertLessEqual(got['gap'],2,got)
+            self.assertNotEqual(got['foreground'],got['background'],got)
+            self.assertEqual(got['overflow'],0,got)
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
     def test_native_sort_uses_highest_conversation_priority_and_persists_choice(self):
         self.seed_inbox(start_editing=False)
         self.page({"tapSelector":".tm-close-conversation"})
@@ -92,10 +108,12 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         self.page({"click":"Close editor"})
-        self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply")
+        self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply\n---\nWhy: Keep this explanation separate")
         self.page({"wait":"Suggested exact reply"},{"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
         got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
         self.assertEqual(got,{"text":"Suggested exact reply","start":0,"end":21},got)
+        order=self.page({"eval":"(()=>{const g=document.querySelector('.tm-guidance').getBoundingClientRect(),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();return {guide:g.bottom,actions:a.top,count:document.querySelectorAll('.tm-guidance').length}})()"})[-1]['eval']
+        self.assertLessEqual(order['guide'],order['actions'],order);self.assertEqual(order['count'],1)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
     def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
@@ -131,13 +149,15 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         self.feed({"kind":"msg", "id":"photo-a", "contact":"synthetic/media-a", "src":"whatsapp", "from":"Media colleague", "text":"[media]",
                    "at":datetime.now(timezone.utc).isoformat(), "reply":True, "media":[{"kind":"image","url":"api/file?path=photo.png","name":"Photo.png"},
-                    {"kind":"voice","url":"/api/file?path=voice.wav","text":"Voice transcript"}, {"kind":"file","url":"javascript:alert(1)","name":"Unavailable.pdf"}]})
+                    {"kind":"voice","url":"/api/file?path=voice.wav","text":"Voice transcript"}, {"kind":"file","url":"/api/file?path=review.pdf","name":"Review.pdf"}, {"kind":"file","url":"javascript:alert(1)","name":"Unavailable.pdf"}]})
         self.page({"tapSelector":".tm-close-conversation"}, {"until":"document.querySelectorAll('.tm-person').length===2"})
         got=self.page({"eval":"({thumb:!!document.querySelector('.tm-person img'),unread:document.querySelectorAll('.tm-person .tm-unread').length,raw:document.querySelector('.tm-list').textContent.includes('[media]')})"})[-1]["eval"]
         self.assertTrue(got["thumb"],got);self.assertEqual(got["unread"],1,got);self.assertFalse(got["raw"],got)
         self.page({"tapSelector":".tm-person:first-child"},{"until":"!!document.querySelector('.tm-media img')"})
         got=self.page({"eval":"({audio:document.querySelector('.tm-media audio')?.getAttribute('src'),unsafe:!!document.querySelector('[src^=\"javascript:\"],[href^=\"javascript:\"]'),unavailable:document.querySelector('.tm-media').textContent})"})[-1]["eval"]
         self.assertEqual(got["audio"],f"http://127.0.0.1:{self.port}/api/file?path=voice.wav");self.assertFalse(got["unsafe"]);self.assertIn("Unavailable.pdf",got["unavailable"])
+        link=self.page({"eval":"(()=>{const a=document.querySelector('.tm-media-file'),s=getComputedStyle(a);return {color:s.color,decoration:s.textDecorationLine}})()"})[-1]['eval']
+        self.assertEqual(link['color'],'rgb(10, 132, 255)',link);self.assertEqual(link['decoration'],'none',link)
         self.page({"tapSelector":".tm-media .tm-photo"},{"until":"!!document.querySelector('.lightbox:not([hidden])')"})
         self.assertFalse(self.page({"eval":"!!document.querySelector('.lightbox textarea')"})[-1]["eval"])
         self.page({"tapSelector":".lb-close"},{"tapSelector":".tm-close-conversation"})
