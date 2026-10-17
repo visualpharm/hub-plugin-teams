@@ -212,3 +212,7 @@ A different Hub suggestion exposed the legacy Send action after closing the shar
 
 ### 2026-10-17 — Suggested reply acknowledgment loss preserves uncertainty
 The legacy suggested-reply path now retains an unresolved delivery after a failed web acknowledgment, consistent with the shared composer. A request may already have reached the collector; only its receipt can establish delivery or definitive refusal. Keep the original draft and rid, suppress another suggested send, and preserve any collector outcome received before the HTTP response. No new retry protocol or collector change is introduced.
+
+
+### 2026-10-17 — Exact-message native menu
+Current and historical Inbox rows expose Copy, Hand This Message to Hub, and Draft Reply to This Message through right click, long press or the keyboard context-menu key. History retains its trusted collector post and chunk location; draft requests carry the exact provider turn, sender and timestamp through the native ask protocol. Work prefills the shared Hub composer and does not send or mark the conversation completed. Open menus are invalidated when the source binding changes; copied text and existing reply drafts remain separate. Native Icons8 assets and shared menu tokens are reused. Seven widths in both themes are inspected; this is scoped menu coverage, not full native pixel parity or actual Safari long-press verification.

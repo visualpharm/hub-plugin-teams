@@ -201,6 +201,8 @@
 .tm-icon-clock { --tm-icon: url("./icons/clock.svg"); }
 .tm-icon-warning { --tm-icon: url("./icons/warning.svg"); }
 .tm-icon-double-tick { --tm-icon: url("./icons/double-tick.svg"); }
+.tm-icon-copy { --tm-icon: url("./icons/copy.svg"); }
+.tm-icon-reply { --tm-icon: url("./icons/reply.svg"); }
 .tm-sent-chat.tm-mine-fail > .tm-draft-text { background: #b42318; }
 .tm-sent-chat.tm-mine-fail > .tm-draft-by { color: var(--foreground); }
 .tm-sent-chat.tm-mine-wait > .tm-draft-text { opacity: .9; }
@@ -319,6 +321,12 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-editor-options:not([open]) > .tm-editor-menu { display: none; }
 .tm-editor-menu { position: absolute; right: 0; top: 100%; z-index: 20; width: min(320px,calc(100vw - 32px)); padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); box-shadow: var(--shadow-lift); }
 .tm-editor-menu .btn { min-height: 44px; }
+
+.tm-message-menu { position: fixed; inset: auto; margin: 0; width: min(320px,calc(100vw - 16px)); min-width: 0; max-width: none; max-height: calc(100dvh - 16px); overflow-y: auto; padding: 8px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); color: var(--foreground); }
+.tm-message-menu .menu-item { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 16px; white-space: normal; text-wrap: pretty; }
+.tm-message-menu .icon,.tm-message-menu .tm-native-icon { flex: none; width: 22px; height: 22px; color: var(--primary); }
+.tm-message-menu .tm-icon-reply { transform: scaleX(-1); }
+.tm-line:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 12px; }
 
 /* Uploaded files use one chip row; attachment and send stay beside the reply. */
 .tm-shared-compose form.composer.has-leading:not(.rec):has(> .attach) {

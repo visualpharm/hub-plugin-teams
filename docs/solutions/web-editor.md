@@ -78,3 +78,12 @@ already does. Only change a still-waiting request: a collector outcome arriving 
 must not be overwritten by a late HTTP failure. Reproduce by accepting the synthetic
 POST, then throwing away its response; verify the suggestion remains disabled and the
 exact sent receipt resolves it without another request.
+
+
+### Context menus for historical messages
+A history row has no ordinary source post of its own. Preserve the trusted thread post
+and chunk location when ingesting history, then send the native ask fields: source
+post, place, provider msg, from and at. Do not substitute the display row ID or raw
+message text. Resolve menu identity again at activation, and close on source rebind.
+Keep context menus inside the viewport at narrow widths; verify their actual masks
+as well as dimensions, because missing CSS mask bindings render solid icon squares.
