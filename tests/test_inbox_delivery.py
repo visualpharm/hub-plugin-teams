@@ -473,11 +473,18 @@ class Delivery(unittest.TestCase):
         st=json.loads(json.dumps(st)); q['rid']='second'
         self.assertEqual(self.run_send(st,[q],{'id':'x'})[1],[])
 
-    def test_legacy_client_and_unverified_source_cannot_enable_auto_send(self):
+    def test_legacy_client_cannot_enable_auto_send_and_outside_teams_sends_once_plainly(self):
         st=state(); st['cfg']['inbox_guard']=False
         self.assertEqual(self.run_send(st,[self.request(st,'auto',True)],{'id':'x'})[1],[])
-        st=state(); st['refs']['a']={'tg':'peer'}
-        self.assertEqual(self.run_send(st,[self.request(st,'auto',True)],{'id':'x'})[1],[])
+        # вне Teams квитанции нет — автоответ обычной отправкой, один раз (Иван q465184, 17.10: «Разрешить вне Teams»)
+        st=state(); st['refs']['a']={'tg':'peer'}; st['open']={'a':['x','t']}
+        q=self.request(st,'auto',True)
+        out,calls,_=self.run_send(st,[q,dict(q)],{'id':'x'})
+        self.assertEqual(len(calls),1)
+        self.assertEqual(out[0]['kind'],'sent')
+        self.assertFalse(delivery.store(st)['claims'])
+        st['cfg']['inbox_guard']=False
+        self.assertEqual(self.run_send(st,[{**q,'rid':'auto2'}],{'id':'x'})[1],[])
 
 
 class PrivateInstruction(unittest.TestCase):

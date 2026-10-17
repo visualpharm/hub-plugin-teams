@@ -1300,8 +1300,29 @@ def reply_outcome(st, q):
 
 
 def send_one(st, reader, q, put=post, now=None):
-    if not q.get('react') and (q.get('automatic') or q.get('inbox') is not None or (st.get('cfg') or {}).get('inbox_guard')):
+    ref = (st.get("refs") or {}).get(q["id"]) or {}
+    outside = any(ref.get(k) for k in ("wa", "tg", "mail"))   # защищённый протокол (CAS, квитанция Graph) — только Teams
+    if not q.get('react') and not outside and (q.get('automatic') or q.get('inbox') is not None or (st.get('cfg') or {}).get('inbox_guard')):
         return send_guarded(st,reader,q,put,now)
+    if q.get("automatic"):
+        # автоответ разбора вне Teams — обычной отправкой (Иван q465184, 17.10: «Разрешить вне Teams»; прежде шёл
+        # защищённым путём Teams и всегда отказывал «Inbox changed»): только при включённой автоотправке и пока пункт
+        # открыт; гейты ночи/выходных — у команды send (hold), повтор того же rid не уходит (rid_tombs)
+        why = ("Shared editor protection is not activated" if not (st.get("cfg") or {}).get("inbox_guard")
+               else "The canonical source item is no longer open" if q["id"] not in (st.get("open") or {}) else None)
+        if why:
+            put({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": why})
+            return
+        who = (st.get("who") or {}).get(q["id"]) or {}
+        local = hours.local(now)
+        permitted = hours.next_allowed(hours.rule(st.get("hours"), who.get("contact")), local)
+        if permitted > local:   # рабочие часы собеседника — как у защищённого пути
+            st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "automatic", "files", "reply_to", "quote")
+                                                       if k in q}, "at": iso(permitted.astimezone(timezone.utc))}
+            save(st)
+            put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": st["later"][q["rid"]]["at"], "held": "hours",
+                 **auto_text(q)})
+            return
     done, outs = st.setdefault("sent_rids", []), st.setdefault("reply_out", {})
     done.append(q["rid"])
     del done[:-500]
