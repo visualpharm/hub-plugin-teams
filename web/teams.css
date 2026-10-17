@@ -308,3 +308,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-editor-options:not([open]) > .tm-editor-menu { display: none; }
 .tm-editor-menu { position: absolute; right: 0; top: 100%; z-index: 20; width: min(320px,calc(100vw - 32px)); padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); box-shadow: var(--shadow-lift); }
 .tm-editor-menu .btn { min-height: 44px; }
+
+/* Uploaded files use one chip row; attachment and send stay beside the reply. */
+.tm-shared-compose form.composer.has-leading:not(.rec):has(> .attach) {
+  grid-template-columns: auto minmax(0, 1fr) 44px 44px;
+  grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry attach actions" "feedback feedback feedback feedback" "error error error error";
+}
+.tm-sent-file { display: block; color: inherit; overflow-wrap: anywhere; }

@@ -20,6 +20,77 @@ class InboxWebAcceptance(PageInChrome):
           {'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic {source}')).click();true"},
           {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
 
+    def attach_synthetic_file(self, name='review.txt'):
+        got=self.page({'eval':"""(()=>{const dt=new DataTransfer();dt.items.add(new File(['Synthetic attachment bytes'],%s,{type:'text/plain'}));document.querySelector('.tm-shared-compose form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));return true})()""" % json.dumps(name)},
+          {'until':"!!document.querySelector('.tm-shared-compose .pchip') && !document.querySelector('.tm-shared-compose .pchip').textContent.match(/uploading|загружаю/)"})
+        self.assertTrue(got[-1]['until'],got)
+
+    def test_supported_external_sources_send_uploaded_file_without_text(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('whatsapp','telegram','email'):
+            with self.subTest(source=source):
+                self.open_external_source(source)
+                self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval'])
+                self.attach_synthetic_file(source+'.txt')
+                layout=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),a=c.querySelector('.attach').getBoundingClientRect(),b=c.querySelector('button[type=submit]').getBoundingClientRect();return {height:c.getBoundingClientRect().height,offset:Math.abs(a.top-b.top)}})()"})[-1]['eval']
+                self.assertLessEqual(layout['height'],96,layout);self.assertLessEqual(layout['offset'],2,layout)
+                if source=='whatsapp' and os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                    out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                    for width,theme in ((402,'light'),(402,'dark'),(1240,'light'),(1240,'dark')):
+                        got=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'files-{theme}-{width}.png'),'width':width,'height':874},
+                          {'eval':"({theme:getComputedStyle(document.documentElement).colorScheme,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]['eval']
+                        self.assertEqual(got,{'theme':theme,'overflow':0})
+                self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+                q=self.queued('send');self.assertEqual(q['id'],'external-'+source);self.assertEqual(q['text'],'')
+                self.assertEqual(len(q['files']),1);self.assertTrue(q['files'][0].endswith(source+'.txt'));self.assertNotIn('inbox',q)
+                self.assertTrue(Path(q['files'][0]).is_file());self.assertEqual(Path(q['files'][0]).read_text(),'Synthetic attachment bytes')
+                self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+                got=self.page({'until':"!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose textarea')"})
+                self.assertTrue(got[-1]['until'],got)
+
+    def test_uploaded_draft_survives_reload_and_collector_refusal_then_retries_exact_file(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('whatsapp');self.attach_synthetic_file()
+        self.edit('Keep this caption')
+        self.open_external_source('telegram')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .pchip')"})[-1]['eval'])
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic whatsapp'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic whatsapp')).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose .pchip')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this caption')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        q=self.queued('send');self.assertEqual(len(q['files']),1)
+        self.feed({'kind':'send_failed','id':q['id'],'rid':q['rid'],'error':'Synthetic file delivery refusal'})
+        self.page({'until':"document.querySelector('.tm-mine-fail')?.textContent.includes('Synthetic file delivery refusal')"})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-shared-compose .pchip')?.textContent.includes('review.txt')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        retry=self.queued('send');self.assertNotEqual(retry['rid'],q['rid']);self.assertEqual(retry['files'],q['files']);self.assertEqual(retry['text'],q['text'])
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid']})
+        got=self.page({'until':"!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose textarea')"})
+        self.assertTrue(got[-1]['until'],got)
+        self.assertFalse(self.page({'eval':"Object.values(localStorage).some(v=>v.includes('review.txt'))"})[-1]['eval'])
+
+    def test_older_receipt_cannot_discard_a_new_file_still_uploading(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('First reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        q=self.queued('send')
+        self.page({'eval':"""window.__fetch=window.fetch;window.fetch=(url,opts)=>String(url).includes('/api/upload/raw')?new Promise(resolve=>{window.__releaseUpload=()=>resolve(__fetch(url,opts))}):__fetch(url,opts);
+          const dt=new DataTransfer();dt.items.add(new File(['Second file'],'second.txt',{type:'text/plain'}));document.querySelector('.tm-shared-compose form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));true"""})
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+        got=self.page({'until':"!!document.querySelector('.tm-mine-ok')"},
+          {'eval':"!!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose .pchip')"})
+        self.assertTrue(got[-1]['eval'],got)
+        self.page({'eval':"__releaseUpload();true"},{'until':"document.querySelector('.tm-shared-compose .pchip')?.textContent.includes('second.txt') && !document.querySelector('.tm-shared-compose .pchip')?.textContent.match(/uploading|загружаю/)"})
+        self.assertTrue(self.page({'eval':"Object.values(localStorage).some(v=>v.includes('second.txt'))"})[-1]['eval'])
+
+    def test_discard_uploaded_file_draft_does_not_return_on_reload(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.attach_synthetic_file()
+        self.page({'tapSelector':'.tm-discard'})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .pchip')"})[-1]['eval'])
+        self.open_external_source('telegram')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .pchip')"})[-1]['eval'])
+        self.assertFalse([json.loads(e['data']['text']) for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+
     def test_external_text_replies_do_not_inherit_teams_editor_protocol(self):
         self.seed_inbox(start_editing=False)
         for source in ('whatsapp','telegram','email'):
