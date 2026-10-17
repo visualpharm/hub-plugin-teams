@@ -277,6 +277,19 @@ function button(text, cls, fn, label) {
   return b;
 }
 
+function nativeIcon(name) {
+  const i = el("span", "tm-native-icon tm-icon-" + name);
+  i.setAttribute("aria-hidden", "true");
+  return i;
+}
+
+function action(text, name, fn, label) {
+  const b = button("", "tm-action", fn, label || text);
+  b.title = label || text;
+  b.append(name === "react" ? hub.icon("react") : nativeIcon(name), el("span", "tm-action-label", text));
+  return b;
+}
+
 // личка — группа по человеку (владелец 09.10: «видел одно сообщение от человека последнее, захочу — в чела, там всё»):
 // items уже отсортированы по времени убыв. (list()) — первое в группе и есть последнее сообщение человека
 const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
@@ -591,8 +604,8 @@ function thread(ms) {   // ms — по возрастанию времени
   const open = ms.filter((m) => !done(m));
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
-  for (const k of new Set(ms.map((m) => m.src))) head.append(el("span", `tm-src tm-src-${k}`, SRC[k] || k));
   head.append(el("b", "tm-from", last.from || "—"));
+  for (const k of new Set(ms.map((m) => m.src))) head.append(el("span", `tm-src tm-src-${k}`, SRC[k] || k));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
@@ -615,7 +628,6 @@ function thread(ms) {   // ms — по возрастанию времени
     for (const [rid, x] of sends) if (x.id === m.id) history.append(sentBlock(m, rid, x));
   }
   const composeFor = ms.find((m) => composing.has(m.id));
-  if (composeFor) box.append(composer(composeFor));
 
   const acts = el("div", "tm-acts");
   if (open.length) {
@@ -623,26 +635,27 @@ function thread(ms) {   // ms — по возрастанию времени
     const prevOpen = open.filter((m) => m !== last);
     const target = open.includes(last) ? last : open[open.length - 1];
     if (canReply(target) && !composeFor) acts.append(button("Ответить", "", () => openCompose(target), `Ответить: ${target.from}`));
-    const go = button(busy ? "Отправляю…" : "В работу", "primary", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `В работу: сообщение ${target.from}`);
+    const go = action(busy ? "Отправляю…" : "В работу", "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `В работу: сообщение ${target.from}`);
     go.disabled = busy;
-    acts.append(go);
     if (!draft.has(target.id)) {
-      const dr = button("Черновик ответа", "", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `Черновик ответа для ${target.from}`);
+      const dr = action("Черновик ответа", "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `Черновик ответа для ${target.from}`);
       dr.disabled = busy;
       acts.append(dr);
     }
-    acts.append(button("Скрыть", "quiet", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${target.from}`));
+    acts.append(go);
+    acts.prepend(action("Скрыть", "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${target.from}`));
   } else if (ms.some((m) => hidden.has(m.id))) {
     acts.append(button("Вернуть", "quiet", () => hide(ms.map((m) => m.id), false), `Вернуть сообщения ${last.from}`));
   }
   if (safeLink(last.link)) {
-    const a = el("a", "tm-link", last.src === "whatsapp" ? "Открыть в WhatsApp ↗" : last.src === "telegram" ? "Открыть в Telegram ↗" : last.src === "email" ? "Открыть письмо ↗" : "Открыть в Teams ↗");
-    a.href = safeLink(last.link);
-    a.target = "_blank";
-    a.rel = "noopener";
-    acts.append(a);
+    const a = el("a", "tm-link");
+    const label = last.src === "whatsapp" ? "Open in WhatsApp" : last.src === "telegram" ? "Open in Telegram" : last.src === "email" ? "Open email" : "Open in Teams";
+    a.append(nativeIcon("open")); a.setAttribute("aria-label", label); a.title = label;
+    a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
+    head.append(a);
   }
   box.append(acts);
+  if (composeFor) box.append(composer(composeFor));
   return box;
 }
 

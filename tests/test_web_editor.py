@@ -22,6 +22,22 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertEqual(row["overflow"], 0, row)
         self.shot("tablet-detail")
 
+    def test_actions_and_source_link_stay_above_reply_at_every_width(self):
+        self.seed_inbox(start_editing=False)
+        for width,theme in ((390,"light"),(834,"light"),(1240,"light"),(390,"dark"),(1240,"dark")):
+            got=self.page({"media":theme},{"viewport":{"width":width,"height":844}}, {"eval":"(()=>{const a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect(),c=document.querySelector('.tm-shared-compose .composer').getBoundingClientRect();return {scheme:getComputedStyle(document.documentElement).colorScheme,actions:a.bottom,composer:c.top,footer:c.bottom,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
+            self.assertEqual(got["scheme"],theme,got)
+            self.assertLessEqual(got["actions"],got["composer"],got)
+            self.assertLessEqual(got["footer"],844,got)
+            self.assertEqual(got["overflow"],0,got)
+            if os.environ.get("HUB_INBOX_SCREENSHOTS"):
+                out=Path(os.environ["HUB_INBOX_SCREENSHOTS"]);out.mkdir(parents=True,exist_ok=True)
+                self.page({"media":theme},{"shot":str(out/f"actions-{theme}-{width}.png"),"width":width,"height":844})
+        link=self.page({"eval":"({href:document.querySelector('.tm-thread > .tm-head .tm-link')?.href,label:document.querySelector('.tm-thread > .tm-head .tm-link')?.getAttribute('aria-label'),actions:[...document.querySelectorAll('.tm-thread > .tm-acts .tm-action')].map(b=>b.getAttribute('aria-label'))})"})[-1]["eval"]
+        self.assertEqual(link["href"],"https://teams.microsoft.com/l/message/synthetic-source-a",link)
+        self.assertEqual(link["label"],"Open in Teams",link)
+        self.assertEqual(link["actions"],["Скрыть сообщения Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
+
     def test_whole_inbox_instruction_preserves_exact_text_and_is_dispatch_only(self):
         self.seed_inbox()
         self.queued("draft_control")
@@ -77,7 +93,7 @@ class InboxWebAcceptance(PageInChrome):
         self.token = {"v": 1, "version": "synthetic-source-A", "edit_version": 0, "held": False, "holder": None}
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}})
         self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
-                   "text": "Please check the navigation.", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
+                   "text": "Please check the navigation.", "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
                   {"eval": "document.querySelector('.tm-person').click();true"},
                   {"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();true"})
