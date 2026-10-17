@@ -9,6 +9,15 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def spooled(self, theme=False):
+        # Consume only facts observed in this snapshot. A browser request may
+        # still be writing its atomic temporary file or arrive after take().
+        from core import spool
+        ready = spool.take(os.path.join(self.state, "spool"))
+        for path, _ in ready:
+            os.unlink(path)
+        return [event for _, event in ready if theme or event["type"] != "owner.theme"]
+
     def menu_history(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
@@ -1239,4 +1248,29 @@ class InboxWebAcceptance(PageInChrome):
 
 
 def load_tests(loader, suite, pattern):
-    return unittest.TestSuite(InboxWebAcceptance(n) for n in InboxWebAcceptance.__dict__ if n.startswith("test_"))
+    suite = unittest.TestSuite(InboxWebAcceptance(n) for n in InboxWebAcceptance.__dict__ if n.startswith("test_"))
+    suite.addTests(loader.loadTestsFromTestCase(SpoolFixtureAcceptance))
+    return suite
+
+
+class SpoolFixtureAcceptance(unittest.TestCase):
+    def test_consuming_a_snapshot_preserves_inflight_and_new_facts(self):
+        import tempfile
+        from types import SimpleNamespace
+        from core import spool
+        with tempfile.TemporaryDirectory() as state:
+            box=Path(state)/"spool"
+            spool.put(str(box),"ext.post",data={"text":"first"})
+            inflight=box/".writer.tmp"
+            inflight.write_text("unfinished atomic write")
+            take=spool.take
+            def arrival(path):
+                ready=take(path)
+                spool.put(str(box),"ext.post",data={"text":"arrived after snapshot"})
+                return ready
+            fixture=SimpleNamespace(state=state)
+            with mock.patch.object(spool,"take",side_effect=arrival):
+                consumed=InboxWebAcceptance.spooled(fixture)
+            self.assertEqual([e["data"]["text"] for e in consumed],["first"])
+            self.assertTrue(inflight.exists(),"The fixture deleted the writer's atomic temporary file")
+            self.assertEqual([e["data"]["text"] for _,e in take(str(box))],["arrived after snapshot"])

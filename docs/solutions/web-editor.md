@@ -94,3 +94,13 @@ long-press timer is armed, or the same bubbling event cancels the next gesture.
 Re-resolve the row element after refresh before opening or restoring focus. Work
 quotes need the same trusted history location as Draft; the latest source post is
 not the historical message. Copy the display text, omitting media placeholders.
+
+
+### Consume only the captured action-spool snapshot
+The browser can write a new fact while the fixture is inspecting an earlier one.
+Deleting every directory entry after spool.take can remove an unfinished atomic
+`.tmp` file or a newer completed request that the test never inspected. Consume
+only the exact paths returned by take. The deterministic fixture regression
+keeps an in-flight file and inserts a second fact after the snapshot; both must
+remain available. This is fixture ownership, not a product retry or a weakened
+recipient/delivery assertion.

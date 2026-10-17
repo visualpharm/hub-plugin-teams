@@ -220,3 +220,11 @@ Current and historical Inbox rows expose Copy, Hand This Message to Hub, and Dra
 
 ### 2026-10-17 — Message menu review follow-through
 A second touch gesture dismissed the old menu after arming the new timer, canceling it. Dismiss in capture phase before the row listener. Restore keyboard focus to the current row after a flat-list refresh, or to the prior connected control; Tab and stale-menu dismissal use the same restoration. Historical Work now names the trusted thread post and provider turn instead of attributing historical text to the latest message post. This corrects a native behavior too: exact-message identity takes precedence over copying that defect. Copy uses displayed message text and omits media placeholders. Four real-browser regressions failed before these changes and all eight menu scenarios pass afterward.
+
+
+### 2026-10-17 — Browser fixtures consume only observed action facts
+The Inbox browser fixture now deletes only paths returned by its spool snapshot.
+An atomic writer's temporary file and facts arriving later remain untouched.
+A deterministic regression reproduces the old deletion and checks both kinds
+of retained work. This repairs a full-gate race without editing frozen core,
+collector behavior, or any user-facing delivery assertion.
