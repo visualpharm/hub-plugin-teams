@@ -272,6 +272,15 @@
 .tm-sort-choices [aria-checked=true] { background: var(--muted); font-weight: 600; }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
+.tm-icon-quick { --tm-icon: url("icons/quick.svg"); }
+.tm-quick-trigger { width: 44px; height: 44px; flex: none; padding: 10px; border: 0; border-radius: 50%; background: var(--muted); }
+.tm-quick { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 16px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 20px; background: var(--background); color: var(--foreground); box-shadow: var(--shadow-lift); }
+.tm-quick::backdrop { background: #0005; }
+.tm-quick-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.tm-quick h2 { margin: 0; flex: 1; font-size: var(--text-lg); }
+.tm-quick-close { width: 44px; height: 44px; flex: none; padding: 10px; }
+.tm-quick .composer { margin: 0; }
+.tm-quick-notice { margin: 8px 0 0; }
 
 .tm-reactions { display: flex; flex: none; gap: 0; background: var(--muted); border-radius: 22px; }
 .tm-reactions .btn { flex: 1; min-width: 44px; min-height: 44px; padding: 0; font-size: 26px; background: transparent; border: 0; }

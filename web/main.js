@@ -968,6 +968,29 @@ function reactionRow(m) {
   return row;
 }
 
+const quickDialogs=new Map();
+function quickSend() {
+  const to=hubName(),key='hub.inbox.quick.v1:'+to;
+  let quick=quickDialogs.get(to);
+  if(!quick) {
+    const dialog=el('dialog','tm-quick'),head=el('div','tm-quick-head'),title=el('h2','',T('Сообщение хабу','Message Hub'));
+    title.id='tm-quick-title-'+quickDialogs.size;dialog.setAttribute('aria-labelledby',title.id);
+    const close=button('','quiet tm-quick-close',()=>{if(canClose())dialog.close();},T('Закрыть','Close'));close.append(hub.icon('close'));head.append(title,close);
+    const notice=el('p','tm-quick-notice');notice.hidden=true;notice.setAttribute('role','status');
+    let text='';try{text=localStorage.getItem(key)||'';}catch{}
+    const box=hub.input({key:'quick:'+to,to,text,label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
+      onChange(value){try{localStorage.setItem(key,value);notice.hidden=true;}catch{notice.textContent=T('Черновик останется только в открытой странице.','This draft can only be kept while this page stays open.');notice.hidden=false;}},
+      onSent(){try{localStorage.removeItem(key);}catch{}dialog.close();}
+    });
+    function canClose(){if(!box.node.classList.contains('rec'))return true;notice.textContent=T('Останови запись, прежде чем закрыть.','Stop the recording before closing.');notice.hidden=false;return false;}
+    dialog.append(head,box.node,notice);document.body.append(dialog);
+    dialog.addEventListener('cancel',event=>{if(!canClose())event.preventDefault();});
+    dialog.addEventListener('close',()=>ui?.root.querySelector('.tm-quick-trigger')?.focus());
+    quick={dialog,box,canClose};quickDialogs.set(to,quick);
+  }
+  if(!quick.dialog.open)quick.dialog.showModal();quick.box.focus();
+}
+
 function thread(ms) {   // ms — по возрастанию времени
   const last = ms[ms.length - 1];
   const open = ms.filter((m) => !done(m));
@@ -1051,6 +1074,7 @@ function thread(ms) {   // ms — по возрастанию времени
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
   }
+  if(hub.input){const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));quick.append(nativeIcon('quick'));head.append(quick);}
   const guidance = composeFor && composing.get(composeFor.id)?.why;
   if (guidance) {
     const explanation=el("div","tm-guidance");explanation.append(el("strong",null,T("Почему такой ответ","Why this reply")),el("div",null,guidance));box.append(explanation);
@@ -1396,6 +1420,7 @@ function registerView() {
 
 export default function register(h) {
   hub = h;
+  window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");

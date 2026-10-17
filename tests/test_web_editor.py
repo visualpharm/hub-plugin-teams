@@ -9,6 +9,41 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_quick_hub_refusal_retains_text_and_escape_keeps_conversation(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-quick-trigger'},{'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='Keep refused quick message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        act=self.web.act
+        with mock.patch.object(self.web,'act',side_effect=lambda path,body:(403,'Synthetic quick refusal') if path=='/api/send' else act(path,body)) as calls:
+            got=self.page({'tapSelector':'.tm-quick button[type=submit]'},{'until':"document.querySelector('.tm-quick .error-text')?.textContent.includes('Synthetic quick refusal')"},{'eval':"({open:document.querySelector('.tm-quick')?.open,text:document.querySelector('.tm-quick')?.textContent})"})[-1]['eval']
+            self.assertIn('Synthetic quick refusal',got['text'],(got,str(calls.call_args_list)))
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick[open] textarea').value"})[-1]['eval'],'Keep refused quick message')
+        for width,theme in ((360,'light'),(402,'dark'),(834,'light'),(1240,'dark')):
+            steps=[{'media':theme},{'viewport':{'width':width,'height':874}},{'eval':"(()=>{const r=document.querySelector('.tm-quick').getBoundingClientRect();return {left:r.left,right:r.right,bottom:r.bottom,overflow:document.documentElement.scrollWidth-innerWidth}})()"}]
+            got=self.page(*steps)[-1]['eval'];self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertLessEqual(got['bottom'],874);self.assertEqual(got['overflow'],0)
+            if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                shot=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'quick-{theme}-{width}.png'),'width':width,'height':874},{'eval':"getComputedStyle(document.documentElement).colorScheme"})[-1]['eval']
+                self.assertEqual(shot,theme)
+        self.page({'key':'Escape'},{'until':"!document.querySelector('.tm-quick[open]')"})
+        self.assertEqual(self.page({'eval':'location.hash'})[-1]['eval'],'#/x/inbox')
+        self.assertFalse([e for e in self.spooled() if e['type'] in ('ext.post','message.received')])
+
+    def test_quick_hub_message_preserves_reply_and_its_own_draft(self):
+        self.seed_inbox(start_editing=False);self.edit('Keep recipient reply');self.acknowledge(self.queued('draft_control'))
+        self.page({'tapSelector':'.tm-quick-trigger'},{'until':"!!document.querySelector('.tm-quick[open] textarea')"},
+          {'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='Unsent quick Hub message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"},
+          {'tapSelector':'.tm-quick-close'},{'tapSelector':'.tm-quick-trigger'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick textarea').value"})[-1]['eval'],'Unsent quick Hub message')
+        self.assertFalse([e for e in self.non_history_actions() if e['type'] in ('ext.post','message.received')])
+        self.page({'tapSelector':'.tm-quick-close'},{'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'},{'tapSelector':'.tm-quick-trigger'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick textarea').value"})[-1]['eval'],'Unsent quick Hub message')
+        self.page({'tapSelector':'.tm-quick button[type=submit]'},{'until':"!document.querySelector('.tm-quick[open]')"})
+        sent=[e for e in self.spooled() if e['type']=='message.received'];self.assertEqual(len(sent),1,sent);self.assertEqual(sent[0]['data']['to'],'hub');self.assertEqual(sent[0]['data']['text'],'Unsent quick Hub message')
+        got=self.page({'eval':"({route:location.hash,reply:document.querySelector('.tm-shared-compose textarea').value})"})[-1]['eval']
+        self.assertEqual(got,{'route':'#/x/inbox','reply':'Keep recipient reply'})
+        self.page({'tapSelector':'.tm-quick-trigger'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick textarea').value"})[-1]['eval'],'')
+
     def test_voice_failure_is_visible_and_transcript_stays_in_the_bubble(self):
         self.seed_inbox(start_editing=False)
         self.page({'tapSelector':'.tm-earlier'});self.queued('history')
