@@ -844,7 +844,7 @@ function sharedReply(m, st) {
           return { error: e.message };
         }
         st.text = text; st.files=attachments || []; if (!saveDraft(m,text,q.rid,st.files)) st.error="This browser could not save the draft. Keep this page open.";
-        sends.set(q.rid, { id: m.id, text, files: q.files, ts: Date.now() / 1000, state: "wait" });
+        sends.set(q.rid, { id: m.id, text, files: q.files, ts: Date.now() / 1000, mine: true, state: "wait" });
         if (!(await mark(q.kind, q))) {
           sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
           return { error: "Submission is awaiting confirmation. Your draft is retained." };
@@ -893,7 +893,7 @@ async function sendReply(m, text) {
   if (guardedReply(m)) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   saveDraft(m,text,rid);
-  sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
+  sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, mine: true, state: "wait" });
   composing.delete(m.id);
   error = "";
   paint();
@@ -976,6 +976,8 @@ async function unschedule(m,rid) {
 
 function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
+  const chat=m.src!=="email";
+  d.classList.toggle("tm-sent-chat",chat);
   const late = x.state === "wait" && Date.now() / 1000 - x.ts > WAIT_MAX;
   const stateText = x.state === "ok" ? "отправлено" : x.state === "fail" ? `не отправлено: ${x.error}`
     : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
@@ -983,7 +985,11 @@ function sentBlock(m, rid, x) {
     : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
   const by = el("div", "tm-draft-by", x.mine ? "Вы · " : "Хаб · ");   // автоответ разбора — не слова владельца
   by.append(stamp(x.ts), ` · ${stateText}`);
-  d.append(by, el("div", "tm-draft-text", x.text));
+  const body=el("div","tm-draft-text",x.text);
+  if (chat) {
+    const icon=nativeIcon(x.state==="ok" ? "double-tick" : x.state==="fail" ? "warning" : "clock");icon.setAttribute("aria-hidden","true");
+    body.append(icon);d.append(body,by);
+  } else d.append(by,body);
   for (const f of x.files || []) {
     const path=typeof f==="string" ? f : f?.path, url=path && mediaURL(path);
     if (url) { const a=el("a","tm-sent-file",path.split("/").pop());a.href=url;a.target="_blank";a.rel="noopener";d.append(a); }

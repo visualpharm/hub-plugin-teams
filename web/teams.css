@@ -195,6 +195,17 @@
 .tm-line.tm-own { align-items: flex-end; }
 .tm-line.tm-own > .tm-text { background: #1f7f3b; color: #fff; }
 .tm-line.tm-own > .tm-text a, .tm-line.tm-own > .tm-text a * { color: inherit; }
+.tm-sent-chat { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 48px; padding: 0; background: transparent; }
+.tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: 18px; background: #1f7f3b; color: #fff; overflow-wrap: anywhere; }
+.tm-sent-chat > .tm-draft-text .tm-native-icon { width: 16px; height: 16px; margin-left: 5px; vertical-align: text-bottom; opacity: .8; }
+.tm-icon-clock { --tm-icon: url("./icons/clock.svg"); }
+.tm-icon-warning { --tm-icon: url("./icons/warning.svg"); }
+.tm-icon-double-tick { --tm-icon: url("./icons/double-tick.svg"); }
+.tm-sent-chat.tm-mine-fail > .tm-draft-text { background: #b42318; }
+.tm-sent-chat.tm-mine-fail > .tm-draft-by { color: var(--foreground); }
+.tm-sent-chat.tm-mine-wait > .tm-draft-text { opacity: .9; }
+.tm-sent-chat > .tm-draft-by { margin: 0; text-align: right; }
+.tm-sent-chat > .tm-unschedule { color: var(--primary); min-height: 44px; }
 .tm-quote { margin: 0 0 4px; padding: 0 0 0 8px; border-left: 3px solid currentColor; opacity: .85; overflow-wrap: anywhere; }
 .tm-quote strong, .tm-quote span { display: block; }
 .tm-quote span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
