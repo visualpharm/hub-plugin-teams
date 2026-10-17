@@ -9,6 +9,23 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_history_retains_native_reply_context_and_file_details(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','where':'Synthetic account','from':'Review colleague','text':'Please check the navigation.','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'wait':'Synthetic account'})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person[aria-current=true]').length"})[-1]['eval'],1)
+        self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
+            {'id':'quoted','me':True,'text':'The reply itself','at':'2026-01-01T12:00:00Z','reply':{'from':'Alex','text':'Which document <img src=x onerror=alert(1)>?'},'reactions':[{'emoji':'👍','n':2}]},
+            {'id':'forwarded','text':'Updated attachment','fwd':'Design studio','edited':True,'at':'2026-01-01T12:01:00Z','media':[{'kind':'file','name':'Estimate.pdf','url':'/api/file?path=estimate.pdf','size':184320}]}]})
+        got=self.page({'wait':'The reply itself'},{'eval':"(()=>{const own=document.querySelector('.tm-own'),file=document.querySelector('.tm-media-file');return {quote:own.querySelector('.tm-quote')?.textContent,unsafe:!!own.querySelector('.tm-quote img'),reaction:own.querySelector('.tm-received-reactions')?.textContent,color:getComputedStyle(own.querySelector('.tm-text')).backgroundColor,file:file.textContent,icon:!!file.querySelector('.tm-file-icon'),context:document.querySelector('.tm-history').textContent}})()"})[-1]['eval']
+        self.assertIn('Alex',got.get('quote') or '',got);self.assertIn('<img src=x onerror=alert(1)>',got['quote']);self.assertFalse(got['unsafe'])
+        self.assertEqual(got['reaction'],'👍 2');self.assertEqual(got['color'],'rgb(31, 127, 59)')
+        self.assertIn('184 KB',got['file']);self.assertTrue(got['icon']);self.assertIn('Design studio',got['context']);self.assertRegex(got['context'],r'Edited|Изменено')
+        for width in (360,402,768,834,1024,1240,1440):
+            got=self.page({'viewport':{'width':width,'height':874}},{'eval':"({page:document.documentElement.scrollWidth-innerWidth,history:document.querySelector('.tm-history').scrollWidth-document.querySelector('.tm-history').clientWidth})"})[-1]['eval']
+            self.assertEqual(got,{'page':0,'history':0},(width,got))
+
     def test_unrelated_feed_keeps_media_node_and_existing_message_text(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'audio-a','src':'dm','contact':'synthetic/audio','from':'Audio colleague','text':'Keep media message text','reply':True,'at':datetime.now(timezone.utc).isoformat(),'media':[{'kind':'voice','url':'/api/file?path=synthetic.wav'}]})
@@ -298,8 +315,8 @@ class InboxWebAcceptance(PageInChrome):
         self.page({"tapSelector":".tm-person:first-child"},{"until":"!!document.querySelector('.tm-media img')"})
         got=self.page({"eval":"({audio:document.querySelector('.tm-media audio')?.getAttribute('src'),unsafe:!!document.querySelector('[src^=\"javascript:\"],[href^=\"javascript:\"]'),unavailable:document.querySelector('.tm-media').textContent})"})[-1]["eval"]
         self.assertEqual(got["audio"],f"http://127.0.0.1:{self.port}/api/file?path=voice.wav");self.assertFalse(got["unsafe"]);self.assertIn("Unavailable.pdf",got["unavailable"])
-        link=self.page({"eval":"(()=>{const a=document.querySelector('.tm-media-file'),s=getComputedStyle(a);return {color:s.color,decoration:s.textDecorationLine}})()"})[-1]['eval']
-        self.assertEqual(link['color'],'rgb(10, 132, 255)',link);self.assertEqual(link['decoration'],'none',link)
+        link=self.page({"eval":"(()=>{const a=document.querySelector('.tm-media-file'),s=getComputedStyle(a);return {color:s.color,expected:getComputedStyle(document.querySelector('.tm')).color,decoration:s.textDecorationLine}})()"})[-1]['eval']
+        self.assertEqual(link['color'],link['expected'],link);self.assertEqual(link['decoration'],'none',link)
         self.page({"tapSelector":".tm-media .tm-photo"},{"until":"!!document.querySelector('.lightbox:not([hidden])')"})
         self.assertFalse(self.page({"eval":"!!document.querySelector('.lightbox textarea')"})[-1]["eval"])
         self.page({"tapSelector":".lb-close"},{"tapSelector":".tm-close-conversation"})
