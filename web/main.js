@@ -480,6 +480,35 @@ function messageText(m) {
 }
 
 const previewCache=new Map();
+let playingAudio=null;
+const voiceClock=n=>`${Math.floor(n/60)}:${String(Math.floor(n%60)).padStart(2,"0")}`;
+function voicePlayer(item,url,label) {
+  const box=el("div","tm-voice"),player=el("audio"),controls=el("div","tm-voice-controls");
+  player.src=url;player.preload="metadata";player.hidden=true;
+  const play=button("","tm-voice-play",async()=>{
+    error.hidden=true;
+    if(!player.paused){player.pause();return;}
+    if(player.error)player.load();
+    try{await player.play();}catch{error.hidden=false;update();}
+  },T("Воспроизвести","Play"));
+  const glyph=el("span","tm-voice-glyph");glyph.setAttribute("aria-hidden","true");play.append(glyph);
+  const seek=el("input","tm-voice-seek");seek.type="range";seek.min="0";seek.step="1";seek.value="0";seek.setAttribute("aria-label",T("Позиция записи","Playback position"));
+  const time=el("span","tm-voice-time"),error=el("p","tm-media-error",T("Не удалось воспроизвести. Попробуйте ещё раз.","Could not play. Try again."));error.hidden=true;error.setAttribute("role","status");
+  const duration=()=>{const n=Number.isFinite(player.duration) && player.duration>0 ? player.duration : Number(item.dur || item.duration);return Number.isFinite(n) && n>0 ? n : 0;};
+  function update(){
+    const length=Math.max(0,duration()),position=Number.isFinite(player.currentTime) ? player.currentTime : 0;
+    play.setAttribute("aria-label",player.paused ? T("Воспроизвести","Play") : T("Пауза","Pause"));play.classList.toggle("tm-playing",!player.paused);
+    seek.max=String(length || 1);seek.value=String(position);seek.disabled=!length;seek.style.setProperty('--progress',(length ? position/length*100 : 0)+'%');
+    seek.setAttribute('aria-valuetext',voiceClock(position)+' / '+voiceClock(length));time.textContent=length ? voiceClock(position>0 ? position : length) : "";
+  }
+  seek.addEventListener("input",()=>{if(duration()>0){player.currentTime=Math.max(0,Math.min(duration(),Number(seek.value)));update();}});
+  player.addEventListener("play",()=>{if(playingAudio && playingAudio!==player)playingAudio.pause();playingAudio=player;error.hidden=true;update();});
+  for(const event of ['pause','ended','timeupdate','loadedmetadata','durationchange'])player.addEventListener(event,update);
+  player.addEventListener('error',()=>{error.hidden=false;update();});
+  controls.append(play,seek,time);box.append(player,controls);
+  if(item.text || item.transcript)box.append(el('p','tm-transcript',item.text || item.transcript));
+  box.append(error);box.setAttribute('aria-label',label);update();return box;
+}
 function pageURL(raw) {
   try {const u=new URL(raw);return ["http:","https:"].includes(u.protocol) && !u.username && !u.password ? u.href : "";}catch{return "";}
 }
@@ -518,7 +547,9 @@ function mediaBody(m) {
       const image = el("img"); image.src = url; image.alt = label; image.loading = "lazy";
       const photo = button("", "tm-photo", () => openLightbox([...box.querySelectorAll(".tm-photo img")], [...box.querySelectorAll(".tm-photo img")].indexOf(image), {reply:false}));
       photo.setAttribute("aria-label", "View " + label); photo.append(image); box.append(photo);
-    } else if (kind === "audio" || kind === "video") {
+    } else if(kind==="audio") {
+      box.append(voicePlayer(item,url,label));
+    } else if (kind === "video") {
       const player = el(kind); player.src = url; player.controls = true; player.preload = "metadata";
       player.setAttribute("aria-label", label);
       if (kind === "video") { player.playsInline = true; if (typeof item.thumb === "string") player.poster = mediaURL(item.thumb); }
