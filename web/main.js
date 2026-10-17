@@ -657,6 +657,21 @@ async function confirmEditor(m, st, action = "hold") {
   paint();
 }
 
+async function waitForEditor(m, st, revision) {
+  const deadline=Date.now()+10000;
+  do {
+    const current=msgs.get(m.id);
+    if (composing.get(m.id)!==st || !st.root?.isConnected || !st.root.getClientRects().length || st.closing ||
+        !current || draftKey(current)!==draftKey(m) || current.post!==m.post ||
+        st.state?.revision!==revision)
+      throw Error("The draft or conversation changed. Review it before trying again.");
+    if (!st.state?.control) { st.state?.ready();return; }
+    if (st.state.error) throw Error(st.state.error);
+    await new Promise(resolve=>setTimeout(resolve,50));
+  } while (Date.now()<deadline);
+  throw Error("Editor confirmation is still pending. Your draft is retained; try again when it arrives.");
+}
+
 function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
@@ -671,8 +686,9 @@ function sharedReply(m, st) {
       directive.setAttribute("aria-label", "Private draft instruction");
       directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
       const revise = button("Revise draft", "quiet", async () => {
+        const revision=st.state.revision;
         beginEditing(m, st);
-        try { const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
+        try { await waitForEditor(m,st,revision); const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
         catch (e) { st.error = e.message; }
         paint();
       });
@@ -687,11 +703,18 @@ function sharedReply(m, st) {
         if (attachments?.length) return { error: "This destination accepts text only." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
+        const revision=st.state?.revision;
         beginEditing(m, st);
         let q;
         if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
-        try { q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
-        catch (e) { return { error: e.message }; }
+        try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
+        catch (e) {
+          // The shared composer restores the attempted reply before any text typed while waiting.
+          // Persist that same recovery, so a reload cannot lose either unsent edit.
+          st.text=text+(st.state?.revision!==revision && st.text ? "\n"+st.text : "");
+          saveDraft(m,st.text);st.state?.edit(st.text);
+          return { error: e.message };
+        }
         st.text = text; if (!saveDraft(m,text,q.rid)) st.error="This browser could not save the draft. Keep this page open.";
         sends.set(q.rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
         if (!(await mark(q.kind, q))) {

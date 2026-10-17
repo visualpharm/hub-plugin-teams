@@ -9,6 +9,58 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_first_send_waits_for_editor_confirmation_without_second_click(self):
+        self.seed_inbox(start_editing=False)
+        self.edit('Single deliberate send')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control');self.acknowledge(hold)
+        self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Single deliberate send')"})
+        q=self.queued('send');self.assertEqual(q['text'],'Single deliberate send')
+        self.assertEqual(q['inbox'],self.token)
+
+    def test_send_waiting_for_confirmation_cancels_after_edit_and_keeps_both_texts(self):
+        self.seed_inbox(start_editing=False);self.edit('Attempted reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control');self.edit('Newer unsent text')
+        self.page({'wait':'The draft or conversation changed.'});self.acknowledge(hold)
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        expected='Attempted reply\nNewer unsent text'
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],expected)
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],expected)
+
+    def test_send_waiting_for_confirmation_cancels_after_back_navigation(self):
+        self.seed_inbox(start_editing=False);self.edit('Keep this pending reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.token={**self.token,'edit_version':1,'held':True,'holder':hold['editor']}
+        self.feed({'kind':'draft_state','id':'source-a','rid':hold['rid'],'inbox':self.token})
+        self.page({'sleep':200},{'tapSelector':'.tm-person'},{'wait':'The draft or conversation changed.'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep this pending reply')
+
+    def test_first_send_refusal_keeps_reply_and_never_posts_send(self):
+        self.seed_inbox(start_editing=False);self.edit('Keep refused reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control')
+        self.feed({'kind':'draft_control_failed','id':'source-a','rid':hold['rid'],'error':'Synthetic editor refusal'})
+        self.page({'wait':'Synthetic editor refusal'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep refused reply')
+
+    def test_untouched_suggestion_sends_once_after_its_first_confirmation(self):
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Untouched suggestion')
+        self.page({'wait':'Untouched suggestion'},{'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-person'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        self.acknowledge(self.queued('draft_control'))
+        self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Untouched suggestion')"})
+        self.assertEqual(self.queued('send')['text'],'Untouched suggestion')
+
     def test_unsent_reply_survives_reload_and_stays_with_exact_source(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Exact unsent reply after reload')
         self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
