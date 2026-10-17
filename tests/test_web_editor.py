@@ -9,6 +9,15 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_unrelated_feed_keeps_media_node_and_existing_message_text(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'audio-a','src':'dm','contact':'synthetic/audio','from':'Audio colleague','text':'Keep media message text','reply':True,'at':datetime.now(timezone.utc).isoformat(),'media':[{'kind':'voice','url':'/api/file?path=synthetic.wav'}]})
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'tapSelector':'.tm-person:first-child'},
+          {'eval':"window.__originalPlayer=document.querySelector('.tm-history audio');true"})
+        self.feed({'kind':'msg','id':'another-a','src':'dm','contact':'synthetic/another','from':'Another colleague','text':'Unrelated feed refresh','reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        got=self.page({'until':"document.querySelector('.tm-list').textContent.includes('Unrelated feed refresh')"},{'eval':"({same:__originalPlayer===document.querySelector('.tm-history audio'),text:document.querySelector('.tm-history').textContent})"})[-1]['eval']
+        self.assertTrue(got['same'],got);self.assertIn('Keep media message text',got['text'])
+
     def test_discard_clears_only_local_draft_and_stays_cleared_after_reload(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Discard this local reply')
         self.page({'tapSelector':'.tm-shared-compose .composer [aria-label="Discard draft"]'})
