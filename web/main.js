@@ -276,7 +276,21 @@ async function sync() {
         if (r?.rid === d.rid) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
-      else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
+      else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) {
+        const x=sends.get(d.rid), m=x && msgs.get(x.id);
+        if (!x || x.id!==d.id || x.state!=="later") continue;
+        clearTimeout(x.cancelTimer);sends.delete(d.rid);
+        if (m && (x.canceling || savedDraft(m)?.pendingRid===d.rid)) {
+          const st=composing.get(m.id), saved=savedDraft(m);
+          // The canceled payload may be older than edits made while it waited.
+          const text=st?.text ?? saved?.text ?? x.text ?? "";
+          const files=st?.files ?? saved?.files ?? [];
+          saveDraft(m,text,null,files);
+          const state=editorStates.get(m.id);
+          if (state?.delivery?.rid===d.rid) { state.delivery=null;state.error="";state.token=m.inbox; }
+          if (st) { st.error="";st.started=false; }
+        }
+      }
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "ошибка" });
@@ -945,6 +959,21 @@ function draftBlock(m, r) {
   return d;
 }
 
+async function unschedule(m,rid) {
+  const x=sends.get(rid);
+  if (!x || x.id!==m.id || x.state!=="later" || x.canceling) return;
+  x.canceling=true;x.cancelError="";
+  const pending=()=>sends.get(rid)===x && x.state==="later" && x.canceling;
+  const failed=message=>{if(pending()){x.canceling=false;x.cancelError=message;paint();}};
+  x.cancelTimer=setTimeout(()=>failed(T("Отмена не подтверждена. Повторите запрос.","Cancellation is unconfirmed. Retry the request.")),30000);
+  paint();
+  try {
+    if (!(await mark("cancel",{id:m.id,rid,editor:editorIdentity()}))) {
+      clearTimeout(x.cancelTimer);failed(error || T("Не удалось снять отправку","Could not cancel scheduled delivery"));
+    }
+  } catch { clearTimeout(x.cancelTimer);failed(T("Отмена не подтверждена. Повторите запрос.","Cancellation is unconfirmed. Retry the request.")); }
+}
+
 function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const late = x.state === "wait" && Date.now() / 1000 - x.ts > WAIT_MAX;
@@ -958,6 +987,11 @@ function sentBlock(m, rid, x) {
   for (const f of x.files || []) {
     const path=typeof f==="string" ? f : f?.path, url=path && mediaURL(path);
     if (url) { const a=el("a","tm-sent-file",path.split("/").pop());a.href=url;a.target="_blank";a.rel="noopener";d.append(a); }
+  }
+  if (x.state==="later") {
+    const cancel=button(x.canceling ? T("Отменяется…","Canceling…") : T("Снять отправку","Unschedule"),"quiet tm-unschedule",()=>unschedule(m,rid));
+    cancel.disabled=!!x.canceling;d.append(cancel);
+    if (x.cancelError) { const problem=el("p","tm-cancel-error",x.cancelError);problem.setAttribute("role","status");d.append(problem); }
   }
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
     const a = el("div", "tm-acts");
