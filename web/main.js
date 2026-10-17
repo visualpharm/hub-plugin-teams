@@ -994,10 +994,24 @@ function quickSend() {
     title.id='tm-quick-title-'+quickDialogs.size;dialog.setAttribute('aria-labelledby',title.id);
     const close=button('','quiet tm-quick-close',()=>{if(canClose())dialog.close();},T('Закрыть','Close'));close.append(hub.icon('close'));head.append(title,close);
     const notice=el('p','tm-quick-notice');notice.hidden=true;notice.setAttribute('role','status');
-    let text='';try{text=localStorage.getItem(key)||'';}catch{}
-    const box=hub.input({key:'quick:'+to,to,text,label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
-      onChange(value){try{localStorage.setItem(key,value);notice.hidden=true;}catch{notice.textContent=T('Черновик останется только в открытой странице.','This draft can only be kept while this page stays open.');notice.hidden=false;}},
-      onSent(){try{localStorage.removeItem(key);}catch{}dialog.close();}
+    const fileKey=key+':files';let text='',files=[];
+    try{text=localStorage.getItem(key)||'';const saved=JSON.parse(localStorage.getItem(fileKey)||'[]');if(Array.isArray(saved))files=saved.filter(f=>f && typeof f.path==='string');}catch{}
+    function persistQuick(draft) {
+      try {
+        draft.text ? localStorage.setItem(key,draft.text) : localStorage.removeItem(key);
+        draft.files?.length ? localStorage.setItem(fileKey,JSON.stringify(draft.files)) : localStorage.removeItem(fileKey);
+        notice.hidden=true;
+      } catch {notice.textContent=T('Черновик останется только в открытой странице.','This draft can only be kept while this page stays open.');notice.hidden=false;}
+    }
+    const box=hub.input({key:'quick:'+to,to,text,files,label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
+      onChange(value){persistQuick({text:value,files:box.draft?.().files || files});},
+      onFilesChange(draft){files=draft.files;persistQuick(draft);},
+      onSent(){
+        const current=box.draft?.() || {text:box.node.querySelector('textarea').value,files:[]};
+        persistQuick(current);
+        if(!current.text && !current.files.length && !current.uploading)dialog.close();
+      }
+
     });
     function canClose(){if(!box.node.classList.contains('rec'))return true;notice.textContent=T('Останови запись, прежде чем закрыть.','Stop the recording before closing.');notice.hidden=false;return false;}
     dialog.append(head,box.node,notice);document.body.append(dialog);

@@ -126,6 +126,41 @@ class InboxWebAcceptance(PageInChrome):
         q=self.queued('draft_control');self.assertEqual(q['id'],'external-whatsapp');self.assertEqual(q['inbox'],self.token)
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval'])
 
+    def test_quick_hub_uploaded_file_survives_reload_and_targets_only_hub(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-quick-trigger'})
+        self.page({'eval':"(()=>{const dt=new DataTransfer();dt.items.add(new File(['Quick synthetic file'],'quick.txt',{type:'text/plain'}));document.querySelector('.tm-quick form').dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));return true})()"},
+          {'until':"!!document.querySelector('.tm-quick .pchip') && !document.querySelector('.tm-quick .pchip').textContent.match(/uploading|загружаю/)"},
+          {'tapSelector':'.tm-quick-close'},{'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'},{'tapSelector':'.tm-quick-trigger'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-quick .pchip')?.textContent.includes('quick.txt') || false"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-quick button[type=submit]'},{'until':"!document.querySelector('.tm-quick[open]')"})
+        sent=[e['data'] for e in self.spooled() if e['type']=='message.received']
+        self.assertEqual(len(sent),1,sent);self.assertEqual(sent[0]['to'],'hub');self.assertEqual(sent[0]['text'],'(вложения)');self.assertEqual(sent[0]['attachments'][0]['name'],'quick.txt')
+        self.assertFalse(self.page({'eval':"Object.values(localStorage).some(v=>v.includes('quick.txt'))"})[-1]['eval'])
+
+    def test_quick_hub_acceptance_does_not_hide_or_delete_newer_draft(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-quick-trigger'},
+          {'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='First quick message';t.dispatchEvent(new Event('input',{bubbles:true}));window.__fetch=window.fetch;window.fetch=(url,opts)=>String(url)==='/api/send'?new Promise(resolve=>{window.__releaseQuick=()=>resolve(__fetch(url,opts))}):__fetch(url,opts);return true})()"},
+          {'tapSelector':'.tm-quick button[type=submit]'},
+          {'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='Newer quick draft';t.dispatchEvent(new Event('input',{bubbles:true}));__releaseQuick();return true})()"}, {'sleep':200})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-quick[open]')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick textarea').value"})[-1]['eval'],'Newer quick draft')
+        self.assertTrue(self.page({'eval':"Object.values(localStorage).includes('Newer quick draft')"})[-1]['eval'])
+
+    def test_quick_voice_cannot_close_while_recording_and_cancel_sends_nothing(self):
+        with mock.patch.dict(os.environ,{'VOICE_CMD':'true'}):
+            self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-quick-trigger'},
+              {'until':"!!document.querySelector('.tm-quick .mic')"},
+              {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});navigator.mediaDevices.getUserMedia=()=>Promise.resolve(new AudioContext().createMediaStreamDestination().stream);true"},
+              {'tapSelector':'.tm-quick .mic'}, {'until':"!!document.querySelector('.tm-quick [data-rec-clock]')"},
+              {'tapSelector':'.tm-quick-close'})
+            got=self.page({'eval':"({open:!!document.querySelector('.tm-quick[open]'),recording:!!document.querySelector('.tm-quick .rec'),notice:!document.querySelector('.tm-quick-notice').hidden})"})[-1]['eval']
+            self.assertEqual(got,{'open':True,'recording':True,'notice':True})
+            got=self.page({'tapSelector':'.tm-quick .recstrip .linkbtn'},{'until':"!document.querySelector('.tm-quick .rec')"},{'tapSelector':'.tm-quick-close'},
+              {'eval':"!document.querySelector('.tm-quick[open]')"})
+            self.assertTrue(got[-1]['eval'],got)
+        self.assertFalse([e for e in self.spooled() if e['type']=='message.received'])
+
     def test_quick_hub_refusal_retains_text_and_escape_keeps_conversation(self):
         self.seed_inbox(start_editing=False)
         self.page({'tapSelector':'.tm-quick-trigger'},{'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='Keep refused quick message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})

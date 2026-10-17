@@ -182,3 +182,7 @@ Inbox defaults to importance, using the highest-ranked open message in each exac
 
 ### 2026-10-17 — Web Inbox file replies use the existing source transport
 Enable attachments only for modern WhatsApp, Telegram and email messages without an explicit guarded token, and only when the core advertises composerFiles. Teams/CAS remains text-only; collector code and file-path containment checks are unchanged. Uploaded metadata is saved with the exact origin/source/conversation/message draft until a matching receipt, and the shared input uses that identity rather than only message id. Refusals retain the caption and exact file; file-only replies work, and Discard clears both. Synthetic raw uploads, three sources, reload, cross-source isolation, late refusal/retry and discard are checked before publication.
+
+
+### 2026-10-17 — QuickSend owns its uploaded draft and preserves later edits
+The Inbox QuickSend dialog persists uploaded metadata beside its origin/Hub-scoped text. Queue acceptance clears only the submitted draft: if a later text or upload is already in the composer, keep it and leave the dialog open. Reload restores an uploaded file; file-only sends target the Hub, never the Inbox recipient. Recording uses the shared composer and cannot be hidden by Close; cancel produces no send. Synthetic file and pending-request regressions reproduced both former losses; recording/cancel is exercised with a generated browser audio stream, not a real microphone.
