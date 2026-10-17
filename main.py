@@ -229,7 +229,7 @@ class Choice:
                     isinstance(body.get("text"), str) and body["text"] or files):
                 self.sends.append({"send_new": body["to"][:300], "rid": body["rid"],
                                    "text": body["text"] if isinstance(body.get("text"), str) else "",
-                                   "files": files, "subject": str(body.get("subject") or "")[:200]})
+                                   "files": files, "subject": str(body.get("subject") or "")[:200], "ts": ev.get("ts") or 0})
         elif isinstance(body, dict) and body.get("kind") == "ask" and body.get("what") in ("draft", "work") and all(
                 isinstance(body.get(k), str) and body[k] for k in ("rid", "post")) and re.fullmatch(r"p\d+", body["post"]):
             # ✨ / «Разобрать» в приложении: поручение хабу шлёт плагин от своего имени — в ленте это не слово владельца
@@ -1144,13 +1144,31 @@ def find_contacts(st, reader, q, put=post, now=None):
     put({"kind": "contacts", "rid": q["rid"], "q": q["contacts"], "items": items[:60], "errors": errors})
 
 
-def send_new(st, reader, q, put=post):
-    """Первое сообщение собеседнику, которого нет в Inbox: адрес — ключ из поиска. rid помним ДО отправки."""
-    done = st.setdefault("sent_rids", [])
+UNKNOWN_OUTCOME = ("Delivery outcome unknown: the hub stopped while sending. "
+                   "Check the conversation before sending again.")
+
+
+def send_new(st, reader, q, put=post, now=None):
+    """Первое сообщение собеседнику, которого нет в Inbox: адрес — ключ из поиска. rid помним ДО отправки — второй раз
+    не уйдёт. Итог rid тоже помним (new_out): повтор того же rid (клиент не получил ответа) получает прежний итог, а
+    оборванная посреди отправки — «итог неизвестен», без переотправки (17.10, ревью codex: повтор молчал навсегда)."""
+    done, outs = st.setdefault("sent_rids", []), st.setdefault("new_out", {})
     if q["rid"] in done:
+        if (now or time.time()) - (q.get("ts") or 0) > HISTORY_FRESH:
+            return   # старая просьба из перечитанного журнала: итог уже в ленте
+        o = outs.get(q["rid"]) or {}
+        if o.get("state") == "sent":
+            put({"kind": "sent", "rid": q["rid"], "to": o.get("to") or q["send_new"], "at": o.get("at")})
+        else:
+            put({"kind": "send_failed", "rid": q["rid"], "to": o.get("to") or q["send_new"],
+                 "error": o.get("error") if o.get("state") == "failed" else UNKNOWN_OUTCOME,
+                 **({} if o.get("state") == "failed" else {"unresolved": True})})
         return
     done.append(q["rid"])
     del done[:-500]
+    outs[q["rid"]] = {"state": "pending", "to": q["send_new"]}
+    for k in list(outs)[:-500]:
+        del outs[k]
     save(st)
     try:
         mcp_ = None
@@ -1162,10 +1180,15 @@ def send_new(st, reader, q, put=post):
                       q.get("files") or [], q.get("subject") or "")
     except Exception as e:   # noqa: BLE001
         reader.close()
+        outs[q["rid"]] = {"state": "failed", "to": q["send_new"], "error": short(e)}
+        save(st)
         put({"kind": "send_failed", "rid": q["rid"], "to": q["send_new"], "error": short(e)})
         print(f"teams: новое сообщение {q['rid']} не ушло: {e}", file=sys.stderr, flush=True)
         return
-    put({"kind": "sent", "rid": q["rid"], "to": q["send_new"], "at": iso(datetime.now(timezone.utc))})
+    at = iso(datetime.now(timezone.utc))
+    outs[q["rid"]] = {"state": "sent", "to": q["send_new"], "at": at}
+    save(st)
+    put({"kind": "sent", "rid": q["rid"], "to": q["send_new"], "at": at})
 
 
 HISTORY_FRESH = 300    # просьба старше — из перечитанного журнала: не исполняем

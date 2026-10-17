@@ -640,15 +640,40 @@ class Later(unittest.TestCase):
             st = {"me": {"id": "me"}}
             now = time.time()
             main.send_replies(st, self.R(), [{"contacts": "Лена", "rid": "c1", "ts": now, "src": "telegram"}], self.out.append)
-            q = {"send_new": "tg:77", "rid": "n1", "text": "Привет", "files": [], "subject": ""}
+            q = {"send_new": "tg:77", "rid": "n1", "text": "Привет", "files": [], "subject": "", "ts": now}
             main.send_replies(st, self.R(), [q], self.out.append)
-            main.send_replies(st, self.R(), [q], self.out.append)   # тот же rid — второй раз не уйдёт
+            main.send_replies(st, self.R(), [q], self.out.append)   # тот же rid — второй раз не уйдёт, итог повторится
+            main.send_replies(st, self.R(), [{**q, "ts": now - 3600}], self.out.append)   # старая просьба из журнала — молча
         finally:
             C.search, C.send, main.source_cfg, main.save = real_s, real_send, real_cfg, real_save
         self.assertEqual(self.out[0]["kind"], "contacts")
         self.assertEqual(self.out[0]["items"][0]["to"], "tg:77")
         self.assertEqual(sent, [("tg:77", "Привет", [])])
-        self.assertEqual([p["kind"] for p in self.out], ["contacts", "sent"])
+        self.assertEqual([p["kind"] for p in self.out], ["contacts", "sent", "sent"])
+        self.assertEqual(self.out[1], self.out[2])
+
+    def test_new_message_cut_off_mid_send_reports_unknown_outcome_and_never_resends(self):
+        # 17.10 (ревью codex): rid помним до отправки; упал процесс между записью и ответом источника — повтор того же
+        # rid не уходил и молчал навсегда. Теперь итог неизвестен — так и говорим, второй раз не отправляем
+        import time
+        C = main.contacts
+        real = (C.send, main.source_cfg, main.save)
+        sent = []
+        C.send = lambda to, text, cfg, mcp=None, me=None, files=(), subject="": sent.append(to)
+        main.source_cfg = lambda: {"telegram": {}}
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            st = {"me": {"id": "me"}, "sent_rids": ["n2"], "new_out": {"n2": {"state": "pending", "to": "tg:77"}}}
+            q = {"send_new": "tg:77", "rid": "n2", "text": "Привет", "files": [], "subject": "", "ts": now}
+            main.send_replies(st, self.R(), [q], self.out.append)
+            legacy = {**q, "rid": "n3"}; st["sent_rids"].append("n3")   # rid до этой правки: итога нет совсем
+            main.send_replies(st, self.R(), [legacy], self.out.append)
+        finally:
+            C.send, main.source_cfg, main.save = real
+        self.assertEqual(sent, [])
+        self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
+                         [("send_failed", "n2", True), ("send_failed", "n3", True)])
 
     def test_read_and_amend_go_to_the_source_once_with_clear_failures(self):
         # 13.10: «прочитано», правка и удаление своего — по кнопке; повтор rid и просьба из старого журнала не исполняются
