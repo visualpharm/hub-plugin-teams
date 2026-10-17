@@ -42,7 +42,31 @@ let reacting = null;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
 const editorStates = new Map();
+// Storage is origin-scoped, then bound to the source account/conversation and exact inbound message.
 const editorDrafts = new Map();
+const draftKey = m => "hub.inbox.draft.v1:" + JSON.stringify([m.src, m.contact || m.chat || m.link || "", m.id]);
+function savedDraft(m) {
+  if (!m) return undefined;
+  const key=draftKey(m);
+  if (editorDrafts.has(key)) return editorDrafts.get(key);
+  try {
+    const value=JSON.parse(localStorage.getItem(key) || "null");
+    if (value && typeof value.text==="string" && (value.pendingRid==null || typeof value.pendingRid==="string")) {
+      editorDrafts.set(key,value);return value;
+    }
+  } catch { /* A blocked store never prevents typing in the current page. */ }
+}
+function saveDraft(m,text,pendingRid=null) {
+  const key=draftKey(m),value={text,pendingRid};editorDrafts.set(key,value);
+  try { localStorage.setItem(key,JSON.stringify(value));return true; } catch { return false; }
+}
+function acceptDraft(m,rid) {
+  if (!m || savedDraft(m)?.pendingRid!==rid) return false;
+  const key=draftKey(m);editorDrafts.delete(key);
+  try { localStorage.removeItem(key); } catch { /* Keep the accepted tombstone in this page. */ }
+  editorDrafts.set(key,undefined);return true;
+}
+const hasOwnerDraft=m=>!!savedDraft(m)?.text.trim() && !savedDraft(m).pendingRid;
 let inboxProtocol = null;
 let historyAvailable = false;
 const histories = new Map();
@@ -105,7 +129,12 @@ function editorFact(d) {
     if (m && state.token) m.inbox = state.token;
     if (st) st.error = state.error;
     if (st?.closing && !state.control && !state.token.held) composing.delete(id);
-    if (state.delivery?.state === "sent") { composing.delete(id); editorDrafts.delete(id); st?.box?.set({text:""}); }
+    if (state.delivery?.state === "sent") {
+      acceptDraft(m,state.delivery.rid);
+      if (st && hasOwnerDraft(m)) {
+        state.delivery=null;state.edit(st.text);st.started=false;
+      } else { composing.delete(id);st?.box?.set({text:""}); }
+    }
   }
 }
 const replyOk = new Set();   // id сообщений, запощенных до «Ответить»: процесс дописал им адрес ответа (пост reply)
@@ -155,7 +184,7 @@ let toBottom = false;   // открыли переписку с человеко
 
 const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
-const done = (m) => hidden.has(m.id) || answered.has(m.id) || work.has(m.id) || sentOk(m.id);
+const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
@@ -184,7 +213,12 @@ async function sync() {
         // « · тред»): ответ без упоминания не показываем, только первое сообщение треда
         const reply = d.src === "support" && d.where?.includes(" · ");
         if (reply && !d.mention) continue;
-        msgs.set(d.id, { ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id });
+        const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
+        const previous=msgs.get(d.id);
+        if (previous && draftKey(previous)!==draftKey(message)) {
+          composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
+        }
+        msgs.set(d.id, message);
         editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
       } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
@@ -220,7 +254,8 @@ async function sync() {
         const delivery = editorStates.get(d.id)?.delivery;
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
         const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
-        if (!guarded) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); editorDrafts.delete(d.id); }
+        acceptDraft(msgs.get(d.id),d.rid);
+        if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); }
       }
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
@@ -479,7 +514,7 @@ function personRow(key, group) {
   row.append(preview);
   const open = () => {
     see(group); dmPerson = key; toBottom = true;
-    const target = group.find(canReply);
+    const target = group.find(m=>canReply(m) && savedDraft(m)!==undefined) || group.find(canReply);
     if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
     else paint();
     if (target && historyAvailable && !histories.has(target.id)) fetchHistory(target);
@@ -589,7 +624,8 @@ let focusId = null;   // после перерисовки поставить к
 function openCompose(m, text, why = "", focus = true) {
   let suggested = false;
   if (text === undefined) {
-    if (editorDrafts.has(m.id)) text = editorDrafts.get(m.id);
+    const saved=savedDraft(m);
+    if (saved!==undefined) text = saved.text;
     else {
       const offer = splitDraft((replies.get(m.post) || []).at(-1)?.text || "");
       text = offer.text && !QUICK_REACTIONS.includes(offer.text.trim()) ? signed(offer.text,m) : "";
@@ -646,7 +682,7 @@ function sharedReply(m, st) {
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
       sentLabel: "Queued. Waiting for delivery confirmation.",
-      onChange(text) { st.suggested=false; st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); beginEditing(m, st); },
+      onChange(text) { st.suggested=false; st.text = text; if (!saveDraft(m,text)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
       async send({ text, attachments }) {
         if (attachments?.length) return { error: "This destination accepts text only." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
@@ -656,7 +692,7 @@ function sharedReply(m, st) {
         if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
         try { q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
         catch (e) { return { error: e.message }; }
-        st.text = text; editorDrafts.set(m.id, text);
+        st.text = text; if (!saveDraft(m,text,q.rid)) st.error="This browser could not save the draft. Keep this page open.";
         sends.set(q.rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
         if (!(await mark(q.kind, q))) {
           sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
@@ -686,7 +722,7 @@ function sharedReply(m, st) {
         const body = el("div", "tm-proposal-body");
         body.append(el("p", "tm-proposed-text", p.text), el("p", null, p.context), el("p", null, p.next_action));
         st.proposal.append(body, button("Apply draft", "", () => {
-            try { const applied = state.apply(); st.text = applied.text; editorDrafts.set(m.id, st.text); st.box.set({text:st.text}); st.error = ""; }
+            try { const applied = state.apply(); st.text = applied.text; saveDraft(m,st.text); st.box.set({text:st.text}); st.error = ""; }
             catch (e) { st.error = e.message; }
             paint();
           }));
@@ -703,6 +739,7 @@ async function sendReply(m, text) {
   if (!text) return;
   if (inboxProtocol?.version === 1 || m.inbox?.v === 1) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  saveDraft(m,text,rid);
   sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
   composing.delete(m.id);
   error = "";
@@ -724,7 +761,7 @@ function composer(m) {
   ta.setAttribute("aria-label", `Ответ: ${m.from}`);
   const go = button("Отправить", "primary", () => sendReply(m, ta.value));
   go.disabled = !ta.value.trim();
-  ta.addEventListener("input", () => { st.text = ta.value; go.disabled = !ta.value.trim(); });
+  ta.addEventListener("input", () => { st.text = ta.value; saveDraft(m,ta.value); go.disabled = !ta.value.trim(); });
   ta.addEventListener("keydown", (e) => {
     // как во всех полях хаба (14.10, ui-expert/владелец): Enter — отправить, Shift+Enter — новая строка
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ta.value.trim()) sendReply(m, ta.value); }
@@ -739,7 +776,7 @@ function composer(m) {
 }
 
 // ответ можно отправить, если процесс знает, куда (reply) и мы туда ещё не ответили
-const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !sentOk(m.id) && !answered.has(m.id) && !hidden.has(m.id);
+const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !hidden.has(m.id) && (hasOwnerDraft(m) || (!sentOk(m.id) && !answered.has(m.id)));
 
 // Черновик хаба: сам текст, затем строка `---` и заметка владельцу («Почему: …»). Делим по последней такой строке;
 // заметка показывается рядом, в поле правки и в отправку идёт только текст (владелец 13.10: «когда редактируешь,
