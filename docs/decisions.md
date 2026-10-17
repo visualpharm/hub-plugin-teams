@@ -209,3 +209,6 @@ Hostile review reproduced a canceled payload being restored under a newly reboun
 
 ### 2026-10-17 — Suggested drafts obey the same pending-send boundary
 A different Hub suggestion exposed the legacy Send action after closing the shared composer, allowing another request while the first awaited confirmation. All entry points now share the pending predicate; the suggestion stays editable but its Send action waits. A definitive refusal re-enables an explicit new send. The browser regression failed before the fix and verifies both blocked pending delivery and the allowed retry after refusal.
+
+### 2026-10-17 — Suggested reply acknowledgment loss preserves uncertainty
+The legacy suggested-reply path now retains an unresolved delivery after a failed web acknowledgment, consistent with the shared composer. A request may already have reached the collector; only its receipt can establish delivery or definitive refusal. Keep the original draft and rid, suppress another suggested send, and preserve any collector outcome received before the HTTP response. No new retry protocol or collector change is introduced.

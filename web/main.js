@@ -905,7 +905,8 @@ async function sendReply(m, text) {
   composing.delete(m.id);
   error = "";
   paint();
-  if (!(await mark("send", { id: m.id, rid, text }))) sends.set(rid, { ...sends.get(rid), state: "fail", error: error || "не удалось передать плагину" });
+  if (!(await mark("send", { id: m.id, rid, text })) && sends.get(rid)?.state === "wait")
+    sends.set(rid, { ...sends.get(rid), state: "unresolved", error: "Submission is awaiting confirmation. Your draft is retained." });
   paint();
 }
 
