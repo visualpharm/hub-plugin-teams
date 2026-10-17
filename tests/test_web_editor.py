@@ -9,6 +9,14 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_voice_failure_is_visible_and_transcript_stays_in_the_bubble(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'voice','text':'','media':[{'kind':'voice','url':'/api/file?path=missing-voice.wav','dur':6,'text':'Retain this transcript'}]}]})
+        got=self.page({'until':"!!document.querySelector('.tm-voice .tm-media-error:not([hidden])')"},{'eval':"(()=>{const v=document.querySelector('.tm-voice'),b=v.querySelector('button'),r=b.getBoundingClientRect();return {text:v.textContent,native:!v.querySelector('audio').controls,label:b.getAttribute('aria-label'),width:r.width,height:r.height}})()"})[-1]['eval']
+        self.assertIn('Retain this transcript',got['text']);self.assertTrue(got['native']);self.assertIn(got['label'],('Play','Воспроизвести'));self.assertGreaterEqual(got['width'],44);self.assertGreaterEqual(got['height'],44)
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
     def test_reply_composer_keeps_one_row_with_or_without_discard(self):
         self.seed_inbox(start_editing=False)
         for width in (360,402,834,1240):
