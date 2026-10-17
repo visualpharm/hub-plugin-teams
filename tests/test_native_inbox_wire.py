@@ -47,7 +47,7 @@ class NativeWire(unittest.TestCase):
             self.assertEqual(q[key],body[key])
         self.assertEqual(q['draft'],'')
         body,q=packet('cancel')
-        self.assertEqual(q,{'cancel':body['rid'],'editor':body['editor']})
+        self.assertEqual(q,{'cancel':body['rid'],'editor':body['editor'],'ts':1000})   # ts — свежесть повтора отмены (m461794)
 
     def test_producer_accepts_native_codec_when_fresh_server_token_is_supplied(self):
         st=self.state();out=[]

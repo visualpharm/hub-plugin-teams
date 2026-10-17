@@ -209,7 +209,8 @@ class Choice:
                 self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"], **({"ts": ev["ts"]} if ev.get("ts") else {}),
                                    **({"reply_to": body["msg"][:200]} if isinstance(body.get("msg"), str) and body["msg"] else {})})
         elif isinstance(body, dict) and body.get("kind") == "cancel" and isinstance(body.get("rid"), str):
-            self.sends.append({"cancel": body["rid"],**({'editor':body['editor']} if isinstance(body.get('editor'),str) else {})})
+            self.sends.append({"cancel": body["rid"],**({'editor':body['editor']} if isinstance(body.get('editor'),str) else {}),
+                               **({"ts": ev["ts"]} if ev.get("ts") else {})})
         elif isinstance(body, dict) and body.get("kind") == "history" and isinstance(body.get("id"), str):
             self.sends.append({"history": body["id"], "ts": ev.get("ts") or 0,
                                **{k: str(body[k])[:200] for k in ("before", "before_at", "search") if body.get(k)},
@@ -1026,6 +1027,10 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if "cancel" in q:
             held = later.pop(q["cancel"], None)
+            gone = (st.get("reply_out") or {}).get(q["cancel"]) or {}
+            if not held and (gone.get("event") or {}).get("kind") == "canceled" and gone.get("editor") == q.get("editor") \
+                    and time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
+                put(gone["event"])   # потерян пост canceled: повтор той же отмены тем же редактором получает его снова
             if held:   # снятое не уйдёт и после перезапуска (журнал читается заново)
                 if held.get('inbox'):
                     token=inbox_delivery.cancel_hold(st,held['id'],q.get('editor'))
@@ -1036,7 +1041,8 @@ def send_replies(st, reader, queue, put=post, now=None):
                 done.append(q["cancel"])
                 tomb(st, q["cancel"])
                 gone = {"kind": "canceled", "id": held["id"], "rid": q["cancel"]}
-                st.setdefault("reply_out", {})[q["cancel"]] = {"state": "done", "id": held["id"], "event": gone}
+                st.setdefault("reply_out", {})[q["cancel"]] = {"state": "done", "id": held["id"], "event": gone,
+                                                               **({"editor": q["editor"]} if q.get("editor") else {})}
                 put(gone)
                 save(st)
             continue
@@ -1048,6 +1054,13 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put(reply_outcome(st, q))
             continue
         if q["rid"] in later:
+            if time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # потерян пост scheduled: повтор получает его снова
+                held = later[q["rid"]]
+                same = all(held.get(k) == q.get(k) for k in ("id", "editor", "automatic")) and \
+                    inbox_delivery.payload(held) == inbox_delivery.payload(q)
+                put({"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at"), **auto_text(held),
+                     **({"held": held["held"]} if held.get("held") else {})} if same else
+                    {"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input"})
             continue
         if q.get("at") and not due(q["at"], now):
             later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q}
