@@ -29,6 +29,9 @@ const replies = new Map();   // номер поста сообщения → [{b
 let signature = "";         // подпись под черновиками хаба — настройка плагина (пост config), задаётся в приложениях
 const signed = (text) => (!signature || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
+const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
+let reacting = null;
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
 const editorStates = new Map();
 const editorDrafts = new Map();
@@ -132,6 +135,14 @@ async function sync() {
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
         const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
         if (!guarded) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); editorDrafts.delete(d.id); }
+      }
+      else if (p.by === "owner" && d?.kind === "react" && d.rid) {
+        const old = reactionSends.get(d.id);
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
+      }
+      else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
+        const r = reactionSends.get(d.id);
+        if (r?.rid === d.rid) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
@@ -599,6 +610,27 @@ function sentBlock(m, rid, x) {
   return d;
 }
 
+async function reactTo(m, emoji) {
+  if (!m.react || reactionSends.get(m.id)?.state === "wait") return;
+  const r = {id:m.id,rid:requestId(),emoji,state:"wait",error:"",local:true};
+  reactionSends.set(m.id,r); reacting = null; paint();
+  let failure = "";
+  try {
+    if (!(await mark("react",{id:m.id,rid:r.rid,emoji}))) failure = error || "Reaction refused";
+  } catch { failure = "Could not send reaction. Try again."; }
+  const current = reactionSends.get(m.id);
+  if (failure && current?.rid === r.rid && current.state === "wait")
+    reactionSends.set(m.id, {...current,state:"fail",error:failure});
+  paint();
+}
+
+function reactionRow(m) {
+  const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label","Reaction");
+  for (const emoji of QUICK_REACTIONS) row.append(button(emoji,"",()=>reactTo(m,emoji),"React " + emoji));
+  const close=button("","quiet",()=>{reacting=null;paint();},"Close reactions");close.append(hub.icon("close"));row.append(close);
+  return row;
+}
+
 function thread(ms) {   // ms — по возрастанию времени
   const last = ms[ms.length - 1];
   const open = ms.filter((m) => !done(m));
@@ -643,6 +675,9 @@ function thread(ms) {   // ms — по возрастанию времени
       acts.append(dr);
     }
     acts.append(go);
+    const react = action("React", "react", () => { reacting = target.id; paint(); }, "React to " + target.from);
+    react.classList.add("tm-react-trigger"); react.disabled = !target.react || reactionSends.get(target.id)?.state === "wait";
+    acts.prepend(react);
     acts.prepend(action("Скрыть", "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${target.from}`));
   } else if (ms.some((m) => hidden.has(m.id))) {
     acts.append(button("Вернуть", "quiet", () => hide(ms.map((m) => m.id), false), `Вернуть сообщения ${last.from}`));
@@ -654,7 +689,13 @@ function thread(ms) {   // ms — по возрастанию времени
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
   }
-  box.append(acts);
+  const reactionTarget = ms.find(m=>m.id === reacting);
+  box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
+  const result = ms.map(m=>reactionSends.get(m.id)).filter(Boolean).at(-1);
+  if (result) {
+    const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
+    status.setAttribute("role","status"); box.append(status);
+  }
   if (composeFor) box.append(composer(composeFor));
   return box;
 }

@@ -127,3 +127,7 @@ The conversation list collapses when its content container is at most 900px, kee
 
 ## 2026-10-17 — Native Inbox action placement
 Conversation actions now precede the shared reply field, ordered Hide, Draft, Work. Source destination is an accessible icon in the conversation header. Native SF Regular assets are reused; narrow detail panes retain44px targets with accessible labels. Reaction support is a separate missing web action and remains open. Explicit private revision and Close editor retain their collector semantics. Verified165Pythoncases plusNodecontracts; seveneditorjourneys separately inlight/dark withactual color-scheme assertions.
+
+
+## 2026-10-17 — Native Inbox reactions in the web action row
+The shared web action row now exposes the native six-reaction picker. Posting is pending until the collector reports the exact message and request; refusal permits a new request and never clears the unsent reply. Reload replays the latest reaction receipt. The existing collector decides delivery and moves the source to Done. Verified 166 Python cases, all Node contracts, pointer targets at 360/390/1240 and light/dark captures.

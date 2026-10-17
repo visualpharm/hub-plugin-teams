@@ -169,3 +169,7 @@
 .tm-icon-archive { --tm-icon: url("icons/archive.svg"); }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
+
+.tm-reactions { display: flex; flex: none; gap: 0; background: var(--muted); border-radius: 22px; }
+.tm-reactions .btn { flex: 1; min-width: 44px; min-height: 44px; padding: 0; font-size: 26px; background: transparent; border: 0; }
+.tm-reaction-status { margin: 0; font-size: var(--text-base); overflow-wrap: anywhere; }
