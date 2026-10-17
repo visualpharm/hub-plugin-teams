@@ -9,6 +9,53 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def menu_history(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
+          {'id':'turn-first','at':'2026-10-17T12:00:00Z','from':'Earlier colleague','text':'First question'},
+          {'id':'turn-second','at':'2026-10-17T12:01:00Z','from':'Earlier colleague','text':'Second question'}]})
+        got=self.page({'until':"document.querySelectorAll('.tm-history-row').length===2"});self.assertTrue(got[-1]['until'],got)
+
+    def test_message_menu_switches_touch_target_without_second_gesture(self):
+        self.menu_history()
+        self.page({'eval':"navigator.clipboard.writeText=async t=>window.__copied=t;document.querySelector('.tm-history-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:300}));true"},
+          {'eval':"document.querySelectorAll('.tm-history-row')[1].dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch',clientX:100,clientY:360}));true"},{'sleep':650})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-message-menu')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-message-menu button:first-child'})
+        self.assertEqual(self.page({'eval':'window.__copied'})[-1]['eval'],'Second question')
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_message_menu_historical_work_quotes_exact_thread_post(self):
+        self.menu_history()
+        thread_post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).kind==='thread'}catch{return false}}).id)"})[-1]['eval']
+        self.page({'eval':"document.querySelector('.tm-history-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:300}));true"},
+          {'tapSelector':'.tm-message-menu button:nth-child(2)'},{'until':"location.hash==='#/s/hub'"},{'sleep':150})
+        quote=self.page({'eval':"import('/static/js/state.js').then(m=>m.S.replyTarget?.quote)"})[-1]['eval']
+        self.assertIn('post '+thread_post,quote);self.assertIn('turn-first',quote)
+        self.assertIn('First question',quote);self.assertNotIn('Please check the navigation',quote)
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_message_menu_focus_survives_flat_refresh_and_tab(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-options > summary'},
+          {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Telegram')).click();true"},
+          {'eval':"document.querySelector('.tm-options').open=false;const row=document.querySelector('[data-message=\"external-telegram\"]');window.__oldRow=row;row.focus();row.dispatchEvent(new KeyboardEvent('keydown',{key:'ContextMenu',bubbles:true,cancelable:true}));true"})
+        self.feed({'kind':'status','src':'telegram','ok':True})
+        got=self.page({'until':"!window.__oldRow.isConnected"});self.assertTrue(got[-1]['until'],got)
+        self.page({'key':'Escape'})
+        self.assertEqual(self.page({'eval':"document.activeElement.dataset.message"})[-1].get('eval'),'external-telegram')
+        self.page({'eval':"document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'ContextMenu',bubbles:true,cancelable:true}));true"},{'key':'Tab'})
+        self.assertTrue(self.page({'eval':"document.activeElement!==document.body && !document.querySelector('.tm-message-menu')"})[-1]['eval'])
+
+    def test_message_menu_does_not_copy_media_placeholder(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'[media]','reply':True,
+          'at':datetime.now(timezone.utc).isoformat(),'media':[{'kind':'photo','url':'/api/file?path=synthetic.png'}]})
+        self.page({'until':"!!document.querySelector('[data-message=\"source-a\"] .tm-media')"},
+          {'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:300}));true"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-message-menu')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-message-menu .tm-icon-copy')"})[-1]['eval'])
+
     def test_native_message_menu_touch_widths_and_work_prefill(self):
         self.seed_inbox(start_editing=False)
         rows=[]
