@@ -36,7 +36,41 @@ class InboxWebAcceptance(PageInChrome):
         link=self.page({"eval":"({href:document.querySelector('.tm-thread > .tm-head .tm-link')?.href,label:document.querySelector('.tm-thread > .tm-head .tm-link')?.getAttribute('aria-label'),actions:[...document.querySelectorAll('.tm-thread > .tm-acts .tm-action')].map(b=>b.getAttribute('aria-label'))})"})[-1]["eval"]
         self.assertEqual(link["href"],"https://teams.microsoft.com/l/message/synthetic-source-a",link)
         self.assertEqual(link["label"],"Open in Teams",link)
-        self.assertEqual(link["actions"],["Скрыть сообщения Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
+        self.assertEqual(link["actions"],["Скрыть сообщения Review colleague","React to Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
+
+    def test_reaction_targets_exact_message_and_keeps_draft_on_refusal(self):
+        self.seed_inbox(start_editing=False)
+        self.edit("Keep my unsent reply"); self.acknowledge(self.queued("draft_control"))
+        self.page({"tapSelector":".tm-react-trigger"},{"until":"document.querySelectorAll('.tm-reactions button').length===7"})
+        for width,theme in ((360,"light"),(390,"dark"),(1240,"light"),(1240,"dark")):
+            steps=[{"media":theme},{"viewport":{"width":width,"height":844}}]
+            if os.environ.get("HUB_INBOX_SCREENSHOTS"):
+                steps.append({"shot":str(Path(os.environ["HUB_INBOX_SCREENSHOTS"])/f"picker-{theme}-{width}.png"),"width":width,"height":844})
+            steps.append({"eval":"({overflow:document.documentElement.scrollWidth-innerWidth,buttons:[...document.querySelectorAll('.tm-reactions button')].map(b=>{const r=b.getBoundingClientRect();return {w:r.width,h:r.height,right:r.right}})})"})
+            got=self.page(*steps)[-1]["eval"]
+            self.assertEqual(got["overflow"],0,got)
+            for b in got["buttons"]:
+                self.assertGreaterEqual(b["w"],44,b);self.assertGreaterEqual(b["h"],44,b);self.assertLessEqual(b["right"],width,b)
+        self.page({"tapSelector":".tm-reactions button:first-child"},{"wait":"Sending reaction"})
+        request=self.queued("react")
+        self.assertEqual(request["id"],"source-a");self.assertEqual(request["emoji"],"👍")
+        self.feed({"kind":"reacted","id":"other-source","rid":request["rid"],"emoji":"👍"})
+        self.page({"sleep":250})
+        self.assertIn("Sending reaction",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
+        self.feed({"kind":"react_failed","id":"source-a","rid":request["rid"],"error":"Synthetic reaction refused"})
+        self.page({"wait":"Synthetic reaction refused"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
+        self.page({"tapSelector":".tm-react-trigger"},{"tapSelector":".tm-reactions button:nth-child(2)"})
+        retry=self.queued("react");self.assertNotEqual(retry["rid"],request["rid"])
+        self.feed({"kind":"reacted","id":"source-a","rid":retry["rid"],"emoji":"❤️"})
+        self.page({"wait":"Reaction sent"})
+        self.feed({"kind":"answered","id":"source-a"})
+        self.page({"click":"Разобранные"},{"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
+        self.shot("reaction-confirmed-draft-retained")
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"click":"Разобранные"},
+                  {"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"},{"wait":"Reaction sent"})
+        self.assertIn("❤️",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
 
     def test_whole_inbox_instruction_preserves_exact_text_and_is_dispatch_only(self):
         self.seed_inbox()
@@ -93,7 +127,7 @@ class InboxWebAcceptance(PageInChrome):
         self.token = {"v": 1, "version": "synthetic-source-A", "edit_version": 0, "held": False, "holder": None}
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}})
         self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
-                   "text": "Please check the navigation.", "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
+                   "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
                   {"eval": "document.querySelector('.tm-person').click();true"},
                   {"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();true"})
@@ -103,7 +137,7 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_open_and_generated_fill_do_not_hold_until_owner_input(self):
         self.seed_inbox(start_editing=False)
-        got = self.page({"eval": "document.querySelector('.tm-shared-compose textarea').value"})
+        got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "")
         self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
         self.page({"click": "Close editor"}, {"until": "!document.querySelector('.tm-shared-compose textarea')"})
