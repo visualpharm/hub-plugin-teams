@@ -9,6 +9,19 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_scheduled_hub_reply_keeps_text_time_and_distinct_owner_attribution(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'scheduled','id':'source-a','rid':'automatic-later','text':'Automatic exact reply','at':'2030-01-01T12:00:00Z'})
+        got=self.page({'until':"[...document.querySelectorAll('.tm-draft-by')].some(n=>n.textContent.startsWith('Хаб · '))"})
+        self.assertTrue(got[-1]['until'],got)
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-history').textContent.includes('Automatic exact reply') && !document.querySelector('.tm-history').textContent.includes('Invalid Date')"})[-1]['eval'])
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'source-a','rid':'owner-later','text':'Owner exact reply'}))
+        self.feed({'kind':'scheduled','id':'source-a','rid':'owner-later','at':'2030-01-02T12:00:00Z'})
+        got=self.page({'until':"[...document.querySelectorAll('.tm-draft-by')].some(n=>n.textContent.startsWith('Вы · '))"})
+        self.assertTrue(got[-1]['until'],got)
+        rows=self.page({'eval':"[...document.querySelectorAll('.tm-draft-by')].map(n=>({by:n.textContent,text:n.parentNode.querySelector('.tm-draft-text').textContent}))"})[-1]['eval']
+        self.assertEqual([(r['by'].split(' · ')[0],r['text']) for r in rows],[('Хаб','Automatic exact reply'),('Вы','Owner exact reply')])
+
     def open_external_source(self, source, token=False):
         self.feed({'kind':'config','v':3,'inbox_protocol':{'version':1,'editor_cas':True}})
         self.feed({'kind':'msg','id':'external-'+source,'contact':'synthetic/'+source,'src':source,'from':'Synthetic '+source,
