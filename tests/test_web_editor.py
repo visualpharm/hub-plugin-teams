@@ -9,6 +9,20 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_suggested_draft_cannot_bypass_a_pending_reply(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Already pending exact reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Different suggested reply')
+        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'},
+          {'until':"!!document.querySelector('.tm-draft button.primary')"})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-draft button.primary').disabled"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.feed({'kind':'send_failed','id':q['id'],'rid':q['rid'],'error':'Definitive refusal'})
+        got=self.page({'until':"!document.querySelector('.tm-draft button.primary').disabled"});self.assertTrue(got[-1]['until'],got)
+        self.page({'tapSelector':'.tm-draft button.primary'},{'sleep':100})
+        retry=self.queued('send');self.assertEqual(retry['text'],'Different suggested reply');self.assertEqual(retry['id'],q['id'])
+
     def test_canceled_reply_cannot_follow_a_rebound_source(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Reply only for original contact')
         self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')

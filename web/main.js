@@ -196,6 +196,7 @@ const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
 const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
+const deliveryPending = m => outgoing(m,["wait","later","unresolved"]);
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
   if (folder === "archive") return hidden.has(m.id) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
@@ -835,7 +836,7 @@ function sharedReply(m, st) {
       async send({ text, attachments }) {
         if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
         if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
-        if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
+        if (deliveryPending(m))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
         const revision=st.state?.revision;
         beginEditing(m, st);
@@ -896,6 +897,7 @@ function sharedReply(m, st) {
 async function sendReply(m, text) {
   text = text.trim();
   if (!text) return;
+  if (deliveryPending(m)) { error="A reply is awaiting confirmation. Your draft is retained.";paint();return; }
   if (guardedReply(m)) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   saveDraft(m,text,rid);
@@ -958,7 +960,9 @@ function draftBlock(m, r) {
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
-    a.append(button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${m.from}`),
+    const send=button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${m.from}`);
+    send.disabled=deliveryPending(m);
+    a.append(send,
       button("Править", "", () => openCompose(m, signed(text, m), why), `Править черновик: ${m.from}`));
     d.append(a);
   }
