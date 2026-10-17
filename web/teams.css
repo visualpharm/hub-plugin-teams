@@ -144,7 +144,8 @@
   .tm-detail-open .tm-list-pane { display: none; }
   .tm-detail { flex: 1; padding: var(--space-4); }
 }
-@container (max-width: 680px) {
+/* Keep a 560px reading/editor pane beside the 336px conversation list. */
+@container (max-width: 900px) {
   .tm { display: flex; }
   .tm-list-pane { flex: 1; }
   .tm-detail-open .tm-list-pane { display: none; }

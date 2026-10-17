@@ -121,3 +121,6 @@ Why: a historical native source checkpoint cannot certify later receipt semantic
 or replace native execution and UI acceptance. Keep known consumer gaps explicit.
 Undo: update fixture provenance after reviewing a new native source revision; do not
 relabel old artifacts or broaden their acceptance scope. By: agent.
+
+## 2026-10-17 — Inbox panes follow available width
+The conversation list collapses when its content container is at most 900px, keeping the selected conversation and shared reply composer full width. The split layout requires 336px for the list and at least560px for reading. Browser regression covers390,768,834,1024,1280,1440px; current collector changes are retained.

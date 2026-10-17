@@ -11,12 +11,15 @@ from tests.test_web_e2e import PageInChrome
 class InboxWebAcceptance(PageInChrome):
     def test_tablet_detail_uses_the_available_content_width(self):
         self.seed_inbox(); self.queued("draft_control")
-        got = self.page({"shot": str(Path(self.state) / "tablet-detail.png"), "width": 834, "height": 900},
-                        {"eval": "({detail:document.querySelector('.tm-detail').clientWidth,list:getComputedStyle(document.querySelector('.tm-list-pane')).display,overflow:document.documentElement.scrollWidth-innerWidth})"})
-        row = got[-1]["eval"]
-        self.assertGreaterEqual(row["detail"], 440, row)
-        self.assertEqual(row["list"], "none", row)
-        self.assertEqual(row["overflow"], 0, row)
+        for width in (390, 768, 834, 1024, 1280, 1440):
+            with self.subTest(width=width):
+                got = self.page({"shot": str(Path(self.state) / f"detail-{width}.png"), "width": width, "height": 900},
+                                {"eval": "({root:document.querySelector('.tm-container').clientWidth,detail:document.querySelector('.tm-detail').clientWidth,list:getComputedStyle(document.querySelector('.tm-list-pane')).display,overflow:document.documentElement.scrollWidth-innerWidth})"})
+                row = got[-1]["eval"]
+                single = row["root"] <= 900
+                self.assertEqual(row["list"], "none" if single else "flex", row)
+                self.assertGreaterEqual(row["detail"], row["root"] - 1 if single else 560, row)
+                self.assertEqual(row["overflow"], 0, row)
         self.shot("tablet-detail")
 
     def test_whole_inbox_instruction_preserves_exact_text_and_is_dispatch_only(self):
