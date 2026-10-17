@@ -209,6 +209,15 @@
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
 .tm-icon-archive { --tm-icon: url("icons/archive.svg"); }
 .tm-icon-sent { --tm-icon: url("icons/sent.svg"); } /* Shared native Icons8 SF Regular asset. */
+.tm-icon-sort { --tm-icon: url("icons/sort.svg"); }
+.tm-sort { position: relative; flex: none; }
+.tm-sort[hidden] { display: none; }
+.tm-sort summary { list-style: none; width: 44px; height: 44px; padding: 8px; display: flex; align-items: center; justify-content: center; }
+.tm-sort summary::-webkit-details-marker { display: none; }
+.tm-sort:not([open]) > .tm-sort-choices { display: none; }
+.tm-sort-choices { position: absolute; z-index: 10; top: 100%; right: 0; min-width: 160px; padding: 8px; border-radius: 12px; background: var(--popover, var(--background)); color: var(--foreground); box-shadow: var(--shadow-lift); }
+.tm-sort-choices button { display: block; width: 100%; min-height: 44px; text-align: left; }
+.tm-sort-choices [aria-checked=true] { background: var(--muted); font-weight: 600; }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
 
