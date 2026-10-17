@@ -186,3 +186,7 @@ Enable attachments only for modern WhatsApp, Telegram and email messages without
 
 ### 2026-10-17 — QuickSend owns its uploaded draft and preserves later edits
 The Inbox QuickSend dialog persists uploaded metadata beside its origin/Hub-scoped text. Queue acceptance clears only the submitted draft: if a later text or upload is already in the composer, keep it and leave the dialog open. Reload restores an uploaded file; file-only sends target the Hub, never the Inbox recipient. Recording uses the shared composer and cannot be hidden by Close; cancel produces no send. Synthetic file and pending-request regressions reproduced both former losses; recording/cancel is exercised with a generated browser audio stream, not a real microphone.
+
+
+### 2026-10-17 — Native New message on the web
+Use the existing contacts/send_new collector contract, preserving its opaque recipient key and rid. Search responses bind to exact query/rid; user content is text, never HTML. New-message draft is origin+Hub scoped and survives close/reload, separately from replies and QuickSend. A collector refusal permits a new explicit attempt; unknown HTTP acknowledgement retries the SAME id, never invents delivery. Exact rid+recipient receipt closes only the unchanged sent draft, retaining newer edits. Actual synthetic browser checks cover email subject, source selection, refusal/reload/retry, stale search/receipt, duplicate submit, unknown acknowledgement, Escape and four rendered widths/themes. Collector/provider code is unchanged.

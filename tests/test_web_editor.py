@@ -9,6 +9,85 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_new_message_unknown_ack_retries_same_request_after_reload(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-new-trigger'},
+          {'eval':"(()=>{const t=document.querySelector('.tm-new-search');t.value='Test';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"},{'sleep':650})
+        lookup=self.queued('contacts')
+        self.feed({'kind':'contacts','rid':lookup['rid'],'q':'Test','items':[],'errors':{'telegram':'Synthetic search refusal'}})
+        got=self.page({'until':"document.querySelector('.tm-new-results').textContent.includes('Synthetic search refusal')"});self.assertTrue(got[-1]['until'],got)
+        self.page({'tapSelector':'.tm-new-results button'},{'sleep':100});lookup=self.queued('contacts')
+        self.feed({'kind':'contacts','rid':lookup['rid'],'q':'Test','items':[{'src':'whatsapp','to':'whatsapp:test-account:test-person','name':'Synthetic person'}]})
+        self.page({'until':"!!document.querySelector('.tm-new-contact')"},{'tapSelector':'.tm-new-contact'},
+          {'eval':"""(()=>{const t=document.querySelector('.tm-new-text');t.value='Exact retry';t.dispatchEvent(new Event('input',{bubbles:true}));window.__fetch=window.fetch;window.fetch=async (url,opts)=>{if(String(url).endsWith('/api/feed/post')&&JSON.parse(opts?.body||'{}').text?.includes('send_new')){window.__attempt=JSON.parse(JSON.parse(opts.body).text);throw new Error('Synthetic lost acknowledgement')}return __fetch(url,opts)};return true})()"""},
+          {'tapSelector':'.tm-new-send'},{'until':"!document.querySelector('.tm-new-send').disabled && document.querySelector('.tm-new-status').textContent.includes('Черновик')"})
+        attempt=self.page({'eval':'__attempt'})[-1]['eval']
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-new-trigger')"},{'tapSelector':'.tm-new-trigger'},
+          {'tapSelector':'.tm-new-send'},{'sleep':100})
+        retry=self.queued('send_new');self.assertEqual(retry,attempt)
+        self.feed({'kind':'sent','rid':retry['rid'],'to':retry['to']})
+        got=self.page({'until':"!document.querySelector('.tm-new').open"});self.assertTrue(got[-1]['until'],got)
+
+    def test_new_recipient_search_and_pending_receipt_cannot_replace_newer_input(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-new-trigger'})
+        requests=[]
+        for query in ('Earlier','Current'):
+            self.page({'eval':f"(()=>{{const t=document.querySelector('.tm-new-search');t.value={query!r};t.dispatchEvent(new Event('input',{{bubbles:true}}));return true}})()"},{'sleep':650})
+            requests.append(self.queued('contacts'))
+        self.feed({'kind':'contacts','rid':requests[0]['rid'],'q':'Earlier','items':[{'src':'telegram','to':'telegram:old','name':'Stale recipient'}]})
+        self.page({'sleep':100});self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-new-contact')"})[-1]['eval'])
+        self.feed({'kind':'contacts','rid':requests[1]['rid'],'q':'Current','items':[{'src':'telegram','to':'telegram:current','name':'Current recipient','hint':'Synthetic account'}]})
+        self.page({'until':"document.querySelector('.tm-new-contact')?.textContent.includes('Current recipient')"},{'tapSelector':'.tm-new-contact'},
+          {'eval':"(()=>{const t=document.querySelector('.tm-new-text');t.value='First exact message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for width,theme in ((360,'light'),(402,'dark'),(834,'light'),(1240,'dark')):
+                got=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'new-message-{theme}-{width}.png'),'width':width,'height':874},
+                  {'eval':"({theme:getComputedStyle(document.documentElement).colorScheme,overflow:document.documentElement.scrollWidth-innerWidth,right:document.querySelector('.tm-new-send').getBoundingClientRect().right,form:document.querySelector('.tm-new').getBoundingClientRect().width})"})[-1]['eval']
+                self.assertEqual(got['theme'],theme);self.assertEqual(got['overflow'],0);self.assertLessEqual(got['right'],width);self.assertLessEqual(got['form'],width)
+        self.page({'eval':"document.querySelector('.tm-new form').requestSubmit();document.querySelector('.tm-new form').requestSubmit();true"},{'sleep':100})
+        actions=[e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send_new']
+        self.assertEqual(len(actions),1);q=json.loads(actions[0]['data']['text'])
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-new-trigger')"},{'tapSelector':'.tm-new-trigger'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-new-send').disabled"})[-1]['eval'])
+        self.page({'eval':"(()=>{const t=document.querySelector('.tm-new-text');t.value='Newer unsent message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        self.feed({'kind':'sent','rid':q['rid'],'to':'telegram:wrong'})
+        self.page({'sleep':100});self.assertTrue(self.page({'eval':"document.querySelector('.tm-new-send').disabled"})[-1]['eval'])
+        self.feed({'kind':'sent','rid':q['rid'],'to':q['to']})
+        got=self.page({'until':"!document.querySelector('.tm-new-send').disabled"})
+        self.assertTrue(got[-1]['until'],got)
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-new').open && document.querySelector('.tm-new-text').value==='Newer unsent message'"})[-1]['eval'])
+        self.page({'key':'Escape'},{'until':"!document.querySelector('.tm-new').open"},
+          {'until':"(()=>{const b=document.querySelector('.tm-new-trigger'),r=b.getBoundingClientRect();return b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()"},{'tapSelector':'.tm-new-trigger'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-new-text').value"})[-1]['eval'],'Newer unsent message')
+
+    def test_new_recipient_reply_keeps_exact_target_and_refused_draft_across_reload(self):
+        self.seed_inbox(start_editing=False)
+        self.edit('Existing conversation draft')
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-new-trigger'},{'until':"!!document.querySelector('.tm-new[open]')"},
+          {'eval':"(()=>{const t=document.querySelector('.tm-new-search');t.value='Ada';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"},{'sleep':650})
+        lookup=self.queued('contacts')
+        self.feed({'kind':'contacts','rid':lookup['rid'],'q':'Ada','items':[{'src':'email','to':'email:synthetic-account:ada@example.invalid','name':'Ada Review','hint':'ada@example.invalid'}],'errors':{}})
+        self.page({'until':"!!document.querySelector('.tm-new-contact')"},{'tapSelector':'.tm-new-contact'},
+          {'eval':"(()=>{for(const [s,v] of [['.tm-new-text','Exact first message'],['.tm-new-subject','Exact subject']]){const t=document.querySelector(s);t.value=v;t.dispatchEvent(new Event('input',{bubbles:true}))}return true})()"},
+          {'tapSelector':'.tm-new-send'},{'sleep':100})
+        q=self.queued('send_new');self.assertEqual(q['to'],'email:synthetic-account:ada@example.invalid');self.assertEqual(q['text'],'Exact first message');self.assertEqual(q['subject'],'Exact subject')
+        self.feed({'kind':'send_failed','rid':q['rid'],'to':q['to'],'error':'Synthetic first-message refusal'})
+        got=self.page({'until':"document.querySelector('.tm-new-status')?.textContent.includes('Synthetic first-message refusal')"})
+        self.assertTrue(got[-1]['until'],got)
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-new-trigger')"},
+          {'tapSelector':'.tm-new-trigger'},{'until':"document.querySelector('.tm-new-text')?.value==='Exact first message'"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-new-subject').value"})[-1]['eval'],'Exact subject')
+        self.page({'tapSelector':'.tm-new-send'},{'sleep':100});retry=self.queued('send_new')
+        self.assertNotEqual(retry['rid'],q['rid']);self.assertEqual(retry['to'],q['to']);self.assertEqual(retry['text'],q['text'])
+        self.feed({'kind':'sent','rid':q['rid'],'to':q['to']})
+        self.page({'sleep':100});self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-new[open]')"})[-1]['eval'])
+        self.feed({'kind':'sent','rid':retry['rid'],'to':retry['to']})
+        got=self.page({'until':"!document.querySelector('.tm-new[open]')"});self.assertTrue(got[-1]['until'],got)
+        self.page({'tapSelector':'.tm-person'},{'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Existing conversation draft')
+
     def test_scheduled_hub_reply_keeps_text_time_and_distinct_owner_attribution(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'scheduled','id':'source-a','rid':'automatic-later','text':'Automatic exact reply','at':'2030-01-01T12:00:00Z'})
