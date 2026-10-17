@@ -117,6 +117,17 @@
 .tm-person .tm-from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-person .tm-head .ago { flex: none; white-space: nowrap; }
 .tm-person .tm-text.tm-clamp { -webkit-line-clamp: 2; line-height: 1.35; }
+.tm-unread { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--primary); align-self: center; }
+.tm-preview { display: flex; gap: 12px; align-items: flex-start; }
+.tm-preview .tm-text { flex: 1; min-width: 0; }
+.tm-preview img { width: 52px; height: 52px; flex: none; object-fit: cover; border-radius: 8px; }
+.tm-media { display: flex; flex-direction: column; gap: 8px; max-width: 100%; min-width: 0; }
+.tm-media .tm-photo { display: block; background: transparent; border: 0; padding: 0; border-radius: 12px; overflow: hidden; min-width: 44px; min-height: 44px; }
+.tm-photo img { display: block; width: 100%; max-width: 400px; max-height: 320px; object-fit: contain; }
+.tm-media audio, .tm-media video { display: block; max-width: 100%; width: 320px; }
+.tm-media video { max-height: 320px; }
+.tm-media-file { display: flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
+.tm-transcript { margin: 0; }
 .tm-conversation-search { display: flex; flex: none; align-items: center; gap: 8px; min-height: 44px; margin: 8px 16px; padding-left: 12px; border-radius: 24px; background: var(--background); }
 .tm-conversation-search > .icon { width: 20px; height: 20px; flex: none; }
 .tm-conversation-search input { min-width: 0; flex: 1; height: 44px; padding: 0; border: 0; outline: none; background: transparent; color: var(--foreground); font: inherit; }

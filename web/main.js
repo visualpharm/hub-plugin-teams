@@ -8,6 +8,7 @@
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
+import { openLightbox } from "/static/js/lightbox.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -20,6 +21,12 @@ let hub = null;
 const el = (...a) => hub.el(...a);
 
 const msgs = new Map();      // id → сообщение (+ post — номер поста, на него отвечают черновиком)
+const seen = new Set();
+try { for (const id of JSON.parse(localStorage.getItem("hub.inbox.seen") || "[]")) if (typeof id === "string") seen.add(id); } catch { /* private browsing */ }
+function see(group) {
+  for (const m of group) seen.add(m.id);
+  try { localStorage.setItem("hub.inbox.seen", JSON.stringify([...seen].slice(-2000))); } catch { /* session state still works */ }
+}
 const answered = new Set();
 const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
 const hidden = new Set();
@@ -106,6 +113,9 @@ async function sync() {
         editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
       } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
+      else if (p.by === AUTHOR && d?.kind === "read") {
+        for (const id of d.ids || [d.id]) { const m = msgs.get(id); if (m) m.unread = false; }
+      }
       else if (p.by === AUTHOR && d?.kind === "reopened") {
         const m = msgs.get(d.id);
         if (m?.post === d.post && m.contact === d.contact && answeredAt.get(d.id) === d.corrects && !sentOk(d.id)) {
@@ -322,6 +332,54 @@ function matchingConversations(items) {
     `${m.from || ""}\n${m.text || ""}\n${m.where || ""}`.toLocaleLowerCase().includes(query)));
 }
 
+function mediaKind(m) {
+  const kind = m.kind || m.type || "";
+  if (["image", "photo", "sticker", "gif"].includes(kind) || m.mime?.startsWith("image/")) return "image";
+  if (["audio", "voice", "ptt"].includes(kind) || m.mime?.startsWith("audio/")) return "audio";
+  if (kind === "video" || m.mime?.startsWith("video/")) return "video";
+  return "file";
+}
+const mediaLabel = (m) => ({image:"Photo",audio:"Voice message",video:"Video",file:"File"})[mediaKind(m)];
+function mediaURL(raw) {
+  if (typeof raw !== "string" || !raw || raw.startsWith("//")) return "";
+  try {
+    if (/^[a-z][a-z\d+.-]*:/i.test(raw)) {
+      const u = new URL(raw);
+      return !u.username && !u.password && (u.protocol === "https:" || u.origin === location.origin) ? u.href : "";
+    }
+    return new URL(/^\/?api\/file\?/.test(raw) ? "/" + raw.replace(/^\//, "") : "/api/file?path=" + encodeURIComponent(raw), location.origin).href;
+  } catch { return ""; }
+}
+const mediaList = (m) => Array.isArray(m.media) ? m.media.filter(x => x && typeof x === "object") : [];
+function messageText(m) {
+  const text = String(m.text || "");
+  return mediaList(m).length && ["[media]", "[медиа]"].includes(text.trim()) ? "" : text;
+}
+
+function mediaBody(m) {
+  const box = el("div", "tm-media");
+  for (const item of mediaList(m)) {
+    const kind = mediaKind(item), url = item.thumb === true && kind !== "image" ? "" : mediaURL(item.url || item.path);
+    const label = item.name || mediaLabel(item);
+    if (!url) { box.append(el("span", "tm-media-unavailable", `${label} · Unavailable`)); continue; }
+    if (kind === "image") {
+      const image = el("img"); image.src = url; image.alt = label; image.loading = "lazy";
+      const photo = button("", "tm-photo", () => openLightbox([...box.querySelectorAll(".tm-photo img")], [...box.querySelectorAll(".tm-photo img")].indexOf(image), {reply:false}));
+      photo.setAttribute("aria-label", "View " + label); photo.append(image); box.append(photo);
+    } else if (kind === "audio" || kind === "video") {
+      const player = el(kind); player.src = url; player.controls = true; player.preload = "metadata";
+      player.setAttribute("aria-label", label);
+      if (kind === "video") { player.playsInline = true; if (typeof item.thumb === "string") player.poster = mediaURL(item.thumb); }
+      box.append(player);
+      if (item.text || item.transcript) box.append(el("p", "tm-transcript", item.text || item.transcript));
+    } else {
+      const file = el("a", "tm-media-file", label); file.href = url; file.target = "_blank"; file.rel = "noopener noreferrer";
+      box.append(file);
+    }
+  }
+  return box;
+}
+
 function personRow(key, group) {
   const latest = group[0];
   const name = latest.from || "—";
@@ -329,14 +387,21 @@ function personRow(key, group) {
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
   head.append(stamp(secs(latest.at)));
+  if (!seen.has(latest.id) && latest.unread !== false && latest.unread !== 0) {
+    const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
+  }
   row.append(head);
-  const text = el("div", "tm-text tm-clamp", latest.text);
-  row.append(text);
-  row.addEventListener("click", () => { dmPerson = key; toBottom = true; paint(); });
+  const media = mediaList(latest), text = el("div", "tm-text tm-clamp", messageText(latest) || media.map(mediaLabel).join(", "));
+  const preview = el("div", "tm-preview"); preview.append(text);
+  const photo = media.find(m => mediaKind(m) === "image" && mediaURL(m.url || m.path));
+  if (photo) { const img = el("img"); img.src = mediaURL(photo.thumb && typeof photo.thumb === "string" ? photo.thumb : photo.url || photo.path); img.alt = photo.name || "Photo"; img.loading = "lazy"; preview.append(img); }
+  row.append(preview);
+  const open = () => { see(group); dmPerson = key; toBottom = true; paint(); };
+  row.addEventListener("click", open);
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
   row.setAttribute("aria-label", `Переписка с ${name}, ${SRC[latest.src] || latest.src}, ${group.length} сообщени${group.length === 1 ? "е" : "й"}`);
-  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dmPerson = key; toBottom = true; paint(); } });
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
   return row;
 }
 
@@ -410,13 +475,14 @@ function messageBody(m) {
 function line(m) {
   const row = el("div", "tm-line" + (done(m) ? " tm-done" : ""));
   const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
-  text.append(messageBody(m));
+  text.append(messageBody({...m, text:messageText(m)}));
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
     text.classList.add("tm-clamp");
     text.addEventListener("click", () => text.classList.toggle("tm-clamp"));
     text.title = "Нажмите, чтобы развернуть";
   }
-  row.append(text);
+  if (messageText(m)) row.append(text);
+  if (mediaList(m).length) row.append(mediaBody(m));
   const result = reactionSends.get(m.id);
   if (result) {
     const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
