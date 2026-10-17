@@ -133,3 +133,12 @@ Unread failure and flat-card actions restore focus to the same visible menu
 summary. After a failed storage write, rendering a closed menu cannot focus its
 now-hidden action; an explicit summary target is required. A grouped reminder
 returns focus to its exact conversation row instead.
+
+
+### 2026-10-17 — Read preference failures stay visible
+Opening a conversation surfaces a failed local read write, leaves the reminder
+unchanged, and keeps the editor usable. A successful retry clears that error.
+Empty targets cannot report a saved reminder. Read preferences refuse growth
+beyond 256 Ki characters per Hub, without deleting old reminders, to limit their
+share of origin storage. This is a bounded stop, not a guarantee of free browser
+quota; compaction and stable Hub rename migration remain separate work.

@@ -135,6 +135,19 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse(self.page({'eval':"document.body.innerText.includes('Could not save unread state')"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_open_read_storage_failure_is_visible_and_preserves_reminder(self):
+        self.seed_inbox(start_editing=False);self.edit('Draft remains recoverable');self.queued('draft_control')
+        self.page({'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
+        self.page({'eval':"window.__saveRead=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.read.'))throw Error('quota');return window.__saveRead.call(this,k,v)};true"},{'tapSelector':'.tm-person'})
+        self.assertTrue(self.page({'eval':"document.body.innerText.includes('Could not save read state')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Draft remains recoverable')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.page({'eval':'Storage.prototype.setItem=window.__saveRead;true'},{'tapSelector':'.tm-person'})
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Could not save read state')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def menu_history(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
