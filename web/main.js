@@ -625,6 +625,10 @@ function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
     const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
+    const options=st.options=el("details","tm-editor-options"), optionsToggle=el("summary","btn quiet"), optionsBody=el("div","tm-editor-menu");
+    optionsToggle.setAttribute("aria-label","Draft options");optionsToggle.append(hub.icon("menu"));options.append(optionsToggle,optionsBody);
+    options.addEventListener("keydown",e=>{if(e.key==="Escape"){options.open=false;optionsToggle.focus();e.stopPropagation();}});
+    options.addEventListener("focusout",e=>{if(e.relatedTarget && !options.contains(e.relatedTarget))options.open=false;});
     if (st.state) {
       const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
@@ -637,7 +641,7 @@ function sharedReply(m, st) {
         paint();
       });
       st.proposal = el("div", "tm-proposal");
-      details.append(summary, directive, revise); wrap.append(details, st.proposal);
+      details.append(summary, directive, revise); optionsBody.append(details); wrap.append(st.proposal);
     }
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
@@ -668,7 +672,8 @@ function sharedReply(m, st) {
       if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
     });
-    wrap.append(box.node, feedback, close);
+    optionsBody.append(close);
+    wrap.append(box.node, feedback);
   }
   st.box.set({});
   const state = st.state, p = state?.proposal;
@@ -809,9 +814,9 @@ function thread(ms) {   // ms — по возрастанию времени
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", last.from || "—"));
-  for (const k of new Set(ms.map((m) => m.src))) head.append(el("span", `tm-src tm-src-${k}`, SRC[k] || k));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
+  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>m.src))].map(k=>SRC[k] || k).join(" · ")));
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
     const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : "Earlier messages", "quiet tm-earlier", () => {
@@ -890,7 +895,10 @@ function thread(ms) {   // ms — по возрастанию времени
   if (guidance) box.append(el("div", "tm-guidance", guidance));
   const reactionTarget = ms.find(m=>m.id === reacting);
   box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
-  if (composeFor) box.append(composer(composeFor));
+  if (composeFor) {
+    box.append(composer(composeFor));
+    const options=composing.get(composeFor.id)?.options;if(options)head.append(options);
+  }
   return box;
 }
 
@@ -1002,7 +1010,7 @@ function paintAll() {
       : tab === "failed" ? "No failed replies." : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
     const back = el("button", "btn quiet tm-close-conversation");
-    back.append(hub.icon("close")); back.setAttribute("aria-label", "Close conversation");
+    back.append(nativeIcon("back")); back.setAttribute("aria-label", "Back to Inbox");
     back.type = "button";
     back.addEventListener("click", () => { dmPerson = null; paint(); });
     const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
@@ -1086,7 +1094,10 @@ function panel() {
 }
 
 function build(root) {
+  ui?.resize?.disconnect();
   root.classList.add("tm-container");
+  const resize = new ResizeObserver(entries=>root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900));
+  resize.observe(root);
   const wrap = el("div", "tm");
   const head = el("header", "tm-top");
   const title = el("div", "tm-title-row");
@@ -1152,7 +1163,7 @@ function build(root) {
   listPane.append(head, listNode, search); detail.hidden = true;
   wrap.append(listPane, detail);
   root.replaceChildren(wrap);
-  ui = { root, wrap, detail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { root, resize, wrap, detail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
@@ -1188,7 +1199,7 @@ function registerView() {
 
 export default function register(h) {
   hub = h;
-  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
+  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
   registerView();
