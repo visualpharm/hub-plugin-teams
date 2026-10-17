@@ -9,6 +9,15 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_reply_composer_keeps_one_row_with_or_without_discard(self):
+        self.seed_inbox(start_editing=False)
+        for width in (360,402,834,1240):
+            self.page({'viewport':{'width':width,'height':874}})
+            for text in ('','Short reply'):
+                self.edit(text)
+                got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.composer-actions > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertLessEqual(got['height'],50,(width,text,got));self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
+
     def test_link_preview_keeps_exact_destination_and_treats_metadata_as_text(self):
         self.seed_inbox(start_editing=False)
         with mock.patch.object(self.web.previews,'get',return_value={'url':'https://wrong.example/','title':'Lighting <img src=x onerror=alert(1)>','site':'Design studio','image':'javascript:alert(1)'}) as preview:
