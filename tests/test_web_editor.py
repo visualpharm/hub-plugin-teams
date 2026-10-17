@@ -9,6 +9,23 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_inbox_media_and_unread_state_survive_navigation_without_source_read(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({"kind":"msg", "id":"photo-a", "contact":"synthetic/media-a", "src":"whatsapp", "from":"Media colleague", "text":"[media]",
+                   "at":datetime.now(timezone.utc).isoformat(), "reply":True, "media":[{"kind":"image","url":"api/file?path=photo.png","name":"Photo.png"},
+                    {"kind":"voice","url":"/api/file?path=voice.wav","text":"Voice transcript"}, {"kind":"file","url":"javascript:alert(1)","name":"Unavailable.pdf"}]})
+        self.page({"tapSelector":".tm-close-conversation"}, {"until":"document.querySelectorAll('.tm-person').length===2"})
+        got=self.page({"eval":"({thumb:!!document.querySelector('.tm-person img'),unread:document.querySelectorAll('.tm-person .tm-unread').length,raw:document.querySelector('.tm-list').textContent.includes('[media]')})"})[-1]["eval"]
+        self.assertTrue(got["thumb"],got);self.assertEqual(got["unread"],1,got);self.assertFalse(got["raw"],got)
+        self.page({"tapSelector":".tm-person:first-child"},{"until":"!!document.querySelector('.tm-media img')"})
+        got=self.page({"eval":"({audio:document.querySelector('.tm-media audio')?.getAttribute('src'),unsafe:!!document.querySelector('[src^=\"javascript:\"],[href^=\"javascript:\"]'),unavailable:document.querySelector('.tm-media').textContent})"})[-1]["eval"]
+        self.assertEqual(got["audio"],f"http://127.0.0.1:{self.port}/api/file?path=voice.wav");self.assertFalse(got["unsafe"]);self.assertIn("Unavailable.pdf",got["unavailable"])
+        self.page({"tapSelector":".tm-media .tm-photo"},{"until":"!!document.querySelector('.lightbox:not([hidden])')"})
+        self.assertFalse(self.page({"eval":"!!document.querySelector('.lightbox textarea')"})[-1]["eval"])
+        self.page({"tapSelector":".lb-close"},{"tapSelector":".tm-close-conversation"})
+        self.assertEqual(self.page({"eval":"document.querySelectorAll('.tm-unread').length"})[-1]["eval"],0)
+        self.assertFalse([e for e in self.spooled() if e["type"] in ("ext.post","message.received")], "Opening media must not send a read receipt or message")
+
     def test_conversation_search_retains_history_target_and_unsent_reply(self):
         self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Unsent exact reply")
         self.feed({"kind":"msg", "id":"older-a", "contact":"synthetic-account/conversation-a", "src":"dm", "from":"Review colleague",
