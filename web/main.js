@@ -254,7 +254,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) hidden.delete(id);
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, ts: p.ts, state: sends.get(d.rid)?.state || "wait" });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
@@ -272,7 +272,7 @@ async function sync() {
         const r = reactionSends.get(d.id);
         if (r?.rid === d.rid) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
       }
-      else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
+      else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d);
@@ -949,7 +949,7 @@ function sentBlock(m, rid, x) {
     : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
     : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
     : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
-  const by = el("div", "tm-draft-by", "Вы · ");
+  const by = el("div", "tm-draft-by", x.mine ? "Вы · " : "Хаб · ");   // автоответ разбора — не слова владельца
   by.append(stamp(x.ts), ` · ${stateText}`);
   d.append(by, el("div", "tm-draft-text", x.text));
   for (const f of x.files || []) {
