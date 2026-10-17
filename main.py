@@ -222,7 +222,8 @@ class Choice:
             self.sends.append({"amend": body["kind"], "id": body["id"], "rid": body["rid"], "msg": body["msg"][:200],
                                "text": body.get("text") if body["kind"] == "edit" else None, "ts": ev.get("ts") or 0})
         elif isinstance(body, dict) and body.get("kind") == "read" and all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid")):
-            self.sends.append({"read": body["id"], "rid": body["rid"], "ts": ev.get("ts") or 0})
+            self.sends.append({"read": body["id"], "rid": body["rid"], "ts": ev.get("ts") or 0,
+                               **({"target": body["target"]} if isinstance(body.get("target"), str) else {})})
         elif isinstance(body, dict) and body.get("kind") == "contacts" and isinstance(body.get("rid"), str):
             self.sends.append({"contacts": str(body.get("q") or "")[:80], "rid": body["rid"], "ts": ev.get("ts") or 0,
                                **({"src": body["src"]} if isinstance(body.get("src"), str) else {})})
@@ -474,8 +475,14 @@ def load_colleagues():
         return {}
 
 
+def target_of(ref):
+    """Отпечаток адреса переписки: клиент возвращает его с кнопкой источника («прочитано») — исполняем только для той
+    же переписки, сменился адрес — отказ (17.10, codex m472773)."""
+    return hashlib.sha1(json.dumps(ref or {}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
 def msg_post(i, done, rules):
-    return {"kind": "msg", "id": i["key"], "answered": done, **({"reply": True} if i.get("ref") else {}),
+    return {"kind": "msg", "id": i["key"], "answered": done, **({"reply": True, "target": target_of(i["ref"])} if i.get("ref") else {}),
             **({"react": True} if collect.can_react(i.get("ref")) else {}),
             "sign": colleague(i, rules),   # подпись хаба под черновиком — только когда это коллега
             **({"also": i["also"]} if i.get("also") else {}),
@@ -1137,18 +1144,34 @@ def amend_one(st, reader, q, put=post):
 def read_one(st, reader, q, put=post):
     """Пометить прочитанным в источнике по кнопке владельца: ответ {"kind": "read", id, rid} / {"kind": "read_failed",
     id, rid, error}. Просьба из перечитанного журнала и повтор того же rid не исполняются."""
-    done = st.setdefault("sent_rids", [])
-    if q["rid"] in done or time.time() - (q.get("ts") or time.time()) > HISTORY_FRESH:
+    done, outs = st.setdefault("sent_rids", []), st.setdefault("read_out", {})
+    if time.time() - (q.get("ts") or time.time()) > HISTORY_FRESH:
+        return
+    if q["rid"] in done or entombed(st, q["rid"]):   # повтор: прежний итог; вытесненный или оборванный — «неизвестен»
+        put(outs.get(q["rid"]) or {"kind": "read_failed", "id": q["read"], "rid": q["rid"], "unresolved": True,
+                                    "error": "Read outcome unknown; check the conversation before marking it again."})
         return
     done.append(q["rid"])
     del done[:-500]
+    tomb(st, q["rid"])
+
+    def finish(event):
+        outs[q["rid"]] = event
+        for k in list(outs)[:-500]:
+            del outs[k]
+        save(st)
+        put(event)
+
+    ref = (st.get("refs") or {}).get(q["read"]) or {}
+    if q.get("target") and q["target"] != target_of(ref):
+        return finish({"kind": "read_failed", "id": q["read"], "rid": q["rid"],
+                       "error": "Conversation changed; refresh before marking it read."})
     save(st)
     try:
-        sources.mark_read((st.get("refs") or {}).get(q["read"]) or {})
+        sources.mark_read(ref)
     except Exception as e:   # noqa: BLE001
-        put({"kind": "read_failed", "id": q["read"], "rid": q["rid"], "error": short(e)})
-        return
-    put({"kind": "read", "id": q["read"], "rid": q["rid"]})
+        return finish({"kind": "read_failed", "id": q["read"], "rid": q["rid"], "error": short(e)})
+    finish({"kind": "read", "id": q["read"], "rid": q["rid"]})
 
 
 def find_contacts(st, reader, q, put=post, now=None):

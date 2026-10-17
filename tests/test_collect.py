@@ -775,7 +775,34 @@ class Later(unittest.TestCase):
         self.assertEqual(log, [("read", {"tg": "77"}), ("amend", "41", "Новое"), ("amend", "41", None),
                                ("teams-edit", "m9", "Правка")])
         self.assertEqual([(p["kind"], p["rid"]) for p in self.out],
-                         [("read", "r1"), ("edited", "r2"), ("deleted", "r3"), ("edited", "r4"), ("amend_failed", "r5")])
+                         [("read", "r1"), ("read", "r1"), ("edited", "r2"), ("deleted", "r3"), ("edited", "r4"),
+                          ("amend_failed", "r5")])   # повтор r1 — прежняя квитанция, без второго вызова (17.10)
+
+    def test_mark_read_replays_its_receipt_never_repeats_and_keeps_its_target(self):
+        # 17.10 (codex m472773): потерянная квитанция «прочитано» не повторялась; после 500 других rid тот же rid снова
+        # отмечал прочитанным; переписка, сменившая адрес между просьбой и исполнением, отмечалась не та
+        import time
+        real = (main.sources.mark_read, main.save)
+        log = []
+        main.sources.mark_read = lambda ref: log.append(ref)
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            st = {"refs": {"k1": {"tg": "77"}}}
+            a = main.target_of({"tg": "77"})
+            q = {"read": "k1", "rid": "r1", "ts": now, "target": a}
+            main.send_replies(st, self.R(), [q, q], self.out.append)
+            main.send_replies(st, self.R(), [{"read": "k1", "rid": f"x{i}", "ts": now, "target": a} for i in range(600)],
+                              lambda p: None)
+            main.send_replies(st, self.R(), [q], self.out.append)
+            st["refs"]["k1"] = {"tg": "78"}   # адрес пункта сменился
+            main.send_replies(st, self.R(), [{**q, "rid": "r2"}], self.out.append)
+        finally:
+            main.sources.mark_read, main.save = real
+        self.assertEqual(len(log), 601)
+        self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
+                         [("read", "r1", None), ("read", "r1", None), ("read_failed", "r1", True), ("read_failed", "r2", None)])
+        self.assertEqual(main.msg_post({"key": "k1", "ref": {"tg": "77"}}, False, {})["target"], a)
 
     def test_settings_become_config_post(self):
         class C:
