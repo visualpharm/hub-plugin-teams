@@ -40,6 +40,7 @@ let signature = "";         // подпись под черновиками ха
 // подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
 const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
+const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
 let reacting = null;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
@@ -195,6 +196,7 @@ const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
 const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
+const deliveryPending = m => outgoing(m,["wait","later","unresolved"]);
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
   if (folder === "archive") return hidden.has(m.id) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
@@ -211,6 +213,8 @@ async function sync() {
       since = Math.max(since, Number(p.id.slice(1)));
       let d = null;
       try { d = JSON.parse(p.text); } catch { /* не JSON — черновик текстом */ }
+      if (d?.rid && detachedSends.has(d.rid)) continue;
+      if (p.by === AUTHOR && d?.rid && sends.has(d.rid) && d.id && sends.get(d.rid).id!==d.id) continue;
       if (p.by === AUTHOR && d) editorFact(d);
       if (p.by === AUTHOR && d) newComposer?.fact(d);
       if (p.by === AUTHOR && ["manage_asked", "manage_failed"].includes(d?.kind) && d.rid === promptState.rid) {
@@ -227,6 +231,9 @@ async function sync() {
         const previous=msgs.get(d.id);
         if (previous && draftKey(previous)!==draftKey(message)) {
           composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
+          for (const [rid,send] of sends) if (send.id===d.id) {
+            clearTimeout(send.cancelTimer);detachedSends.add(rid);sends.delete(rid);
+          }
         }
         msgs.set(d.id, message);
         editorStates.get(d.id)?.observe(msgs.get(d.id));
@@ -293,7 +300,7 @@ async function sync() {
       }
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d);
-      else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "ошибка" });
+      else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid)
         sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.state === "sent" && d.receipt?.id ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
@@ -829,7 +836,7 @@ function sharedReply(m, st) {
       async send({ text, attachments }) {
         if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
         if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
-        if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
+        if (deliveryPending(m))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
         const revision=st.state?.revision;
         beginEditing(m, st);
@@ -890,6 +897,7 @@ function sharedReply(m, st) {
 async function sendReply(m, text) {
   text = text.trim();
   if (!text) return;
+  if (deliveryPending(m)) { error="A reply is awaiting confirmation. Your draft is retained.";paint();return; }
   if (guardedReply(m)) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   saveDraft(m,text,rid);
@@ -952,7 +960,9 @@ function draftBlock(m, r) {
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
-    a.append(button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${m.from}`),
+    const send=button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${m.from}`);
+    send.disabled=deliveryPending(m);
+    a.append(send,
       button("Править", "", () => openCompose(m, signed(text, m), why), `Править черновик: ${m.from}`));
     d.append(a);
   }
@@ -963,8 +973,13 @@ async function unschedule(m,rid) {
   const x=sends.get(rid);
   if (!x || x.id!==m.id || x.state!=="later" || x.canceling) return;
   x.canceling=true;x.cancelError="";
-  const pending=()=>sends.get(rid)===x && x.state==="later" && x.canceling;
-  const failed=message=>{if(pending()){x.canceling=false;x.cancelError=message;paint();}};
+  const attempt=x.cancelAttempt={};
+  const failed=message=>{
+    const current=sends.get(rid);
+    if(current?.cancelAttempt===attempt && current.state==="later" && current.canceling) {
+      current.canceling=false;current.cancelError=message;paint();
+    }
+  };
   x.cancelTimer=setTimeout(()=>failed(T("Отмена не подтверждена. Повторите запрос.","Cancellation is unconfirmed. Retry the request.")),30000);
   paint();
   try {
