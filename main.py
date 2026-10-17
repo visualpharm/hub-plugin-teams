@@ -518,7 +518,8 @@ def tick(st, items, owner_last, now, put=post):
     for i in fresh:
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
-        if str(i.get("box") or "").startswith(("wa:", "mail:")):   # в переписке новое — прежняя карточка устарела
+        if str(i.get("box") or "").startswith(("wa:", "mail:", "tg:")):   # в переписке новое — прежняя карточка устарела
+            # (16.10, m432551: Telegram — ответил сам, собеседник дописал, старый черновик висел)
             for k, (box, _) in list(opened.items()):
                 if box == i["box"]:
                     put({"kind": "answered", "id": k})
