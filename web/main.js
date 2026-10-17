@@ -597,6 +597,8 @@ function messageBody(m) {
 
 function line(m) {
   const row = el("div", "tm-line" + (done(m) ? " tm-done" : "") + (m.src === "email" ? " tm-mail" : ""));
+  row.dataset.message=m.id;
+  row.dataset.media=JSON.stringify(m.media || []);
   const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
   text.append(messageBody({...m, text:messageText(m)}));
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
@@ -1010,6 +1012,41 @@ function paint() {
   focusId = null;
 }
 
+// Keep unchanged media rows connected: removing their parent resets playback.
+function syncChildren(parent,nodes) {
+  const keep=new Set(nodes);
+  for(const child of [...parent.children])if(!keep.has(child))child.remove();
+  nodes.forEach((node,index)=>{
+    if(parent.children[index]===node)return;
+    const before=parent.children[index] || null;
+    if(node.parentNode===parent && parent.moveBefore)parent.moveBefore(node,before);
+    else parent.insertBefore(node,before);
+  });
+}
+
+function updateConversation(next,back,key) {
+  const previous=ui.detail.querySelector(':scope > .tm-thread');
+  if(!previous || previous.dataset.conversation!==key) {
+    next.dataset.conversation=key;ui.detail.replaceChildren(back,next);return;
+  }
+  const oldHistory=previous.querySelector(':scope > .tm-history'),fresh=next.querySelector(':scope > .tm-history');
+  const rows=new Map([...oldHistory.querySelectorAll(':scope > .tm-line')].map(row=>[row.dataset.message,row]));
+  const nodes=[...fresh.children].map(row=>{
+    const old=rows.get(row.dataset.message);
+    if(!old)return row;
+    const media=old.querySelector(':scope > .tm-media');
+    // Shared task-body renderers move their existing text nodes into the new row.
+    // Refresh that text, retaining only the unchanged connected media subtree.
+    syncChildren(old,[...row.children].map(child=>child.classList.contains('tm-media') && media && old.dataset.media===row.dataset.media ? media : child));
+    old.className=row.className;old.dataset.media=row.dataset.media;
+    return old;
+  });
+  syncChildren(oldHistory,nodes);
+  previous.className=next.className;
+  syncChildren(previous,[...next.children].map(node=>node===fresh ? oldHistory : node));
+  syncChildren(ui.detail,[back,previous]);
+}
+
 function paintAll() {
   ui.sort.hidden=tab!=="new";
   ui.sort.querySelector('summary').title=`Sort: ${sortOrder==="importance"?"Importance":"Time"}`;
@@ -1089,7 +1126,7 @@ function paintAll() {
     back.addEventListener("click", () => { dmPerson = null; paint(); });
     const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
     ui.list.replaceChildren(...rows());
-    ui.detail.replaceChildren(back, thread(mine));
+    updateConversation(thread(mine),back,dmPerson);
     if (toBottom) { const h = ui.detail.querySelector('.tm-history'); h.scrollTop = h.scrollHeight; toBottom = false; }
   } else if (grouped) {
     ui.list.replaceChildren(...rows());

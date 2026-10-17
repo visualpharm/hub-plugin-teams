@@ -50,3 +50,12 @@ edit. Navigation and reload do not acquire a hold or replay a send. A blocked
 store keeps the current text and displays an explicit save warning.
 Browser action-spool reads consume events: after `queued("send")` asserts the
 original request, the reload assertion must expect zero additional requests.
+
+## Media continuity during feed updates
+Keep the active conversation and unchanged media subtrees connected while replacing
+other content. Replacing the whole thread resets a playing audio/video element.
+Shared task-body renderers move their cached text nodes into the newly rendered
+row, so retaining an old row wholesale loses text. Refresh its non-media children
+and retain only the identical media subtree. The pinned native fixture with a
+valid synthetic MP4 proves playback, pause and audio continuity during an unrelated
+incoming message; the normal plugin gate also checks node identity and retained text.
