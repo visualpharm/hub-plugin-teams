@@ -479,6 +479,35 @@ function messageText(m) {
   return mediaList(m).length && ["[media]", "[медиа]"].includes(text.trim()) ? "" : text;
 }
 
+const previewCache=new Map();
+function pageURL(raw) {
+  try {const u=new URL(raw);return ["http:","https:"].includes(u.protocol) && !u.username && !u.password ? u.href : "";}catch{return "";}
+}
+function linkPreview(m) {
+  const links=Array.isArray(m.links) ? m.links.filter(x=>x && typeof x==="object") : [];
+  const first=String(m.text || "").match(/https?:\/\/[^\s<>"']+/)?.[0]?.replace(/[.,!?:;]+$/,"");
+  const url=pageURL(first || links[0]?.url);if(!url)return null;
+  const info=links.find(x=>pageURL(x.url)===url && typeof x.title==="string" && x.title);
+  const card=el("a","tm-link-preview");card.href=url;card.target="_blank";card.rel="noopener noreferrer";card.hidden=true;
+  const show=page=>{
+    if(!page || typeof page.title!=="string" || !page.title.trim())return;
+    const history=card.closest('.tm-history'),bottom=history && history.scrollHeight-history.scrollTop-history.clientHeight<4;
+    const imageURL=typeof page.image==="string" && (page.image.startsWith('/api/file?') || page.image.startsWith('api/file?') || /^https?:\/\//.test(page.image)) ? mediaURL(page.image) : "";
+    if(imageURL){const image=el("img");image.src=imageURL;image.alt="";image.loading="lazy";card.append(image);}
+    const copy=el("span","tm-preview-copy");copy.append(el("strong","",page.title),el("span","",typeof page.site==="string" && page.site ? page.site : new URL(url).hostname));
+    card.append(copy);card.hidden=false;if(bottom)history.scrollTop=history.scrollHeight;
+  };
+  if(info)show(info);
+  else {
+    if(!previewCache.has(url)) {
+      if(previewCache.size>=500)previewCache.delete(previewCache.keys().next().value);
+      previewCache.set(url,fetch('/api/linkpreview?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(10000)}).then(r=>r.ok ? r.json() : null).catch(()=>null));
+    }
+    previewCache.get(url).then(show);
+  }
+  return card;
+}
+
 function mediaBody(m) {
   const box = el("div", "tm-media");
   for (const item of mediaList(m)) {
@@ -625,6 +654,7 @@ function line(m) {
   if(typeof m.fwd==="string" && m.fwd)row.append(el("span","tm-forwarded",`${T("Переслано от","Forwarded from")} ${m.fwd}`));
   if (messageText(m) || text.querySelector('.tm-quote')) row.append(text);
   if (mediaList(m).length) row.append(mediaBody(m));
+  const preview=linkPreview(m);if(preview)row.append(preview);
   if(Array.isArray(m.reactions)) {
     const reactions=el("div","tm-received-reactions");
     for(const r of m.reactions)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));

@@ -9,6 +9,16 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_link_preview_keeps_exact_destination_and_treats_metadata_as_text(self):
+        self.seed_inbox(start_editing=False)
+        with mock.patch.object(self.web.previews,'get',return_value={'url':'https://wrong.example/','title':'Lighting <img src=x onerror=alert(1)>','site':'Design studio','image':'javascript:alert(1)'}) as preview:
+            self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+            self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'link-a','me':True,'text':'See https://example.com/lighting','at':'2026-01-01T12:00:00Z'}]})
+            got=self.page({'until':"!!document.querySelector('.tm-link-preview strong')"},{'eval':"(()=>{const p=document.querySelector('.tm-link-preview');return {href:p.href,text:p.textContent,unsafe:!!p.querySelector('img'),blank:p.target,rel:p.rel}})()"})[-1]['eval']
+            self.assertEqual(got['href'],'https://example.com/lighting');self.assertIn('<img src=x onerror=alert(1)>',got['text']);self.assertFalse(got['unsafe']);self.assertEqual(got['blank'],'_blank');self.assertIn('noopener',got['rel'])
+            preview.assert_called_once_with('https://example.com/lighting')
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
     def test_history_retains_native_reply_context_and_file_details(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','where':'Synthetic account','from':'Review colleague','text':'Please check the navigation.','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
