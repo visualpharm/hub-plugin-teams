@@ -124,3 +124,6 @@ relabel old artifacts or broaden their acceptance scope. By: agent.
 
 ## 2026-10-17 — Inbox panes follow available width
 The conversation list collapses when its content container is at most 900px, keeping the selected conversation and shared reply composer full width. The split layout requires 336px for the list and at least560px for reading. Browser regression covers390,768,834,1024,1280,1440px; current collector changes are retained.
+
+## 2026-10-17 — Native Inbox action placement
+Conversation actions now precede the shared reply field, ordered Hide, Draft, Work. Source destination is an accessible icon in the conversation header. Native SF Regular assets are reused; narrow detail panes retain44px targets with accessible labels. Reaction support is a separate missing web action and remains open. Explicit private revision and Close editor retain their collector semantics. Verified165Pythoncases plusNodecontracts; seveneditorjourneys separately inlight/dark withactual color-scheme assertions.
