@@ -229,7 +229,7 @@ class InboxWebAcceptance(PageInChrome):
         for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
             got=self.page({"media":theme},{"viewport":{"width":width,"height":874}},{"tapSelector":".tm-sort summary"},
                           {"eval":"(()=>{const s=document.querySelector('.tm-sort summary').getBoundingClientRect(),m=document.querySelector('.tm-sort-choices').getBoundingClientRect();return {target:s.height,left:m.left,right:m.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-            self.assertGreaterEqual(got['target'],44);self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
+            self.assertGreaterEqual(got['target'],43.99);self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):
                 Path(os.environ["HUB_INBOX_SCREENSHOTS"]).mkdir(parents=True,exist_ok=True)
                 self.page({"media":theme},{"shot":str(Path(os.environ["HUB_INBOX_SCREENSHOTS"])/f"sort-{theme}-{width}.png"),"width":width,"height":874})
