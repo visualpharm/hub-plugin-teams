@@ -253,3 +253,15 @@ read. Corrupt or unreadable preference values are never overwritten by a toggle.
 Flat cards restore focus by exact visible message/card identity. Tab closes the
 menu consistently with sibling controls. Hub renames remain a separate scope
 migration question; the current key follows the existing Hub-name convention.
+
+
+### 2026-10-17 — Local unread reminders preserve the reply
+Conversation options expose Mark unread and return to the conversation list with
+the exact reply retained. The local reminder survives reload and takes precedence
+over a provider-read flag, without changing that provider state. Opening clears
+only the local reminder. New records bind the Hub, source conversation and inbound
+message; old seen IDs remain a read-only compatibility fallback. Writes re-read
+storage, refuse corrupt/unreadable state, and retain the old value on quota failure.
+Parsed state is cached by its exact serialized value so row rendering does not
+parse the full preference repeatedly. No provider read operation was added; that
+explicit action requires its separate receipt-aware workflow.

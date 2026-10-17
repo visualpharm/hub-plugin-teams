@@ -98,6 +98,40 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_mark_unread_persists_reminder_and_draft_without_provider_action(self):
+        self.seed_inbox(start_editing=False);self.edit('Read reminder draft');self.queued('draft_control')
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Already read at source','unread':False,'reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Already read at source')"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"document.activeElement.matches('.tm-person')"})[-1]['eval'])
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for theme in ('light','dark'):
+                for width in (390,1440):
+                    self.page({'media':theme},{'viewport':{'width':width,'height':874}},{'sleep':150},
+                      {'shot':str(out/f'unread-list-{theme}-{width}.png'),'width':width,'height':874})
+        self.assertEqual(self.non_history_actions(),[])
+        self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person .tm-unread')"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-person'})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Read reminder draft')
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_mark_unread_refusal_keeps_open_draft_and_retry_is_truthful(self):
+        self.seed_inbox(start_editing=False);self.edit('Never discard this reminder draft');self.queued('draft_control')
+        self.page({'eval':"window.__saveRead=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.read.'))throw Error('quota');return window.__saveRead.call(this,k,v)};true"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
+        self.assertTrue(self.page({'eval':"document.body.innerText.includes('Could not save unread state')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Never discard this reminder draft')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.page({'eval':'Storage.prototype.setItem=window.__saveRead;true'},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Could not save unread state')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def menu_history(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[

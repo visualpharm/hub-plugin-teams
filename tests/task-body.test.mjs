@@ -4,6 +4,7 @@ import vm from "node:vm";
 import assert from "node:assert/strict";
 const calls=[], bodies=[], decisions=[];
 const node=(tag,cls,text)=>({tag,cls,text,children:[],append(...xs){this.children.push(...xs);},replaceChildren(...xs){this.children=xs;},querySelectorAll(){return [];}});
+const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const source=readFileSync(process.argv[2],"utf8").replace(/^import .*;\s*$/gm,"")
   .replace(/^export default /gm,"").replace(/^export /gm,"");
@@ -11,7 +12,7 @@ const snap={todo:[{id:"t:1",kind:"action",need:"1. [Open item](https://example.c
 const h={el:node,snapshot:()=>snap,post:async(...args)=>{calls.push(args);return {error:"Not accepted"};},
   taskBody:(item,opts)=>{bodies.push({item,opts});return node("div","shared",item.need||item.text);},
   taskDecision:item=>{decisions.push(item);return item.kind==="question"?node("form","actual-options"):null;}};
-const context={console,URL,Map,Set,conversationPins};vm.createContext(context);
+const context={console,URL,Map,Set,conversationPins,localReadState};vm.createContext(context);
 vm.runInContext(source+"\nglobalThis.setHub=h=>hub=h;globalThis.body=messageBody;",context);
 context.setHub(h);
 const ordinary={id:"message",text:"Please mark this done: t:1"};
