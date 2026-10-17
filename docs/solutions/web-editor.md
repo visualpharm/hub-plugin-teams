@@ -87,3 +87,10 @@ post, place, provider msg, from and at. Do not substitute the display row ID or 
 message text. Resolve menu identity again at activation, and close on source rebind.
 Keep context menus inside the viewport at narrow widths; verify their actual masks
 as well as dimensions, because missing CSS mask bindings render solid icon squares.
+
+
+Context-menu follow-through: outside-dismiss handlers must run before a new row's
+long-press timer is armed, or the same bubbling event cancels the next gesture.
+Re-resolve the row element after refresh before opening or restoring focus. Work
+quotes need the same trusted history location as Draft; the latest source post is
+not the historical message. Copy the display text, omitting media placeholders.
