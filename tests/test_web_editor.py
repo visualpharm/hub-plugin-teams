@@ -9,6 +9,79 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_discard_clears_only_local_draft_and_stays_cleared_after_reload(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Discard this local reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer [aria-label="Discard draft"]'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'')
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'')
+        self.edit('New reply after discard')
+        got=self.page({'viewport':{'width':402,'height':874}},{'eval':"(()=>{const b=document.querySelector('.tm-discard'),r=b.getBoundingClientRect();return {visible:!b.hidden,width:r.width,height:r.height,inComposer:!!b.closest('.composer'),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+        self.assertTrue(got['visible']);self.assertTrue(got['inComposer']);self.assertGreaterEqual(got['width'],44);self.assertGreaterEqual(got['height'],44);self.assertEqual(got['overflow'],0)
+
+    def test_history_is_requested_only_by_earlier_action(self):
+        self.seed_inbox(start_editing=False)
+        self.assertFalse([e for e in self.spooled() if e['type']=='ext.post'])
+        self.assertIn(self.page({'eval':"document.querySelector('.tm-earlier').textContent"})[-1]['eval'],['Earlier messages','Показать более ранние'])
+        self.page({'tapSelector':'.tm-earlier'})
+        self.assertEqual(self.queued('history')['id'],'source-a')
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-earlier').disabled"})[-1]['eval'])
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'older-one','text':'Earlier visible after one click'}]})
+        self.page({'wait':'Earlier visible after one click'})
+
+    def test_first_send_waits_for_editor_confirmation_without_second_click(self):
+        self.seed_inbox(start_editing=False)
+        self.edit('Single deliberate send')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control');self.acknowledge(hold)
+        self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Single deliberate send')"})
+        q=self.queued('send');self.assertEqual(q['text'],'Single deliberate send')
+        self.assertEqual(q['inbox'],self.token)
+
+    def test_send_waiting_for_confirmation_cancels_after_edit_and_keeps_both_texts(self):
+        self.seed_inbox(start_editing=False);self.edit('Attempted reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control');self.edit('Newer unsent text')
+        self.page({'wait':'The draft or conversation changed.'});self.acknowledge(hold)
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        expected='Attempted reply\nNewer unsent text'
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],expected)
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],expected)
+
+    def test_send_waiting_for_confirmation_cancels_after_back_navigation(self):
+        self.seed_inbox(start_editing=False);self.edit('Keep this pending reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.token={**self.token,'edit_version':1,'held':True,'holder':hold['editor']}
+        self.feed({'kind':'draft_state','id':'source-a','rid':hold['rid'],'inbox':self.token})
+        self.page({'sleep':200},{'tapSelector':'.tm-person'},{'wait':'The draft or conversation changed.'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep this pending reply')
+
+    def test_first_send_refusal_keeps_reply_and_never_posts_send(self):
+        self.seed_inbox(start_editing=False);self.edit('Keep refused reply')
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        hold=self.queued('draft_control')
+        self.feed({'kind':'draft_control_failed','id':'source-a','rid':hold['rid'],'error':'Synthetic editor refusal'})
+        self.page({'wait':'Synthetic editor refusal'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep refused reply')
+
+    def test_untouched_suggestion_sends_once_after_its_first_confirmation(self):
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Untouched suggestion')
+        self.page({'wait':'Untouched suggestion'},{'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-person'})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
+        self.acknowledge(self.queued('draft_control'))
+        self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Untouched suggestion')"})
+        self.assertEqual(self.queued('send')['text'],'Untouched suggestion')
+
     def test_unsent_reply_survives_reload_and_stays_with_exact_source(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Exact unsent reply after reload')
         self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
@@ -62,6 +135,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
             {"id":"own-link","me":True,"at":"2026-01-01T12:00:00Z","text":"See https://example.test/meeting"}]})
         self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"})
+        self.page({'wait':'See https://example.test/meeting'})
         for width,theme in ((360,"light"),(402,"dark"),(1440,"light")):
             got=self.page({"media":theme},{"viewport":{"width":width,"height":874}},
                 {"eval":"""(()=>{const h=document.querySelector('.tm-history'),last=h.lastElementChild,a=document.querySelector('.tm-own .tm-text a'),bubble=a.closest('.tm-text');return {
@@ -72,6 +146,15 @@ class InboxWebAcceptance(PageInChrome):
             self.assertNotEqual(got['foreground'],got['background'],got)
             self.assertEqual(got['overflow'],0,got)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
+    def test_history_long_links_never_scroll_the_conversation_sideways(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        target='https://example.test/'+('long-path-'*24)
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'own-long','me':True,'text':'Exact link '+target}]})
+        self.page({'wait':'Exact link'})
+        for width in (360,402,834,1240):
+            got=self.page({'viewport':{'width':width,'height':874}},{'eval':"(()=>{const h=document.querySelector('.tm-history'),a=h.querySelector('.tm-own a');return {width:h.clientWidth,scroll:h.scrollWidth,href:a.href}})()"})[-1]['eval']
+            self.assertEqual(got['href'],target);self.assertLessEqual(got['scroll'],got['width'],got)
 
     def test_native_sort_uses_highest_conversation_priority_and_persists_choice(self):
         self.seed_inbox(start_editing=False)
@@ -103,32 +186,34 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_history_refresh_preserves_reading_position_and_other_conversation(self):
         self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-earlier'})
         self.queued("history")
         self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
             {"id":f"old-{i}","at":f"2026-01-01T12:{i:02d}:00Z","text":f"Earlier item {i} with enough text to wrap across the phone screen."} for i in range(10)]})
-        self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"},
+        self.page({"wait":"Earlier item 0"},
                   {"eval":"document.querySelector('.tm-history').scrollTop=250"})
         position=self.page({"eval":"document.querySelector('.tm-history').scrollTop"})[-1]['eval']
         self.assertGreater(position,0)
         self.feed({"kind":"msg","id":"source-b","contact":"synthetic-account/conversation-b","src":"dm","from":"Other colleague","text":"Different conversation","at":"2026-01-02T12:00:00Z","reply":True})
         self.page({"until":"document.querySelectorAll('.tm-person').length===2"})
         self.assertAlmostEqual(self.page({"eval":"document.querySelector('.tm-history').scrollTop"})[-1]['eval'],position,delta=1)
-        self.page({"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person:last-child"})
+        self.page({"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person:last-child"},{'tapSelector':'.tm-earlier'})
         self.assertEqual(self.queued("history")["id"],"source-b")
         self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[{"id":"late-a","text":"Late result for first conversation"}]})
         self.feed({"kind":"thread","id":"source-b","part":0,"of":1,"more":False,"items":[{"id":"old-b","text":"History for second conversation"}]})
-        got=self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"},{"eval":"document.querySelector('.tm-history').textContent"})[-1]['eval']
+        got=self.page({"wait":"History for second conversation"},{"eval":"document.querySelector('.tm-history').textContent"})[-1]['eval']
         self.assertIn("History for second conversation",got);self.assertNotIn("Late result for first conversation",got)
 
     def test_history_chunks_pagination_refusal_and_retry_keep_exact_conversation(self):
         self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-earlier'})
         q=self.queued("history");self.assertEqual(q["id"],"source-a")
         self.feed({"kind":"thread","id":"source-a","part":0,"of":2,"more":True,"items":[{"id":"old-1","at":"2026-01-01T12:00:00Z","from":"Review colleague","text":"Historical detail"}]})
         self.page({"sleep":100})
         self.assertNotIn("Historical detail",self.page({"eval":"document.querySelector('.tm-detail').textContent"})[-1]['eval'])
         self.feed({"kind":"thread","id":"source-a","part":1,"of":2,"more":True,"items":[{"id":"old-2","at":"2026-01-02T12:00:00Z","from":"Owner","me":True,"text":"Older reply"},
                     {"at":datetime.now(timezone.utc).isoformat(),"from":"Review colleague","text":"Please check the navigation."}]})
-        self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"})
+        self.page({"wait":"Historical detail"})
         got=self.page({"eval":"document.querySelector('.tm-history').textContent"})[-1]['eval']
         self.assertIn("Historical detail",got);self.assertIn("Older reply",got);self.assertEqual(got.count("Please check the navigation."),1,got)
         self.edit("Reply survives history retry");self.acknowledge(self.queued("draft_control"))

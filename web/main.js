@@ -7,6 +7,7 @@
 // «В работу» и «Черновик ответа» — сообщение хабу (/api/send); черновик хаб кладёт ответом на пост сообщения
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
+import { T } from "/static/js/ui-text.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
 
@@ -517,7 +518,6 @@ function personRow(key, group) {
     const target = group.find(m=>canReply(m) && savedDraft(m)!==undefined) || group.find(canReply);
     if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
     else paint();
-    if (target && historyAvailable && !histories.has(target.id)) fetchHistory(target);
   };
   row.addEventListener("click", open);
   row.setAttribute("role", "button");
@@ -532,17 +532,18 @@ function personRow(key, group) {
 // заголовок, только даты разделителями при большом перерыве»)
 const GAP = 3 * 3600e3;
 const clock = (d) => d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
-function dayLabel(iso) {
+function dayLabel(iso, withTime=true) {
   const d = new Date(iso), now = new Date();
+  if(!Number.isFinite(d.getTime()))return "";
   const day0 = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((day0(now) - day0(d)) / 864e5);
   const date = diff === 0 ? "Сегодня" : diff === 1 ? "Вчера" : d.toLocaleDateString("ru", { day: "numeric", month: "long" });
-  return `${date}, ${clock(d)}`;
+  return withTime ? `${date}, ${clock(d)}` : date;
 }
 
 function divider(m) {
   const where = m.src !== "dm" && m.where ? `${m.where} · ` : "";
-  return el("div", "tm-divider", `${where}${dayLabel(m.at)}`);
+  return el("div", "tm-divider", `${where}${dayLabel(m.at,m.src==="email")}`);
 }
 
 // Optional explicit core task identity. Incoming prose never grants a task action.
@@ -605,6 +606,7 @@ function line(m) {
   }
   if (messageText(m)) row.append(text);
   if (mediaList(m).length) row.append(mediaBody(m));
+  if(m.src!=="email" && Number.isFinite(Date.parse(m.at)))row.append(el("time","tm-message-time",clock(new Date(m.at))));
   const result = reactionSends.get(m.id);
   if (result) {
     const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
@@ -657,6 +659,21 @@ async function confirmEditor(m, st, action = "hold") {
   paint();
 }
 
+async function waitForEditor(m, st, revision) {
+  const deadline=Date.now()+10000;
+  do {
+    const current=msgs.get(m.id);
+    if (composing.get(m.id)!==st || !st.root?.isConnected || !st.root.getClientRects().length || st.closing ||
+        !current || draftKey(current)!==draftKey(m) || current.post!==m.post ||
+        st.state?.revision!==revision)
+      throw Error("The draft or conversation changed. Review it before trying again.");
+    if (!st.state?.control) { st.state?.ready();return; }
+    if (st.state.error) throw Error(st.state.error);
+    await new Promise(resolve=>setTimeout(resolve,50));
+  } while (Date.now()<deadline);
+  throw Error("Editor confirmation is still pending. Your draft is retained; try again when it arrives.");
+}
+
 function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
@@ -665,14 +682,23 @@ function sharedReply(m, st) {
     optionsToggle.setAttribute("aria-label","Draft options");optionsToggle.append(hub.icon("menu"));options.append(optionsToggle,optionsBody);
     options.addEventListener("keydown",e=>{if(e.key==="Escape"){options.open=false;optionsToggle.focus();e.stopPropagation();}});
     options.addEventListener("focusout",e=>{if(e.relatedTarget && !options.contains(e.relatedTarget))options.open=false;});
+    const discard=st.discard=button("","quiet tm-discard",()=>{
+      if(st.state?.control || st.state?.delivery)return;
+      st.text="";st.suggested=false;st.why="";st.error="";saveDraft(m,"");
+      if(st.state){st.state.edit("");st.state.proposal=null;}
+      st.box.set({text:""});paint();
+    },"Discard draft");
+    discard.append(nativeIcon("trash"));
+    if(!hub.capabilities?.composerActions)optionsBody.append(discard);
     if (st.state) {
       const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
       directive.setAttribute("aria-label", "Private draft instruction");
       directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
       const revise = button("Revise draft", "quiet", async () => {
+        const revision=st.state.revision;
         beginEditing(m, st);
-        try { const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
+        try { await waitForEditor(m,st,revision); const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
         catch (e) { st.error = e.message; }
         paint();
       });
@@ -681,17 +707,25 @@ function sharedReply(m, st) {
     }
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
+      leading: hub.capabilities?.composerActions ? ()=>discard : undefined,
       sentLabel: "Queued. Waiting for delivery confirmation.",
-      onChange(text) { st.suggested=false; st.text = text; if (!saveDraft(m,text)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
+      onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!text.trim(); if (!saveDraft(m,text)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
       async send({ text, attachments }) {
         if (attachments?.length) return { error: "This destination accepts text only." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
           return { error: "A reply is awaiting confirmation. Your draft is retained." };
+        const revision=st.state?.revision;
         beginEditing(m, st);
         let q;
         if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
-        try { q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
-        catch (e) { return { error: e.message }; }
+        try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
+        catch (e) {
+          // The shared composer restores the attempted reply before any text typed while waiting.
+          // Persist that same recovery, so a reload cannot lose either unsent edit.
+          st.text=text+(st.state?.revision!==revision && st.text ? "\n"+st.text : "");
+          saveDraft(m,st.text);st.state?.edit(st.text);
+          return { error: e.message };
+        }
         st.text = text; if (!saveDraft(m,text,q.rid)) st.error="This browser could not save the draft. Keep this page open.";
         sends.set(q.rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });
         if (!(await mark(q.kind, q))) {
@@ -713,6 +747,7 @@ function sharedReply(m, st) {
   }
   st.box.set({});
   const state = st.state, p = state?.proposal;
+  st.discard.hidden=!st.text.trim();st.discard.disabled=!!(state?.control || state?.delivery);
   if (st.proposal) {
     st.proposal.dataset.rid = p?.rid || "";
     const sig = JSON.stringify([p, state.revision]);
@@ -853,10 +888,10 @@ function thread(ms) {   // ms — по возрастанию времени
   head.append(el("b", "tm-from", last.from || "—"));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
-  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>m.src))].map(k=>SRC[k] || k).join(" · ")));
+  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>m.src))].map(k=>(TEAMS_SRCS.includes(k) ? "Teams · " : "")+(SRC[k] || k)).join(" · ")));
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
-    const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : "Earlier messages", "quiet tm-earlier", () => {
+    const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
       const state=historyState(last.id);
       if (!state.revealed && state.items) { state.revealed=true;paint();return; }
       state.revealed=true;
@@ -929,7 +964,9 @@ function thread(ms) {   // ms — по возрастанию времени
     head.append(a);
   }
   const guidance = composeFor && composing.get(composeFor.id)?.why;
-  if (guidance) box.append(el("div", "tm-guidance", guidance));
+  if (guidance) {
+    const explanation=el("div","tm-guidance");explanation.append(el("strong",null,T("Почему такой ответ","Why this reply")),el("div",null,guidance));box.append(explanation);
+  }
   const reactionTarget = ms.find(m=>m.id === reacting);
   box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
   if (composeFor) {
