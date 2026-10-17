@@ -11,6 +11,7 @@ import { T } from "/static/js/ui-text.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
+import { messageMenus } from "./message-menu.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -80,11 +81,13 @@ const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
 const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_REPLIES.includes(m?.src);
 const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
 const histories = new Map();
+const messageTargets = new Map();
+let messageMenu = null;
 function historyState(id) {
   if (!histories.has(id)) histories.set(id,{items:null,parts:new Map(),loading:false,error:"",more:false,revealed:false,before:null});
   return histories.get(id);
 }
-function historyFact(d) {
+function historyFact(d, post) {
   if (!msgs.has(d.id) || d.search) return;
   const h=historyState(d.id);
   if (d.kind === "thread_failed") {
@@ -96,7 +99,7 @@ function historyFact(d) {
   if (h.loading && (d.before || null)!==h.before) return;
   if (d.part===0) { h.parts=new Map();h.batch=d.before || null;h.of=d.of; }
   if (h.of!==d.of || h.batch!==(d.before || null)) return;
-  h.parts.set(d.part,d.items);
+  h.parts.set(d.part,d.items.map(t=>({...t,_place:`post ${post} (thread, part ${d.part+1} of ${d.of})`})));
   if (h.parts.size!==d.of) return;
   const fresh=[...h.parts.keys()].sort((a,b)=>a-b).flatMap(k=>h.parts.get(k)).filter(t=>t && typeof t==='object');
   const first=Date.parse(fresh[0]?.at), old=h.items || [];
@@ -299,7 +302,7 @@ async function sync() {
         }
       }
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
-      else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d);
+      else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid)
@@ -696,9 +699,23 @@ function messageBody(m) {
   return r.node;
 }
 
-function line(m) {
+function line(m, source=m) {
   const row = el("div", "tm-line" + (done(m) ? " tm-done" : "") + (m.src === "email" ? " tm-mail" : ""));
   row.dataset.message=m.id;
+  row.tabIndex=0;row.setAttribute('aria-haspopup','menu');
+  const identity=JSON.stringify([draftKey(source),source.post,m.id,m.text,m._place,m.at]);
+  const items=[];
+  if(m.text)items.push({label:T('Копировать','Copy'),icon:nativeIcon('copy'),run:()=>navigator.clipboard.writeText(m.text)});
+  if(/^p\d+$/.test(source.post) && (source===m || m._place)) {
+    items.push({label:T('Это сообщение — в работу хабу','Hand This Message to Hub'),icon:nativeIcon('reply'),
+      run:()=>hub.compose(hubName(),'Разбери.',{quote:inboxRef({...source,from:m.from || source.from,text:m.text})})});
+    items.push({label:T('Черновик ответа на это сообщение','Draft Reply to This Message'),icon:nativeIcon('draft'),run:async()=>{
+      const q=boundedRequest({kind:'ask',what:'draft',rid:requestId(),post:source.post,
+        ...(source!==m ? {place:m._place,...(m.providerId ? {msg:m.providerId} : {}),from:m.from || '',at:m.at || ''} : {})});
+      if(await mark(q.kind,q)){draft.set(source.id,Date.now()/1000);paint();}
+    }});
+  }
+  messageTargets.set(m.id,{identity,items});
   row.dataset.media=JSON.stringify(m.media || []);
   const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
   if(m.reply && typeof m.reply==="object" && typeof m.reply.text==="string") {
@@ -1110,7 +1127,7 @@ function thread(ms) {   // ms — по возрастанию времени
     let previous=null;
     for (const [index,t] of older.entries()) {
       if (!previous || Date.parse(t.at)-Date.parse(previous.at)>=GAP) history.append(divider({...t,src:last.src}));
-      const row=line({...t,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")});
+      const row=line({...t,providerId:t.id,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")},last);
       row.classList.add("tm-history-row");if(t.me)row.classList.add("tm-own");history.append(row);
       previous=t;
     }
@@ -1199,6 +1216,7 @@ function paint() {
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
   const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
+  messageMenu?.validate();
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
   }
@@ -1248,6 +1266,7 @@ function updateConversation(next,back,key) {
 }
 
 function paintAll() {
+  messageTargets.clear();
   ui.sort.hidden=tab!=="new";
   ui.sort.querySelector('summary').title=`Sort: ${sortOrder==="importance"?"Importance":"Time"}`;
   for(const b of ui.sort.querySelectorAll('[data-sort]')) b.setAttribute('aria-checked',String(b.dataset.sort===sortOrder));
@@ -1405,6 +1424,8 @@ function panel() {
 }
 
 function build(root) {
+  messageMenu?.destroy();
+  messageMenu=messageMenus(root,id=>messageTargets.get(id),problem=>{error=problem;paint();});
   ui?.resize?.disconnect();
   root.classList.add("tm-container");
   const resize = new ResizeObserver(entries=>root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900));

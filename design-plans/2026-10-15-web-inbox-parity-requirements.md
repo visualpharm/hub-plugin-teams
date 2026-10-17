@@ -16,3 +16,11 @@ management work owns the protocol; this slice changes only its web consumer.
 - Preserve source restrictions. The guarded collector currently supports text-only Teams chat replies; omit unsupported attachment controls.
 - Keep a bounded history scroller and visible reply field. Reuse the shared icon pack, type, surfaces and 44px controls.
 - Verify real renderer with synthetic journal/source events, then coordinate exact integration/activation and actual live acceptance separately.
+
+## Exact-message controls recovered from native (2026-10-17)
+- Native0597a826 iPhone54 menu: Copy, Hand This Message to Hub, Draft Reply to This Message.
+- Right-click, long press, and keyboard access must act on the selected message, not the newest item in its conversation.
+- Work prefills the Hub composer with the selected quote; it never sends automatically or discards a reply draft.
+- Historical Draft uses the native ask protocol: original source post plus trusted thread-post location, provider message id, sender and time. Display row ids are never collector ids.
+- Rebinding, navigation and dismissal cannot apply an old menu to a different message. Copy tests use an isolated fake clipboard.
+- Render phone/tablet/desktop in actual light/dark themes and retain normal scrolling, text selection and keyboard focus.

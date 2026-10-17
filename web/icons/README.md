@@ -3,3 +3,7 @@ Native HubbaHub shared Icons8 SF Regular assets copied byte-for-byte from native
 Trash and send-now are the native draft-discard and paper-plane send assets; back is the native navigation chevron. These files are unchanged copies, rendered via CSS masks.
 
 Delivery indicators clock, warning and double-tick are unchanged native0597a826 assets, rendered at16px for pending/scheduled, failed and sent states respectively.
+
+Message-menu copy and reply use unchanged native0597a826 assets at22px. The reply
+arrow is mirrored for Hand This Message to Hub, matching the native forward/handoff
+metaphor; the existing draft sparkles complete the same SF Regular family.
