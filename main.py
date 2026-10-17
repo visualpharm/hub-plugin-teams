@@ -1149,13 +1149,15 @@ def read_one(st, reader, q, put=post):
         return
     if q["rid"] in done or entombed(st, q["rid"]):   # повтор: прежний итог; вытесненный или оборванный — «неизвестен»
         put(outs.get(q["rid"]) or {"kind": "read_failed", "id": q["read"], "rid": q["rid"], "unresolved": True,
-                                    "error": "Read outcome unknown; check the conversation before marking it again."})
+                                    "error": "Read outcome unknown; check the conversation before marking it again.",
+                                    **({"target": q["target"]} if q.get("target") else {})})
         return
     done.append(q["rid"])
     del done[:-500]
     tomb(st, q["rid"])
 
-    def finish(event):
+    def finish(event):   # квитанция несёт target просьбы: перезагруженный клиент отбросит позднюю после смены адреса
+        event = {**event, **({"target": q["target"]} if q.get("target") else {})}
         outs[q["rid"]] = event
         for k in list(outs)[:-500]:
             del outs[k]

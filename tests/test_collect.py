@@ -803,6 +803,7 @@ class Later(unittest.TestCase):
         self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
                          [("read", "r1", None), ("read", "r1", None), ("read_failed", "r1", True), ("read_failed", "r2", None)])
         self.assertEqual(main.msg_post({"key": "k1", "ref": {"tg": "77"}}, False, {})["target"], a)
+        self.assertEqual({p.get("target") for p in self.out}, {a})   # каждая квитанция — с target просьбы (m474486)
 
     def test_settings_become_config_post(self):
         class C:
