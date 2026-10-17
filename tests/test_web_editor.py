@@ -9,6 +9,25 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_narrow_conversation_has_one_header_and_keeps_draft_when_returning(self):
+        self.seed_inbox(start_editing=False)
+        self.edit("Keep my exact draft")
+        self.acknowledge(self.queued("draft_control"))
+        for width in (360,402,834,992):
+            got=self.page({"viewport":{"width":width,"height":874}},{"sleep":100},
+              {"eval":"(()=>{const header=document.querySelector('.view-nav'),h=document.querySelector('.tm-thread > .tm-head'),back=document.querySelector('.tm-close-conversation');return {outer:header.getBoundingClientRect().height,top:h.getBoundingClientRect().top,back:back.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertEqual(got['outer'],0,got);self.assertLess(got['top'],30,got);self.assertGreaterEqual(got['back'],44,got);self.assertEqual(got['overflow'],0,got)
+        self.page({"tapSelector":".tm-close-conversation"})
+        self.assertGreater(self.page({"eval":"document.querySelector('.view-nav').getBoundingClientRect().height"})[-1]['eval'],0)
+        self.page({"tapSelector":".tm-person"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],"Keep my exact draft")
+        self.assertTrue(self.page({"eval":"!!document.querySelector(\'.tm-editor-options use[href=\"/static/icons.svg#i-menu\"]\')"})[-1]["eval"])
+        self.page({"tapSelector":".tm-editor-options > summary"})
+        self.assertTrue(self.page({"eval":"document.querySelector('.tm-editor-options').open"})[-1]['eval'])
+        self.page({"key":"Escape"})
+        self.assertFalse(self.page({"eval":"document.querySelector('.tm-editor-options').open"})[-1]['eval'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
     def test_short_history_stacks_above_actions_and_own_links_stay_readable(self):
         self.seed_inbox(start_editing=False)
         self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
@@ -107,7 +126,7 @@ class InboxWebAcceptance(PageInChrome):
     def test_initial_plain_draft_is_selected_without_claiming_editor(self):
         self.seed_inbox(start_editing=False)
         post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
-        self.page({"click":"Close editor"})
+        self.page({"tapSelector":".tm-editor-options > summary"},{"click":"Close editor"})
         self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply\n---\nWhy: Keep this explanation separate")
         self.page({"wait":"Suggested exact reply"},{"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
         got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
@@ -326,9 +345,9 @@ class InboxWebAcceptance(PageInChrome):
         got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "")
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
-        self.page({"click": "Close editor"}, {"until": "!document.querySelector('.tm-shared-compose textarea')"})
+        self.page({"tapSelector":".tm-editor-options > summary"},{"click": "Close editor"}, {"until": "!document.querySelector('.tm-shared-compose textarea')"})
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
-        self.page({"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();document.querySelector('.tm-instruction summary').click();true"},
+        self.page({"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();document.querySelector('.tm-editor-options').open=true;document.querySelector('.tm-instruction summary').click();true"},
                   {"eval": "(()=>{const t=document.querySelector('.tm-instruction textarea');t.value='Keep my wording';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
         self.acknowledge(self.queued("draft_control"))
         self.edit("Intentional owner reply")
@@ -362,7 +381,7 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox()
         self.acknowledge(self.queued("draft_control"))
         self.edit("Owner exact edit")
-        self.page({"eval": "document.querySelector('.tm-instruction summary').click();true"})
+        self.page({"eval": "document.querySelector('.tm-editor-options').open=true;document.querySelector('.tm-instruction summary').click();true"})
         self.page({"eval": "(()=>{const t=document.querySelector('.tm-instruction textarea');t.value='Suggest 11 instead.';t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.tm-instruction .btn').click();return true})()"})
         request = self.queued("ask")
         self.assertEqual(request["draft"], "Owner exact edit")
