@@ -70,6 +70,10 @@ function acceptDraft(m,rid) {
 const hasOwnerDraft=m=>!!savedDraft(m)?.text.trim() && !savedDraft(m).pendingRid;
 let inboxProtocol = null;
 let historyAvailable = false;
+const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
+// A collector capability is not a token for every source. Explicit tokens stay
+// guarded; Teams and unknown sources fail closed when CAS is advertised.
+const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_REPLIES.includes(m?.src);
 const histories = new Map();
 function historyState(id) {
   if (!histories.has(id)) histories.set(id,{items:null,parts:new Map(),loading:false,error:"",more:false,revealed:false,before:null});
@@ -250,7 +254,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
-        const guarded = msgs.get(d.id)?.inbox?.v === 1 || inboxProtocol?.version === 1;
+        const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
         const delivery = editorStates.get(d.id)?.delivery;
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
@@ -722,7 +726,7 @@ function openCompose(m, text, why = "", focus = true) {
       why = offer.why; suggested = !!text;
     }
   }
-  const state = inboxProtocol?.version === 1 || m.inbox?.v === 1 ? new InboxEditor(m, editorIdentity(), text) : null;
+  const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
   if (state) editorStates.set(m.id, state);
   const st = { text, why, state, suggested };
   composing.set(m.id, st);
@@ -805,7 +809,7 @@ function sharedReply(m, st) {
         const revision=st.state?.revision;
         beginEditing(m, st);
         let q;
-        if (inboxProtocol?.version === 1 && !st.state) return { error: "Reopen this editor using the current conversation." };
+        if (guardedReply(msgs.get(m.id)) && !st.state) return { error: "Reopen this editor using the current conversation." };
         try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text }); }
         catch (e) {
           // The shared composer restores the attempted reply before any text typed while waiting.
@@ -860,7 +864,7 @@ function sharedReply(m, st) {
 async function sendReply(m, text) {
   text = text.trim();
   if (!text) return;
-  if (inboxProtocol?.version === 1 || m.inbox?.v === 1) { openCompose(m, text); return; }
+  if (guardedReply(m)) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   saveDraft(m,text,rid);
   sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, state: "wait" });

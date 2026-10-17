@@ -9,6 +9,52 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def open_external_source(self, source, token=False):
+        self.feed({'kind':'config','v':3,'inbox_protocol':{'version':1,'editor_cas':True}})
+        self.feed({'kind':'msg','id':'external-'+source,'contact':'synthetic/'+source,'src':source,'from':'Synthetic '+source,
+                   'text':'Please review this source.','reply':True,'at':datetime.now(timezone.utc).isoformat(),
+                   **({'inbox':self.token} if token else {})})
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},
+          {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic {source}'))"},
+          {'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic {source}')).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+
+    def test_external_text_replies_do_not_inherit_teams_editor_protocol(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('whatsapp','telegram','email'):
+            with self.subTest(source=source):
+                self.open_external_source(source)
+                self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-instruction')"})[-1]['eval'])
+                self.edit('Exact '+source+' reply')
+                self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+                q=self.queued('send');self.assertEqual(q['id'],'external-'+source);self.assertEqual(q['text'],'Exact '+source+' reply')
+                self.assertNotIn('inbox',q);self.assertNotIn('editor',q)
+                self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+                got=self.page({'until':"!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose textarea')"},
+                  {'tapSelector':'[aria-label="Sent conversations"]'},
+                  {'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic {source}')).click();true"},
+                  {'until':"!!document.querySelector('.tm-detail:not([hidden]) .tm-mine-ok')"})
+                self.assertTrue(got[0]['until'],got)
+                self.assertTrue(got[-1]['until'],got)
+
+    def test_teams_without_token_still_refuses_plain_reply(self):
+        self.seed_inbox(start_editing=False)
+        self.open_external_source('dm')
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-instruction')"})[-1]['eval'])
+        self.edit('Never bypass the Teams guard')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':150})
+        posts=[json.loads(e['data']['text']) for e in self.non_history_actions() if e['type']=='ext.post']
+        self.assertFalse([p for p in posts if p.get('kind')=='send'],posts)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Never bypass the Teams guard')
+
+    def test_explicit_source_token_keeps_guard_even_for_external_channel(self):
+        self.seed_inbox(start_editing=False)
+        self.open_external_source('whatsapp',token=True)
+        self.edit('Guard this exact source')
+        q=self.queued('draft_control');self.assertEqual(q['id'],'external-whatsapp');self.assertEqual(q['inbox'],self.token)
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval'])
+
     def test_quick_hub_refusal_retains_text_and_escape_keeps_conversation(self):
         self.seed_inbox(start_editing=False)
         self.page({'tapSelector':'.tm-quick-trigger'},{'eval':"(()=>{const t=document.querySelector('.tm-quick textarea');t.value='Keep refused quick message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
