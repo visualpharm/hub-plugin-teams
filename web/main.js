@@ -404,7 +404,12 @@ function personRow(key, group) {
   const photo = media.find(m => mediaKind(m) === "image" && mediaURL(m.url || m.path));
   if (photo) { const img = el("img"); img.src = mediaURL(photo.thumb && typeof photo.thumb === "string" ? photo.thumb : photo.url || photo.path); img.alt = photo.name || "Photo"; img.loading = "lazy"; preview.append(img); }
   row.append(preview);
-  const open = () => { see(group); dmPerson = key; toBottom = true; paint(); };
+  const open = () => {
+    see(group); dmPerson = key; toBottom = true;
+    const target = group.find(canReply);
+    if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
+    else paint();
+  };
   row.addEventListener("click", open);
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
@@ -507,13 +512,21 @@ function line(m) {
 
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
-function openCompose(m, text, why = "") {
-  text = text === undefined ? editorDrafts.get(m.id) || "" : text;
+function openCompose(m, text, why = "", focus = true) {
+  let suggested = false;
+  if (text === undefined) {
+    if (editorDrafts.has(m.id)) text = editorDrafts.get(m.id);
+    else {
+      const offer = splitDraft((replies.get(m.post) || []).at(-1)?.text || "");
+      text = offer.text && !QUICK_REACTIONS.includes(offer.text.trim()) ? signed(offer.text,m) : "";
+      why = offer.why; suggested = !!text;
+    }
+  }
   const state = inboxProtocol?.version === 1 || m.inbox?.v === 1 ? new InboxEditor(m, editorIdentity(), text) : null;
   if (state) editorStates.set(m.id, state);
-  const st = { text, why, state };
+  const st = { text, why, state, suggested };
   composing.set(m.id, st);
-  focusId = m.id;
+  if (focus) focusId = m.id;
   paint();
 }
 
@@ -557,7 +570,7 @@ function sharedReply(m, st) {
     const box = st.box = hub.input({ key: "reply:" + m.id, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: false, maxLength: 1500,
       sentLabel: "Queued. Waiting for delivery confirmation.",
-      onChange(text) { st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); beginEditing(m, st); },
+      onChange(text) { st.suggested=false; st.text = text; editorDrafts.set(m.id, text); st.state?.edit(text); beginEditing(m, st); },
       async send({ text, attachments }) {
         if (attachments?.length) return { error: "This destination accepts text only." };
         if ([...sends.values()].some((s) => s.id === m.id && ["wait", "later", "unresolved"].includes(s.state)))
@@ -578,6 +591,7 @@ function sharedReply(m, st) {
       onSent() { if (composing.get(m.id) === st) box.set({text:st.text}); },
     });
     box.node.querySelector("textarea").dataset.compose = m.id;
+    box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
     const close = button("Close editor", "quiet", () => {
       if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
