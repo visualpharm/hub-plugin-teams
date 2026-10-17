@@ -157,7 +157,13 @@
 .tm-detail > .tm-thread > .tm-head { padding-right: var(--control-size); min-height: var(--control-size); align-items: center; }
 .tm-close-conversation { position: absolute; top: var(--space-4); right: var(--space-4); min-width: var(--control-size); min-height: var(--control-size); }
 .tm-close-conversation .icon { width: 24px; height: 24px; }
-.tm-history { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-4); }
+.tm-history { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.tm-history > .tm-line { flex: none; }
+.tm-line:not(.tm-mail) > .tm-text { padding: 8px 12px; border-radius: 18px; background: var(--muted); max-width: 100%; box-sizing: border-box; }
+.tm-line.tm-own { align-items: flex-end; }
+.tm-line.tm-own > .tm-text { background: var(--primary); color: var(--primary-foreground); }
+.tm-earlier { flex: none; align-self: center; min-height: 44px; }
+.tm-history-error { margin: 0; color: var(--foreground); }
 .tm-detail .tm-history { flex: 1; }
 .tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
 .tm-instruction { max-height: min(30dvh,240px); overflow: auto; }

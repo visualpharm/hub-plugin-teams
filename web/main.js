@@ -44,6 +44,49 @@ const composing = new Map(); // id сообщения → {text} — откры�
 const editorStates = new Map();
 const editorDrafts = new Map();
 let inboxProtocol = null;
+let historyAvailable = false;
+const histories = new Map();
+function historyState(id) {
+  if (!histories.has(id)) histories.set(id,{items:null,parts:new Map(),loading:false,error:"",more:false,revealed:false,before:null});
+  return histories.get(id);
+}
+function historyFact(d) {
+  if (!msgs.has(d.id) || d.search) return;
+  const h=historyState(d.id);
+  if (d.kind === "thread_failed") {
+    h.loading=false;h.error=d.error || "Could not load history.";h.request=null;clearTimeout(h.timer);
+    if (d.reset_history) h.items=null;
+    return;
+  }
+  if (!Number.isInteger(d.part) || !Number.isInteger(d.of) || d.of<1 || d.of>100 || d.part<0 || d.part>=d.of || !Array.isArray(d.items)) return;
+  if (h.loading && (d.before || null)!==h.before) return;
+  if (d.part===0) { h.parts=new Map();h.batch=d.before || null;h.of=d.of; }
+  if (h.of!==d.of || h.batch!==(d.before || null)) return;
+  h.parts.set(d.part,d.items);
+  if (h.parts.size!==d.of) return;
+  const fresh=[...h.parts.keys()].sort((a,b)=>a-b).flatMap(k=>h.parts.get(k)).filter(t=>t && typeof t==='object');
+  const first=Date.parse(fresh[0]?.at), old=h.items || [];
+  const kept=d.before ? old : old.filter(t=>Date.parse(t.at)<first);
+  const unique=new Map();
+  for (const t of [...fresh,...kept]) {
+    const key=t.id || JSON.stringify([t.at,t.from,t.me,t.text,t.media]);
+    if (!unique.has(key)) unique.set(key,t);
+  }
+  h.items=[...unique.values()].sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0));
+  h.loading=false;h.error="";h.more=d.more===true;h.request=null;h.parts.clear();clearTimeout(h.timer);
+}
+async function fetchHistory(m, before=null) {
+  if (!historyAvailable) return;
+  const h=historyState(m.id); if(h.loading) return;
+  const q={kind:"history",id:m.id,...(before ? {before:before.id,before_at:before.at,limit:20} : {})};
+  h.loading=true;h.error="";h.before=before?.id || null;h.request=q;
+  h.timer=setTimeout(()=>{if(h.request===q && h.loading){h.loading=false;h.error="History did not respond. Try again.";paint();}},30000);
+  paint();
+  try {
+    const result=await hub.postFeed(JSON.stringify(q));
+    if(result.error && h.request===q){h.loading=false;h.error=result.error;clearTimeout(h.timer);paint();}
+  } catch { if(h.request===q){h.loading=false;h.error="Could not load history. Try again.";clearTimeout(h.timer);paint();} }
+}
 const promptState = { text: "", rid: null, status: "" };
 function editorIdentity() {
   const key = "hub.teams.editor";
@@ -165,7 +208,8 @@ async function sync() {
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "ошибка" });
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid)
@@ -409,6 +453,7 @@ function personRow(key, group) {
     const target = group.find(canReply);
     if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
     else paint();
+    if (target && historyAvailable && !histories.has(target.id)) fetchHistory(target);
   };
   row.addEventListener("click", open);
   row.setAttribute("role", "button");
@@ -486,7 +531,7 @@ function messageBody(m) {
 }
 
 function line(m) {
-  const row = el("div", "tm-line" + (done(m) ? " tm-done" : ""));
+  const row = el("div", "tm-line" + (done(m) ? " tm-done" : "") + (m.src === "email" ? " tm-mail" : ""));
   const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
   text.append(messageBody({...m, text:messageText(m)}));
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
@@ -741,6 +786,31 @@ function thread(ms) {   // ms — по возрастанию времени
   for (const k of new Set(ms.map((m) => m.src))) head.append(el("span", `tm-src tm-src-${k}`, SRC[k] || k));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
+  const h = histories.get(last.id);
+  if (historyAvailable && canReply(last)) {
+    const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : "Earlier messages", "quiet tm-earlier", () => {
+      const state=historyState(last.id);
+      if (!state.revealed && state.items) { state.revealed=true;paint();return; }
+      state.revealed=true;
+      const cursor=state.items?.find(t=>typeof t.id === "string" && t.id);
+      fetchHistory(last,state.more && cursor ? cursor : null);
+    });
+    earlier.disabled=!!h?.loading;
+    if (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id))) history.append(earlier);
+    if (h?.error) { const error=el("p","tm-history-error",h.error);error.setAttribute("role","status");history.append(error); }
+  }
+  if (h?.revealed && h.items) {
+    const flat=t=>String(t || "").replace(/\s+/g," ").trim();
+    const current=ms.map(m=>flat(m.text)).join(" ");
+    const older=h.items.filter(t=>t.me || !flat(t.text) || !current.includes(flat(t.text).slice(0,80).replace(/…$/, "")));
+    let previous=null;
+    for (const [index,t] of older.entries()) {
+      if (!previous || Date.parse(t.at)-Date.parse(previous.at)>=GAP) history.append(divider({...t,src:last.src}));
+      const row=line({...t,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")});
+      row.classList.add("tm-history-row");if(t.me)row.classList.add("tm-own");history.append(row);
+      previous=t;
+    }
+  }
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
   let prev = null;
   for (const m of ms) {
@@ -814,7 +884,12 @@ function paint() {
   if (!ui) return;
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+  const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
+  const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
+  if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
+    const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
+  }
   const want = focusId || typing;
   const ta = want && ui.root.querySelector(`textarea[data-compose="${CSS.escape(want)}"]`);
   if (ta) {
@@ -883,6 +958,7 @@ function paintAll() {
 
   ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
   ui.detail.hidden = !(grouped && dmPerson);
+  ui.detail.dataset.conversation=grouped && dmPerson || "";
   if (!loaded) ui.list.replaceChildren(el("p", "tm-empty", "Загружаю…"));
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"

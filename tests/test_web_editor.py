@@ -9,11 +9,53 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_history_refresh_preserves_reading_position_and_other_conversation(self):
+        self.seed_inbox(start_editing=False)
+        self.queued("history")
+        self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
+            {"id":f"old-{i}","at":f"2026-01-01T12:{i:02d}:00Z","text":f"Earlier item {i} with enough text to wrap across the phone screen."} for i in range(10)]})
+        self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"},
+                  {"eval":"document.querySelector('.tm-history').scrollTop=250"})
+        position=self.page({"eval":"document.querySelector('.tm-history').scrollTop"})[-1]['eval']
+        self.assertGreater(position,0)
+        self.feed({"kind":"msg","id":"source-b","contact":"synthetic-account/conversation-b","src":"dm","from":"Other colleague","text":"Different conversation","at":"2026-01-02T12:00:00Z","reply":True})
+        self.page({"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertAlmostEqual(self.page({"eval":"document.querySelector('.tm-history').scrollTop"})[-1]['eval'],position,delta=1)
+        self.page({"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person:last-child"})
+        self.assertEqual(self.queued("history")["id"],"source-b")
+        self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[{"id":"late-a","text":"Late result for first conversation"}]})
+        self.feed({"kind":"thread","id":"source-b","part":0,"of":1,"more":False,"items":[{"id":"old-b","text":"History for second conversation"}]})
+        got=self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"},{"eval":"document.querySelector('.tm-history').textContent"})[-1]['eval']
+        self.assertIn("History for second conversation",got);self.assertNotIn("Late result for first conversation",got)
+
+    def test_history_chunks_pagination_refusal_and_retry_keep_exact_conversation(self):
+        self.seed_inbox(start_editing=False)
+        q=self.queued("history");self.assertEqual(q["id"],"source-a")
+        self.feed({"kind":"thread","id":"source-a","part":0,"of":2,"more":True,"items":[{"id":"old-1","at":"2026-01-01T12:00:00Z","from":"Review colleague","text":"Historical detail"}]})
+        self.page({"sleep":100})
+        self.assertNotIn("Historical detail",self.page({"eval":"document.querySelector('.tm-detail').textContent"})[-1]['eval'])
+        self.feed({"kind":"thread","id":"source-a","part":1,"of":2,"more":True,"items":[{"id":"old-2","at":"2026-01-02T12:00:00Z","from":"Owner","me":True,"text":"Older reply"},
+                    {"at":datetime.now(timezone.utc).isoformat(),"from":"Review colleague","text":"Please check the navigation."}]})
+        self.page({"until":"!document.querySelector('.tm-earlier').disabled"},{"tapSelector":".tm-earlier"})
+        got=self.page({"eval":"document.querySelector('.tm-history').textContent"})[-1]['eval']
+        self.assertIn("Historical detail",got);self.assertIn("Older reply",got);self.assertEqual(got.count("Please check the navigation."),1,got)
+        self.edit("Reply survives history retry");self.acknowledge(self.queued("draft_control"))
+        self.page({"tapSelector":".tm-earlier"})
+        q=self.queued("history");self.assertEqual(q["id"],"source-a");self.assertEqual(q["before"],"old-1")
+        self.feed({"kind":"thread_failed","id":"source-a","error":"Synthetic history refused"})
+        self.page({"wait":"Synthetic history refused"},{"tapSelector":".tm-earlier"})
+        retry=self.queued("history");self.assertEqual(retry["id"],"source-a");self.assertEqual(retry["before"],"old-1")
+        self.feed({"kind":"thread","id":"source-a","before":"old-1","part":0,"of":1,"more":False,"items":[
+            {"id":"old-0","at":"2025-12-01T12:00:00Z","from":"Review colleague","text":"Earliest detail"},
+            {"id":"old-1","at":"2026-01-01T12:00:00Z","from":"Review colleague","text":"Historical detail"}]})
+        got=self.page({"wait":"Earliest detail"},{"eval":"({text:document.querySelector('.tm-history').textContent,draft:document.querySelector('.tm-shared-compose .composer textarea').value})"})[-1]['eval']
+        self.assertEqual(got['text'].count('Historical detail'),1,got);self.assertEqual(got['draft'],'Reply survives history retry')
+
     def test_open_conversation_has_reply_without_opening_keyboard_or_holding_editor(self):
         self.seed_inbox(start_editing=False,open_editor=False)
         got=self.page({"eval":"({reply:!!document.querySelector('.tm-shared-compose .composer textarea'),focused:document.activeElement.tagName,extra:!!document.querySelector('[aria-label=\"Ответить: Review colleague\"]')})"})[-1]["eval"]
         self.assertTrue(got["reply"],got);self.assertNotEqual(got["focused"],"TEXTAREA",got);self.assertFalse(got["extra"],got)
-        self.assertFalse([e for e in self.spooled() if e['type']=='ext.post'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
         self.edit("Preserved while browsing");self.acknowledge(self.queued("draft_control"))
         self.page({"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],"Preserved while browsing")
@@ -26,7 +68,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({"wait":"Suggested exact reply"},{"tapSelector":".tm-close-conversation"},{"tapSelector":".tm-person"})
         got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
         self.assertEqual(got,{"text":"Suggested exact reply","start":0,"end":21},got)
-        self.assertFalse([e for e in self.spooled() if e['type']=='ext.post'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
     def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
         self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Keep this Inbox reply")
@@ -72,7 +114,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse(self.page({"eval":"!!document.querySelector('.lightbox textarea')"})[-1]["eval"])
         self.page({"tapSelector":".lb-close"},{"tapSelector":".tm-close-conversation"})
         self.assertEqual(self.page({"eval":"document.querySelectorAll('.tm-unread').length"})[-1]["eval"],0)
-        self.assertFalse([e for e in self.spooled() if e["type"] in ("ext.post","message.received")], "Opening media must not send a read receipt or message")
+        self.assertFalse([e for e in self.non_history_actions() if e["type"] in ("ext.post","message.received")], "Opening media must not send a read receipt or message")
 
     def test_conversation_search_retains_history_target_and_unsent_reply(self):
         self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Unsent exact reply")
@@ -235,15 +277,18 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "")
-        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
+        self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
         self.page({"click": "Close editor"}, {"until": "!document.querySelector('.tm-shared-compose textarea')"})
-        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
+        self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
         self.page({"eval": "document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();document.querySelector('.tm-instruction summary').click();true"},
                   {"eval": "(()=>{const t=document.querySelector('.tm-instruction textarea');t.value='Keep my wording';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
         self.acknowledge(self.queued("draft_control"))
         self.edit("Intentional owner reply")
         self.edit("")
-        self.assertFalse([e for e in self.spooled() if e["type"] == "ext.post"])
+        self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
+
+    def non_history_actions(self):
+        return [e for e in self.spooled() if not (e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "history")]
 
     def queued(self, kind):
         posts = [json.loads(e["data"]["text"]) for e in self.spooled() if e["type"] == "ext.post"]
