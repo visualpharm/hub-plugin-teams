@@ -125,6 +125,30 @@ let picking = null;          // открыта панель «Каналы»: Se
 let since = 0, loading = false, loaded = false, failed = "";
 let tab = "new", src = "all", confirmAll = false, error = "";
 let searchQuery = "";
+let sortOrder="importance";
+try { if(localStorage.getItem("hub.inbox.sort")==="time")sortOrder="time"; } catch {}
+const ranks=new Map();
+let rankSince=0, rankLoading=false, rankError="", rankRetryAt=0;
+async function syncRanks() {
+  if(rankLoading || Date.now()<rankRetryAt)return;
+  rankLoading=true;
+  try {
+    const response=await fetch(`/api/feed?plugin=proactivity&since=${rankSince}`);
+    if(!response.ok)throw new Error("Importance could not be updated.");
+    const data=await response.json();if(!Array.isArray(data.posts))throw new Error("Importance could not be updated.");
+    for(const p of data.posts) {
+      rankSince=Math.max(rankSince,Number(String(p.id).replace(/^p/,""))||0);
+      let d;try{d=JSON.parse(p.text)}catch{continue}
+      const state=d?.s||"", act=d?.do||"", post=d?.[d.kind==="item"?"post":"item"];
+      if(typeof post!=="string" || !["item","verdict"].includes(d.kind) || d.kind==="verdict"&&!act)continue;
+      const level=["answered","replied","done","old","noise"].includes(state)?0
+        :state==="escalated"||act==="escalate"?3:state==="draft"||act==="draft"?2:["noise","done"].includes(act)?0:1;
+      ranks.set(post,level*100+(d.urgent===true?10:0)+Math.min(Array.isArray(d.risk)?d.risk.length:0,9));
+    }
+    rankError="";
+  } catch { rankError="Importance could not be updated.";rankRetryAt=Date.now()+5000; }
+  finally {rankLoading=false;paint();}
+}
 let dmPerson = null;   // личка сгруппирована по людям: имя выбранного — список всех его сообщений, иначе — по одному на человека (последнее)
 let ui = null;
 let toBottom = false;   // открыли переписку с человеком — прокрутить к последнему сообщению
@@ -380,8 +404,13 @@ function byPerson(items) {
 // Search chooses whole conversations: an older matching message must not hide newer replies.
 function matchingConversations(items) {
   const query = searchQuery.trim().toLocaleLowerCase();
-  return [...byPerson(items)].filter(([, group]) => !query || group.some((m) =>
+  const groups=[...byPerson(items)].filter(([, group]) => !query || group.some((m) =>
     `${m.from || ""}\n${m.text || ""}\n${m.where || ""}`.toLocaleLowerCase().includes(query)));
+  if(tab==="new" && sortOrder==="importance") {
+    const weight=group=>Math.max(...group.map(m=>ranks.get(m.post)??100));
+    groups.sort((a,b)=>weight(b[1])-weight(a[1]));
+  }
+  return groups;
 }
 
 function mediaKind(m) {
@@ -901,6 +930,9 @@ function paint() {
 }
 
 function paintAll() {
+  ui.sort.hidden=tab!=="new";
+  ui.sort.querySelector('summary').title=`Sort: ${sortOrder==="importance"?"Importance":"Time"}`;
+  for(const b of ui.sort.querySelectorAll('[data-sort]')) b.setAttribute('aria-checked',String(b.dataset.sort===sortOrder));
   if (ui.prompt) {
     ui.prompt.hidden = inboxProtocol?.version !== 1;
     ui.promptFeedback.textContent = promptState.status;
@@ -949,6 +981,10 @@ function paintAll() {
     else if (d.warn) banner.push(el("p", "tm-alert", `${NAMES[name] || name}: ${d.warn}`));
   }
   if (error) banner.push(el("p", "tm-alert", error));
+  if(rankError && tab==="new" && sortOrder==="importance") {
+    const notice=el("div","tm-alert",rankError);
+    notice.append(button("Retry importance","quiet",()=>{rankRetryAt=0;syncRanks();}));banner.push(notice);
+  }
   ui.alerts.replaceChildren(...banner);
 
   // группировка по людям — в «Личке» и в «Все» (владелец 09.10: «во вкладке все тоже сделай по людям группировку
@@ -1058,14 +1094,25 @@ function build(root) {
   title.append(el("h2", "tm-title", "Inbox"));   // логотип Teams убран: здесь и WhatsApp, и почта (владелец 10.10)
   const bar = el("div", "tm-bar");
   const tabs = el("div","tm-folders"), srcs = el("div", "tm-srcs"), bulk = el("div", "tm-bulk");
+  const sort=el("details","tm-sort"), sortSummary=el("summary","btn quiet"), sortChoices=el("div","tm-sort-choices");
+  sortSummary.setAttribute("aria-label","Sort conversations");sortSummary.append(nativeIcon("sort"));
+  sortChoices.setAttribute("role","menu");sortChoices.setAttribute("aria-label","Conversation order");
+  for(const [key,label] of [["importance","Importance"],["time","Time"]]) {
+    const b=button(label,"quiet",()=>{sortOrder=key;try{localStorage.setItem("hub.inbox.sort",key)}catch{}sort.open=false;paint();sortSummary.focus();});
+    b.dataset.sort=key;b.setAttribute("role","menuitemradio");sortChoices.append(b);
+  }
+  sort.append(sortSummary,sortChoices);
+  sort.addEventListener("keydown",e=>{if(e.key==="Escape"&&sort.open){e.preventDefault();e.stopPropagation();sort.open=false;sortSummary.focus();}});
   const options=el("details","tm-options"), summary=el("summary","btn quiet"), controls=el("div","tm-options-panel");
   summary.setAttribute("aria-label","Inbox options"); summary.title="Inbox options"; summary.append(hub.icon("settings"));
   options.addEventListener("keydown", e => { if(e.key === "Escape" && options.open) { e.preventDefault(); e.stopPropagation(); options.open=false; summary.focus(); } });
   options.append(summary,controls);
+  sortSummary.addEventListener("click",()=>{options.open=false;});summary.addEventListener("click",()=>{sort.open=false;});
+  for(const menu of [sort,options]) menu.addEventListener("focusout",e=>{if(!menu.contains(e.relatedTarget))menu.open=false;});
   const pick = button("Выбрать каналы", "", openPicker);
   pick.setAttribute("aria-controls", "tm-panel");
   controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
-  bar.append(tabs,options);
+  bar.append(tabs,sort,options);
   const panelNode = el("div", "tm-panel");
   panelNode.id = "tm-panel";
   panelNode.hidden = true;
@@ -1106,7 +1153,7 @@ function build(root) {
   listPane.append(head, listNode, search); detail.hidden = true;
   wrap.append(listPane, detail);
   root.replaceChildren(wrap);
-  ui = { root, wrap, detail, list: listNode, tabs, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { root, wrap, detail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
@@ -1132,6 +1179,7 @@ function registerView() {
         const first = !loaded;
         if ((await sync()) || first) paint();
       }
+      if((snap?.feeds?.proactivity||0)>rankSince)syncRanks();
       // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
       // заново зарегистрированному виду новый узел, и поле ответа теряло курсор
       if (count((m) => !done(m)) !== badgeShown) registerView();
@@ -1141,6 +1189,7 @@ function registerView() {
 
 export default function register(h) {
   hub = h;
+  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
   registerView();

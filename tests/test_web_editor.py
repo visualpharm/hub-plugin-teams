@@ -9,6 +9,34 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_sort_uses_highest_conversation_priority_and_persists_choice(self):
+        self.seed_inbox(start_editing=False)
+        self.page({"tapSelector":".tm-close-conversation"})
+        self.feed({"kind":"msg","id":"source-b","contact":"synthetic-account/conversation-b","src":"email","from":"Older important","text":"Review invoice","at":"2026-01-01T12:00:00Z","reply":True})
+        self.feed({"kind":"msg","id":"source-b-new","contact":"synthetic-account/conversation-b","src":"email","from":"Older important","text":"Later neutral reply","at":"2026-01-02T12:00:00Z","reply":True})
+        self.page({"until":"document.querySelectorAll('.tm-person').length===2"})
+        post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(x=>x.posts.find(p=>{try{return JSON.parse(p.text).id==='source-b'}catch{return false}}).id)"})[-1]['eval']
+        self.page({"eval":"(()=>{const real=fetch;window.__rankFail=true;window.fetch=(u,o)=>String(u).startsWith('/api/feed?plugin=proactivity')&&__rankFail?Promise.resolve(new Response('{}',{status:503})):real(u,o);return true})()"})
+        self.ev("ext.post",None,plugin="proactivity",channel="session",sender="hub",text=json.dumps({"kind":"item","post":post,"s":"escalated","urgent":True,"risk":["money"]}))
+        self.page({"wait":"Importance could not be updated."},{"eval":"window.__rankFail=false"},{"click":"Retry importance"})
+        got=self.page({"until":"document.querySelector('.tm-person')?.textContent.includes('Older important')"})
+        self.assertTrue(got[-1]['until'],got)
+        self.page({"tapSelector":".tm-sort summary"},{"tapSelector":"[data-sort=time]"})
+        self.assertIn("Review colleague",self.page({"eval":"document.querySelector('.tm-person').textContent"})[-1]['eval'])
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-sort summary"})
+        self.assertEqual(self.page({"eval":"document.querySelector('[data-sort=time]').getAttribute('aria-checked')"})[-1]['eval'],'true')
+        self.page({"tapSelector":"[data-sort=importance]"},{"until":"document.querySelector('.tm-person').textContent.includes('Older important')"})
+        for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
+            got=self.page({"media":theme},{"viewport":{"width":width,"height":874}},{"tapSelector":".tm-sort summary"},
+                          {"eval":"(()=>{const s=document.querySelector('.tm-sort summary').getBoundingClientRect(),m=document.querySelector('.tm-sort-choices').getBoundingClientRect();return {target:s.height,left:m.left,right:m.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertGreaterEqual(got['target'],44);self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
+            if os.environ.get("HUB_INBOX_SCREENSHOTS"):
+                Path(os.environ["HUB_INBOX_SCREENSHOTS"]).mkdir(parents=True,exist_ok=True)
+                self.page({"media":theme},{"shot":str(Path(os.environ["HUB_INBOX_SCREENSHOTS"])/f"sort-{theme}-{width}.png"),"width":width,"height":874})
+            self.page({"eval":"document.querySelector('.tm-sort summary').focus();true"},{"key":"Escape"})
+            self.assertFalse(self.page({"eval":"document.querySelector('.tm-sort').open"})[-1]['eval'])
+        self.assertFalse([e for e in self.spooled() if e['type']=='message.received'])
+
     def test_history_refresh_preserves_reading_position_and_other_conversation(self):
         self.seed_inbox(start_editing=False)
         self.queued("history")
