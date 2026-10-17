@@ -16,10 +16,17 @@ export function localReadState(scope, identity, legacy = new Set(), storage) {
       return !legacy.has(message.id) && message.unread!==false && message.unread!==0;
     },
     set(messages, unread) {
+      if (!messages.length) return false;
       try {
         const next = new Map(read()); let changed = false;
         for (const message of messages) { const id = identity(message); if (next.get(id)!==unread) { next.set(id,unread); changed=true; } }
-        if (changed) store().setItem(key(),JSON.stringify([...next]));
+        if (changed) {
+          const raw = JSON.stringify([...next]);
+          // Keep this preference below 512 KiB of UTF-16 storage per Hub.
+          // Never discard an existing reminder to make space for a new one.
+          if (raw.length > 256 * 1024) return false;
+          store().setItem(key(),raw);
+        }
         return true;
       } catch { return false; }
     },

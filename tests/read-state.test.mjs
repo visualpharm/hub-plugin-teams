@@ -22,3 +22,9 @@ console.log('Local unread reminders preserve exact Hub/source/message scope, old
 const retained=JSON.stringify([[identity(a),true]]);
 const failAfterRead=localReadState(()=>hub,identity,new Set(),{getItem:()=>retained,setItem(){throw Error('quota')}});
 assert.equal(failAfterRead.isUnread(a),true);assert.equal(failAfterRead.set([a],false),false);assert.equal(failAfterRead.isUnread(a),true,'refused write cannot mutate cached state');
+
+const large=[{...a,id:'x'.repeat(256*1024)}];
+const before=values.get('hub.inbox.read.v1:a');
+assert.equal(first.set(large,true),false,'read preferences must not consume unbounded draft storage');
+assert.equal(values.get('hub.inbox.read.v1:a'),before,'capacity refusal preserves existing reminders');
+assert.equal(first.set([],true),false,'empty/stale target cannot report a saved reminder');

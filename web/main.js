@@ -30,7 +30,8 @@ const msgs = new Map();      // id → сообщение (+ post — номер
 const seen = new Set();
 try { for (const id of JSON.parse(localStorage.getItem("hub.inbox.seen") || "[]")) if (typeof id === "string") seen.add(id); } catch { /* private browsing */ }
 function see(group) {
-  reads.set(group,false);
+  if (!reads.set(group,false)) error="Could not save read state. Your unread reminder is unchanged.";
+  else if (error==="Could not save read state. Your unread reminder is unchanged.") error="";
 }
 const answered = new Set();
 const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
