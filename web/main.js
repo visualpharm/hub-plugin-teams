@@ -12,6 +12,7 @@ import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
 import { messageMenus } from "./message-menu.js";
+import { conversationPins } from "./conversation-pins.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -460,6 +461,25 @@ function action(text, name, fn, label) {
 // личка — группа по человеку (владелец 09.10: «видел одно сообщение от человека последнее, захочу — в чела, там всё»):
 // items уже отсортированы по времени убыв. (list()) — первое в группе и есть последнее сообщение человека
 const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
+const pins = conversationPins(hubName);
+const pinKey = m => JSON.stringify([m.src, conversationKey(m)]);
+function conversationOptions(m) {
+  const id = pinKey(m), menu = el("details", "tm-editor-options tm-conversation-options");
+  menu.dataset.pinKey = id;
+  const summary = el("summary", "btn quiet");
+  summary.setAttribute("aria-label", "Conversation options"); summary.append(hub.icon("menu"));
+  const body = el("div", "tm-editor-menu");
+  const toggle = button(pins.has(id) ? "Unpin conversation" : "Pin conversation", "quiet", () => {
+    if (!pins.toggle(id)) { error = "Could not save the pin. Try again."; }
+    else if (error === "Could not save the pin. Try again.") error = "";
+    menu.open = false; paint();
+    [...ui.root.querySelectorAll('.tm-conversation-options')].find(n => n.dataset.pinKey === id)?.querySelector('summary')?.focus();
+  });
+  toggle.dataset.action = "pin-conversation";
+  body.append(toggle); menu.append(summary, body);
+  menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
+  return menu;
+}
 function byPerson(items) {
   const groups = new Map();
   for (const m of items) {
@@ -479,6 +499,7 @@ function matchingConversations(items) {
     const weight=group=>Math.max(...group.map(m=>ranks.get(m.post)??100));
     groups.sort((a,b)=>weight(b[1])-weight(a[1]));
   }
+  groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
   return groups;
 }
 
@@ -607,6 +628,10 @@ function personRow(key, group) {
   if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
+  if (pins.has(pinKey(latest))) {
+    const pin = nativeIcon("pin"); pin.classList.add("tm-pinned");
+    pin.removeAttribute("aria-hidden"); pin.setAttribute("role", "img"); pin.setAttribute("aria-label", "Pinned"); head.append(pin);
+  }
   head.append(stamp(secs(latest.at)));
   if (!seen.has(latest.id) && latest.unread !== false && latest.unread !== 0) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
@@ -1104,7 +1129,7 @@ function thread(ms) {   // ms — по возрастанию времени
   const open = ms.filter((m) => !done(m));
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
-  head.append(el("b", "tm-from", last.from || "—"));
+  head.append(el("b", "tm-from", last.from || "—"), conversationOptions(last));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>[(TEAMS_SRCS.includes(m.src) ? "Teams · " : "")+(SRC[m.src] || m.src),m.where].filter(Boolean).join(" · ")))].join(" · ")));
@@ -1212,12 +1237,20 @@ function seg(items, value, set, label) {
 
 function paint() {
   if (!ui) return;
+  const oldOptions = ui.root.querySelector('.tm-conversation-options');
+  const optionState = oldOptions && {key:oldOptions.dataset.pinKey,open:oldOptions.open,
+    focus:oldOptions.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null};
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
   const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
   messageMenu?.validate();
+  const options = ui.root.querySelector('.tm-conversation-options');
+  if (optionState && options?.dataset.pinKey === optionState.key) {
+    options.open = optionState.open;
+    if (optionState.focus) options.querySelector(optionState.focus === 'summary' ? 'summary' : '[data-action="pin-conversation"]')?.focus();
+  }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
   }

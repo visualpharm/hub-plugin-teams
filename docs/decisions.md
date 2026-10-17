@@ -228,3 +228,14 @@ An atomic writer's temporary file and facts arriving later remain untouched.
 A deterministic regression reproduces the old deletion and checks both kinds
 of retained work. This repairs a full-gate race without editing frozen core,
 collector behavior, or any user-facing delivery assertion.
+
+
+### 2026-10-17 — Conversation pins remain a local preference
+Conversation options now expose Pin/Unpin. Pins are scoped by browser origin,
+Hub name, source and stable conversation identity, survive reload, and sort
+matching conversations first without bypassing search or folder filters.
+Pinning never sends a provider action or changes read/delivery state. Storage
+refusal leaves the displayed pin unchanged and preserves the reply draft.
+Menu open state and keyboard focus survive feed refreshes. The native pin asset
+is unchanged; synthetic phone and desktop frames verify its rendering, not
+cross-device synchronization or complete native pixel parity.

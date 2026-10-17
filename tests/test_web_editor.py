@@ -18,6 +18,62 @@ class InboxWebAcceptance(PageInChrome):
             os.unlink(path)
         return [event for _, event in ready if theme or event["type"] != "owner.theme"]
 
+    def test_pin_survives_reload_and_preserves_draft_and_conversation_order(self):
+        self.seed_inbox(start_editing=False)
+        self.edit("Keep this exact draft")
+        self.queued("draft_control")
+        self.feed({"kind":"msg","id":"newer","contact":"synthetic-account/other","src":"dm","from":"Newer colleague","text":"Newer item","at":"2099-01-01T12:00:00Z"})
+        self.page({"tapSelector":".tm-conversation-options > summary"},{"tapSelector":"[data-action=pin-conversation]"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose textarea').value"})[-1]["eval"],"Keep this exact draft")
+        self.page({"tapSelector":".tm-close-conversation"})
+        got=self.page({"eval":"[...document.querySelectorAll('.tm-person')].map(n=>({text:n.innerText,pinned:!!n.querySelector('.tm-pinned')}))"})[-1]["eval"]
+        self.assertIn("Review colleague",got[0]["text"]);self.assertTrue(got[0]["pinned"])
+        self.assertEqual(self.non_history_actions(),[])
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertIn("Review colleague",self.page({"eval":"document.querySelector('.tm-person').innerText"})[-1]["eval"])
+        self.page({"tapSelector":".tm-person"},{"tapSelector":".tm-conversation-options > summary"},{"tapSelector":"[data-action=pin-conversation]"},{"tapSelector":".tm-close-conversation"})
+        self.assertIn("Newer colleague",self.page({"eval":"document.querySelector('.tm-person').innerText"})[-1]["eval"])
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_pin_menu_widths_focus_filter_and_storage_failure(self):
+        self.seed_inbox(start_editing=False)
+        self.edit("Preserved pin draft");self.queued("draft_control")
+        rows=[]
+        for index,width in enumerate((360,390,768,834,1024,1280,1440)):
+            theme='dark' if index%2 else 'light'
+            steps=[{'media':theme},{'viewport':{'width':width,'height':874}},
+              {'tapSelector':'.tm-conversation-options > summary'}]
+            if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                steps.append({'shot':str(out/f'pin-menu-{theme}-{width}.png'),'width':width,'height':874})
+            steps.append({'eval':"(()=>{const b=document.querySelector('[data-action=pin-conversation]'),r=b.getBoundingClientRect(),s=b.closest('details').querySelector('summary').getBoundingClientRect();return {left:r.left,right:r.right,height:r.height,target:s.height,overflow:document.documentElement.scrollWidth-innerWidth,theme:getComputedStyle(document.documentElement).colorScheme}})()"})
+            got=self.page(*steps)[-1]['eval'];self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width)
+            self.assertGreaterEqual(got['height'],44);self.assertGreaterEqual(got['target'],44);self.assertEqual(got['overflow'],0);self.assertEqual(got['theme'],theme);rows.append(got)
+            self.page({'key':'Escape'})
+            self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-conversation-options > summary'},
+          {'eval':"document.querySelector('[data-action=pin-conversation]').focus();true"})
+        self.feed({'kind':'status','src':'dm','ok':True})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-conversation-options').open && document.activeElement.dataset.action==='pin-conversation'"})[-1]['eval'])
+        self.page({'key':'Escape'})
+        self.page({'eval':"window.__save=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.pinned.'))throw Error('quota');return window.__save.call(this,k,v)};true"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=pin-conversation]'})
+        self.assertTrue(self.page({'eval':"document.body.innerText.includes('Could not save the pin')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Preserved pin draft')
+        self.page({'eval':'Storage.prototype.setItem=window.__save;true'},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=pin-conversation]'})
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Could not save the pin')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-pinned') && getComputedStyle(document.querySelector('.tm-pinned')).maskImage!=='none'"})[-1]['eval'])
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            for theme in ('light','dark'):
+                for width in (390,1440):
+                    self.page({'media':theme},{'viewport':{'width':width,'height':874}}, {'shot':str(out/f'pin-list-{theme}-{width}.png'),'width':width,'height':874})
+        self.page({'eval':"const s=document.querySelector('.tm-conversation-search input');s.value='not a matching phrase';s.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        self.assertEqual(self.non_history_actions(),[])
+
     def menu_history(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[

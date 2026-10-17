@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
+const values=new Map(),storage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};
+let scope='hub-a';let pins=conversationPins(()=>scope,storage);
+const a=JSON.stringify(['telegram','account-a/chat']),b=JSON.stringify(['email','account-a/chat']);
+assert.equal(pins.toggle(a),true);assert.equal(pins.has(a),true);assert.equal(pins.has(b),false);
+scope='hub-b';assert.equal(pins.has(a),false);pins.toggle(b);
+scope='hub-a';assert.equal(pins.has(a),true);assert.equal(pins.has(b),false);
+pins=conversationPins(()=>scope,storage);assert.equal(pins.has(a),true);pins.toggle(a);assert.equal(pins.has(a),false);
+const denied=conversationPins(()=>scope,{getItem:storage.getItem,setItem(){throw Error('quota')}});
+assert.equal(denied.toggle(a),false);assert.equal(denied.has(a),false);
+Object.defineProperty(globalThis,'localStorage',{get(){throw Error('denied')},configurable:true});
+const blocked=conversationPins(()=>scope);assert.equal(blocked.has(a),false);assert.equal(blocked.toggle(a),false);
+console.log('Conversation pins preserve Hub/source identity, reload state and honest storage failure');
