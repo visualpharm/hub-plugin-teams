@@ -13,3 +13,19 @@ assert.equal(denied.toggle(a),false);assert.equal(denied.has(a),false);
 Object.defineProperty(globalThis,'localStorage',{get(){throw Error('denied')},configurable:true});
 const blocked=conversationPins(()=>scope);assert.equal(blocked.has(a),false);assert.equal(blocked.toggle(a),false);
 console.log('Conversation pins preserve Hub/source identity, reload state and honest storage failure');
+
+const tabA=conversationPins(()=> 'shared-hub',storage),tabB=conversationPins(()=> 'shared-hub',storage);
+tabA.has(a);tabB.has(b);tabA.toggle(a);tabB.toggle(b);
+assert.equal(tabA.has(b),true,'a second tab pin must appear without a reload');
+assert.equal(tabB.has(a),true,'pinning in a second tab must not erase the first pin');
+
+let invalidWrites=0;
+const corrupt={getItem:()=>'{broken',setItem(){invalidWrites++;}};
+assert.equal(conversationPins(()=> 'hub',corrupt).toggle(a),false);
+const transient={getItem(){throw Error('unreadable')},setItem(){invalidWrites++;}};
+assert.equal(conversationPins(()=> 'hub',transient).toggle(a),false);
+
+values.set('hub.inbox.pinned.v1:legacy',JSON.stringify([JSON.stringify(['channel','thread'])]));
+assert.equal(conversationPins(()=> 'legacy',storage).has(JSON.stringify(['teams','thread'])),true,'already saved Teams pins migrate without loss');
+
+assert.equal(invalidWrites,0,'unreadable preferences must never be overwritten');

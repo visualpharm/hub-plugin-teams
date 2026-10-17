@@ -462,10 +462,11 @@ function action(text, name, fn, label) {
 // items уже отсортированы по времени убыв. (list()) — первое в группе и есть последнее сообщение человека
 const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
 const pins = conversationPins(hubName);
-const pinKey = m => JSON.stringify([m.src, conversationKey(m)]);
+const pinKey = m => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, conversationKey(m)]);
 function conversationOptions(m) {
-  const id = pinKey(m), menu = el("details", "tm-editor-options tm-conversation-options");
+  const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
+  menu.dataset.optionKey = JSON.stringify([id,m.id]);
   const summary = el("summary", "btn quiet");
   summary.setAttribute("aria-label", "Conversation options"); summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
@@ -473,11 +474,12 @@ function conversationOptions(m) {
     if (!pins.toggle(id)) { error = "Could not save the pin. Try again."; }
     else if (error === "Could not save the pin. Try again.") error = "";
     menu.open = false; paint();
-    [...ui.root.querySelectorAll('.tm-conversation-options')].find(n => n.dataset.pinKey === id)?.querySelector('summary')?.focus();
+    [...ui.root.querySelectorAll('.tm-conversation-options')].find(n => n.checkVisibility() && n.dataset.optionKey === menu.dataset.optionKey)?.querySelector('summary')?.focus();
   });
   toggle.dataset.action = "pin-conversation";
   body.append(toggle); menu.append(summary, body);
   menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
+  menu.addEventListener('focusout',e=>{if(e.relatedTarget && !menu.contains(e.relatedTarget))menu.open=false;});
   return menu;
 }
 function byPerson(items) {
@@ -1237,19 +1239,20 @@ function seg(items, value, set, label) {
 
 function paint() {
   if (!ui) return;
-  const oldOptions = ui.root.querySelector('.tm-conversation-options');
-  const optionState = oldOptions && {key:oldOptions.dataset.pinKey,open:oldOptions.open,
-    focus:oldOptions.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null};
+  const optionStates = [...ui.root.querySelectorAll('.tm-conversation-options')].filter(menu=>menu.checkVisibility()).map(menu=>({key:menu.dataset.optionKey,open:menu.open,
+    focus:menu.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null}));
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
   const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
   messageMenu?.validate();
-  const options = ui.root.querySelector('.tm-conversation-options');
-  if (optionState && options?.dataset.pinKey === optionState.key) {
-    options.open = optionState.open;
-    if (optionState.focus) options.querySelector(optionState.focus === 'summary' ? 'summary' : '[data-action="pin-conversation"]')?.focus();
+  for (const options of ui.root.querySelectorAll('.tm-conversation-options')) {
+    if (!options.checkVisibility()) continue;
+    const state = optionStates.find(s=>s.key===options.dataset.optionKey);
+    if (!state) continue;
+    options.open = state.open;
+    if (state.focus) options.querySelector(state.focus === 'summary' ? 'summary' : '[data-action="pin-conversation"]')?.focus();
   }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
@@ -1568,8 +1571,9 @@ function registerView() {
 export default function register(h) {
   hub = h;
   newComposer = newMessage(h);
+  window.addEventListener('storage',e=>{if(e.key===null || e.key==='hub.inbox.pinned.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
-  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
+  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
   registerView();
