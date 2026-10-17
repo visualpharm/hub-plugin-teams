@@ -198,3 +198,8 @@ Hostile source review exposed two reproduced browser failures: a never-settling 
 
 ### 2026-10-17 — Unschedule and uncertain delivery receipts
 The web exposes native Unschedule for deferred replies and waits for the exact collector receipt. Newer unsent text survives cancellation and reload; the guarded editor resumes with the collector-provided hold token. Wrong-source receipts do nothing. Unknown new-message outcomes from the collector remain pending and can only replay the original id; they never become an automatic new attempt. Provider and collector code are unchanged in this slice.
+
+
+### 2026-10-17 — Outgoing chat replies follow native bubbles
+Match the inspected native Inbox sentBubble layout: non-email replies are green, right aligned, with delivery state and Unschedule below. Mail keeps its letter panel. Local sends are attributed to the owner immediately, before the feed echoes them; automatic Hub replies remain distinct. Reuse byte-identical Icons8 SF Regular clock/warning/double-tick assets from native0597a826 at16px. Native fixture comparison still has separate open geometry/keyboard coverage; this slice does not claim full pixel parity.
+The failure bubble uses a darker red (#b42318) for readable white text; its status uses normal foreground as native does, avoiding small red error prose. This is an explicit contrast adjustment, not a pixel-identity claim.

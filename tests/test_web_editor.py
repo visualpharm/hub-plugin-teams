@@ -163,6 +163,47 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'tapSelector':'.tm-person'},{'until':"!!document.querySelector('.tm-shared-compose textarea')"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Existing conversation draft')
 
+    def test_outgoing_native_delivery_indicators_are_exact_assets(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        for state,name in (('scheduled','clock'),('send_failed','warning'),('sent','double-tick')):
+            rid='synthetic-'+name
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'external-telegram','rid':rid,'text':'Reply '+name}))
+            self.feed({'kind':state,'id':'external-telegram','rid':rid,'at':'2030-01-01T12:00:00Z','error':'Synthetic refusal'})
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':"[aria-label='Sent conversations']"},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        got=self.page({'until':"document.querySelectorAll('.tm-sent-chat .tm-native-icon').length===3"});self.assertTrue(got[-1]['until'],got)
+        for name in ('clock','warning','double-tick'):
+            got=self.page({'eval':f"(()=>{{const n=document.querySelector('.tm-draft-text .tm-icon-{name}'),s=getComputedStyle(n);return {{width:s.width,mask:s.maskImage}}}})()"})[-1]['eval']
+            self.assertEqual(got['width'],'16px');self.assertIn('/icons/'+name+'.svg',got['mask'])
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for width in (402,1240):
+                for theme in ('light','dark'):
+                    got=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'delivery-icons-{theme}-{width}.png'),'width':width,'height':874},
+                      {'eval':"({theme:getComputedStyle(document.documentElement).colorScheme,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]['eval']
+                    self.assertEqual(got,{'theme':theme,'overflow':0})
+
+    def test_pending_reply_has_owner_attribution_and_native_chat_bubble(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('telegram','email'):
+            with self.subTest(source=source):
+                self.open_external_source(source);self.edit('Exact outgoing reply')
+                self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
+                self.assertTrue(self.page({'eval':"document.querySelector('.tm-mine .tm-draft-by').textContent.startsWith('Вы · ')"})[-1]['eval'])
+                self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
+                self.page({'until':"!!document.querySelector('.tm-unschedule')"})
+                got=self.page({'eval':"(()=>{const n=document.querySelector('.tm-mine'),b=n.querySelector('.tm-draft-text'),s=n.querySelector('.tm-draft-by');return {chat:n.classList.contains('tm-sent-chat'),color:getComputedStyle(b).backgroundColor,bodyBottom:b.getBoundingClientRect().bottom,statusTop:s.getBoundingClientRect().top}})()"})[-1]['eval']
+                self.assertEqual(got['chat'],source!='email')
+                if source!='email':
+                    self.assertEqual(got['color'],'rgb(31, 127, 59)');self.assertLessEqual(got['bodyBottom'],got['statusTop'])
+                if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                    out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                    for width,theme in ((402,'light'),(1240,'dark')):
+                        got=self.page({'media':theme},{'touch':width<600},{'shot':str(out/f'outgoing-{source}-{theme}-{width}.png'),'width':width,'height':874},
+                          {'eval':"({theme:getComputedStyle(document.documentElement).colorScheme,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]['eval']
+                        self.assertEqual(got,{'theme':theme,'overflow':0})
+
     def test_scheduled_cancel_waits_for_exact_receipt_and_keeps_newer_draft(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Original scheduled reply')
         self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
