@@ -419,6 +419,24 @@ class Flow(unittest.TestCase):
         main.tick(st, [], {"wa:whatsapp:1@c.us": "2026-10-10T13:00:00Z"}, now, put=posts.append)
         self.assertIn({"kind": "answered", "id": "k2"}, posts)   # переписка прочитана/отвечена
 
+    def test_telegram_newer_message_supersedes_the_old_card(self):
+        # 16.10 (m432551, Interpol): владелец ответил в Telegram, собеседник написал ещё — старый пункт с черновиком
+        # оставался открытым, клиент показывал черновик на уже отвеченное
+        posts = []
+        st = {}
+        item = {"key": "tg:1:100", "box": "tg:1", "src": "telegram", "where": "Telegram", "from": "A", "text": "песня?",
+                "at": "2026-10-10T10:00:00Z", "link": "", "mention": False, "tier": "B"}
+        main.tick(st, [item], {}, NOW, put=posts.append)
+        main.tick(st, [dict(item, key="tg:1:111", text="ещё", at="2026-10-10T10:05:00Z")], {}, NOW, put=posts.append)
+        self.assertIn({"kind": "answered", "id": "tg:1:100"}, posts)
+
+    def test_older_open_cards_of_one_chat_close_themselves(self):
+        posts = []
+        st = {"open": {"tg:2:1": ["tg:2", "2026-10-10T10:00:00Z"], "tg:2:5": ["tg:2", "2026-10-10T11:00:00Z"],
+                       "tg:3:1": ["tg:3", "2026-10-10T09:00:00Z"]}}
+        main.tick(st, [], {}, NOW, put=posts.append)
+        self.assertEqual([p for p in posts if p.get("kind") == "answered"], [{"kind": "answered", "id": "tg:2:1"}])
+
 
 class PersonName(unittest.TestCase):
     def test_timezone_is_dropped_from_the_name(self):

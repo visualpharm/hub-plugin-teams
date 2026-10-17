@@ -85,3 +85,39 @@ A reply preview or generated fill alone does not acquire a hold. The first actua
 reply/private-instruction edit does, including intentional empty edits. Existing
 holds persist through navigation; provider delivery still requires the matching
 collector receipt.
+
+## 2026-10-15 · Conversation-scoped editor holds
+Decided: retain editor holders and edit revision once per verified source-account/conversation
+identity in the existing collector state. New and existing source rows share that exclusion;
+source version and delivery claim remain bound to the exact current item and conversation facts.
+Final claim rechecks after preflight, and an explicit matching-client manual Send consumes
+the hold and stores its claim atomically, independently of automatic-policy activation.
+Why: row-only holds let a new incoming row race the client's next poll and automatic delivery.
+Migration preserves all legacy holders; conflicts require each holder's explicit CAS release.
+Account/destination changes neither import a different identity's hold nor delete its original hold.
+Undo: reconcile active conversation holds before reverting; old row-only code cannot enforce them.
+By: agent within the existing shared-editor race correction.
+
+## 2026-10-15 · Manual follow-up source lifecycle
+Decided: a verified successful collector send advances the conversation version from its
+actual Graph receipt and normalized outgoing body, issuing a fresh token with additive
+manual_followup capability. Deliberate current-token/editor sends may continue the selected
+closed conversation; automatic work still requires a current open incoming source.
+Verify the latest own receipt/body/account and absence of newer source facts before each
+follow-up claim. Unknown delivery creates no next version or permission to retry.
+Why: keeping only an incoming source version blocks legitimate additional replies, while
+loosening its old claim could duplicate work or misattribute an earlier receipt.
+Only exact prior source/payload matches return duplicate receipts; identical completed
+request replay returns persisted evidence without resending. Clients never invent tokens.
+Undo: settle pending claims and coordinate client downgrade; retained receipt/source
+evidence stays in collector state, and unanchored legacy sends are never silently upgraded.
+By: agent within the existing native manual-reply compatibility requirement.
+
+## 2026-10-15 · Native compatibility evidence binding
+Decided: retain source-derived synthetic native wire fixtures with immutable source
+revisions and file hashes; test their requests through the real producer parser and
+collector, including native omission of additive token metadata.
+Why: a historical native source checkpoint cannot certify later receipt semantics
+or replace native execution and UI acceptance. Keep known consumer gaps explicit.
+Undo: update fixture provenance after reviewing a new native source revision; do not
+relabel old artifacts or broaden their acceptance scope. By: agent.

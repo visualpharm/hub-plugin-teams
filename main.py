@@ -169,6 +169,11 @@ class Choice:
             if not (own_correction or who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
                     and body.get("kind") in ("send", "cancel", "dismiss")):
                 return
+        if isinstance(body, dict) and body.get("kind") in ("send", "send_new") and "text_file" in body:
+            long = text_file(body.get("text_file"))
+            if long is None:
+                return   # тело не прочиталось — не отправлять пустое или чужое
+            body = {**body, "text": long}
         if isinstance(body, dict) and body.get("kind") == "send":   # только слово владельца: сессии так не отправят
             files = send_files(body.get("files"))
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid")) and (
@@ -351,6 +356,25 @@ def contact(i):
     return str(i.get("contact") or i.get("box") or f"{i.get('src')}:{i.get('from')}")
 
 
+TEXT_FILE_MAX = 30000   # знаков тела из файла: потолок Teams-сообщения (send teams), WhatsApp/почта больше
+
+
+def text_file(raw):
+    """Длинное тело ответа (16.10): конверт в канале — до 2000 знаков, ядро отвечает 413; клиент кладёт тело файлом
+    через /api/upload/raw и шлёт его путь. Только внутри папки вложений хаба, UTF-8, не длиннее TEXT_FILE_MAX — иначе
+    None (как у send_files: пост владельца не читает любой файл с диска)."""
+    root = os.path.realpath(os.path.join(STATE, "attachments")) + os.sep
+    p = os.path.realpath(os.path.expanduser(str(raw or "")))
+    if not raw or not p.startswith(root) or not os.path.isfile(p) or os.path.getsize(p) > TEXT_FILE_MAX * 4:
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text if text.strip() and len(text) <= TEXT_FILE_MAX else None
+
+
 def send_files(raw):
     """Файлы ответа: пути только внутри папки вложений хаба (клиент кладёт их через /api/upload); чужие пути, папки
     и несуществующие — молча мимо: пост владельца не должен уметь отправить любой файл с диска."""
@@ -424,7 +448,7 @@ COLLEAGUES_DEFAULT = {"sources": [], "domains": [], "names": []}
 
 
 def colleague(i, rules):
-    """Подпись «_Хаб (по просьбе Ивана)_» — только коллегам и Дженни (правило владельца); местным контрагентам и
+    """Подпись хаба («🤖 _Хаб от лица Ивана_» / «🤖 _Хаб, вычитано Иваном_») — только коллегам и Дженни (правило владельца); местным контрагентам и
     всем остальным — нет. Кто коллега — `colleagues` в sources.json: источники целиком (teams), домены почты, имена."""
     r = {**COLLEAGUES_DEFAULT, **(rules or {})}
     src = i.get("src") or "teams"
@@ -494,7 +518,8 @@ def tick(st, items, owner_last, now, put=post):
     for i in fresh:
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
-        if str(i.get("box") or "").startswith(("wa:", "mail:")):   # в переписке новое — прежняя карточка устарела
+        if str(i.get("box") or "").startswith(("wa:", "mail:", "tg:")):   # в переписке новое — прежняя карточка устарела
+            # (16.10, m432551: Telegram — ответил сам, собеседник дописал, старый черновик висел)
             for k, (box, _) in list(opened.items()):
                 if box == i["box"]:
                     put({"kind": "answered", "id": k})
@@ -512,6 +537,14 @@ def tick(st, items, owner_last, now, put=post):
             opened[i["key"]] = [i["box"], i["at"]]
     for k, (box, at) in list(opened.items()):
         if owner_last.get(box, "") > at:
+            put({"kind": "answered", "id": k})
+            del opened[k]
+    newest = {}   # в переписке открыта одна карточка — последняя (пункты, оставшиеся до правки 16.10, закрываются сами)
+    for k, (box, at) in opened.items():
+        if str(box).startswith(("wa:", "mail:", "tg:")) and at >= newest.get(box, ("", ""))[1]:
+            newest[box] = (k, at)
+    for k, (box, at) in list(opened.items()):
+        if box in newest and newest[box][0] != k:
             put({"kind": "answered", "id": k})
             del opened[k]
     st["seen"] = st.get("seen", [])[-SEEN_MAX:]
@@ -645,9 +678,25 @@ def hours_for(st, key, weekends, put=post):
     config(st, put)
 
 
+# Подписи (слово Ивана 16.10, m398582): посторонним — никакой, близким от хаба — «🤖 _Хаб от лица Ивана_», текст одобрил
+# Иван (отправил из Inbox) — эта. Прежняя подпись из его настроек читается как новая.
+APPROVED_SIGNATURE = "🤖 _Хаб, вычитано Иваном_"
+OLD_SIGNATURES = ("_Хаб (по просьбе Ивана)_",)
+
+
 def settings(st, choice, put=post):
     fresh = False
     merged={**(st.get('cfg') or {}),**choice.settings} if choice.settings is not None else None
+    if merged is None and ((st.get("cfg") or {}).get("signature") in OLD_SIGNATURES
+                           or "inbox_guard" not in (st.get("cfg") or {})):   # настройки без нового поста
+        merged = dict(st.get("cfg") or {})
+    if merged is not None and "inbox_guard" not in merged:
+        # автоотправка Inbox — по слову Ивана 16.10 (m403281: «разговаривай сам и всё делай сам, не давай мне вычитывать
+        # ответы»); выключить — его настройка inbox_guard: false. Клиент без удержания редактора: отправка ждёт grace-минуты
+        # в «отложенных», где её можно отменить
+        merged["inbox_guard"] = True
+    if merged is not None and merged.get("signature") in OLD_SIGNATURES:
+        merged["signature"] = APPROVED_SIGNATURE
     if merged is not None and merged != st.get("cfg"):
         st["cfg"], fresh = merged, True
     new = getattr(choice, "hours", None)
@@ -864,6 +913,10 @@ def due(at, now=None):
     return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) <= (now or datetime.now(timezone.utc))
 
 
+def outgoing_text(text, reply_to=None, quote=None):
+    return f"> {' '.join(quote.split())[:300]}\n\n{text}" if quote and reply_to else text
+
+
 def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, quote=None):
     if not ref:
         raise OSError("отсюда ответить нельзя: не знаю, куда")
@@ -873,8 +926,7 @@ def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, q
         return sources.reply(ref, text, files=files, reply_to=reply_to, quote=quote)
     if files:
         raise OSError("в Teams файл вложением не уйдёт — пришли ссылкой на него")
-    if quote and reply_to:
-        text = f"> {' '.join(quote.split())[:300]}\n\n{text}"   # у чата Teams нет ответа на сообщение — цитата текстом
+    text = outgoing_text(text,reply_to,quote)  # у чата Teams цитата текстом
     if not reader.mcp:
         reader.connect(st)
     if emoji:
@@ -958,19 +1010,21 @@ def send_replies(st, reader, queue, put=post, now=None):
             held = later.pop(q["cancel"], None)
             if held:   # снятое не уйдёт и после перезапуска (журнал читается заново)
                 if held.get('inbox'):
-                    row=inbox_delivery.store(st)['items'].get(held['id'])
-                    if row:
-                        row['held']=True
-                        row['holder']=row.get('holder') or q.get('editor')
-                        row['edit_version']+=1
+                    token=inbox_delivery.cancel_hold(st,held['id'],q.get('editor'))
+                    if token:
                         save(st)
                         put({'kind':'draft_state','id':held['id'],'rid':q['cancel'],
-                             'inbox':inbox_delivery.context(st,held['id'])})
+                             'inbox':token})
                 done.append(q["cancel"])
                 put({"kind": "canceled", "id": held["id"], "rid": q["cancel"]})
                 save(st)
             continue
-        if q["rid"] in done or q["rid"] in later:
+        if q["rid"] in done:
+            if q.get('inbox') is not None or q.get('automatic'):
+                put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
+                    'error':'Completed request does not match this source and payload'})
+            continue
+        if q["rid"] in later:
             continue
         if q.get("at") and not due(q["at"], now):
             later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q}
@@ -1211,7 +1265,8 @@ def send_guarded(st, reader, q, put=post, now=None):
         return
     try:
         preflight_guarded(st,reader,q)
-    except Exception:
+    except Exception as e:  # noqa: BLE001 — владельцу общая фраза, в лог — настоящая причина
+        print(f"teams: сверка источника {q.get('id')} {q.get('rid')}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
         reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],
              'error':'Current source verification unavailable or changed; reply retained'})
         return
@@ -1249,13 +1304,21 @@ def send_guarded(st, reader, q, put=post, now=None):
              'inbox':inbox_delivery.context(st,q['id']),
              'error':'Delivery outcome needs reconciliation; no automatic retry'})
         return
-    inbox_delivery.finish(st,claim,'sent',receipt)
+    sent_text=outgoing_text((q.get('text') or '')[:POST_MAX],q.get('reply_to'),q.get('quote'))
+    source_text=collect.plain(collect.html_body(sent_text)['body']['content'])
+    inbox_delivery.confirmed(st,claim,receipt,source_text)
     st.setdefault('sent_rids',[]).append(q['rid'])
     (st.get('open') or {}).pop(q['id'],None)
     save(st)
     put({'kind':'sent','id':q['id'],'rid':q['rid'],'at':iso(datetime.now(timezone.utc)),
-         'inbox':inbox_delivery.context(st,q['id']),'submitted_inbox':q['inbox'],'receipt':receipt})
+         'inbox':inbox_delivery.context(st,q['id']),
+         'submitted_inbox':inbox_delivery.store(st)['claims'][claim]['submitted_inbox'],'receipt':receipt})
     put({'kind':'answered','id':q['id']})
+
+
+def media_attachments(message):
+    """Вложения, кроме цитаты ответа (messageReference): ответ с цитатой — тот же текст, не файл (16.10, p404553)."""
+    return [a for a in message.get('attachments') or [] if a.get('contentType') != 'messageReference']
 
 
 def preflight_guarded(st,reader,q):
@@ -1277,12 +1340,35 @@ def preflight_guarded(st,reader,q):
     rows=data.get('value')
     if not isinstance(rows,list):
         raise ValueError('Current source verification is incomplete')
+    followup=row.get('followup')
+    if followup:
+        if q.get('automatic') or followup['thread_version'] != inbox_delivery.store(st)['threads'].get(row['thread']):
+            raise ValueError('Follow-up source changed; review the current conversation')
+        original=next((m for m in rows if m.get('id')==followup['id']),None)
+        if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
+                or collect.sender(original).get('id') != me
+                or collect.plain((original.get('body') or {}).get('content')) != followup['text']
+                or media_attachments(original)):
+            raise ValueError('The confirmed outgoing source changed; reply retained')
+        try:
+            anchor_at=datetime.fromisoformat(original['createdDateTime'].replace('Z','+00:00'))
+            if anchor_at.tzinfo is None:
+                raise ValueError('Missing source timezone')
+            for other in rows:
+                if other.get('id')==followup['id'] or other.get('deletedDateTime'):
+                    continue
+                at=datetime.fromisoformat(other['createdDateTime'].replace('Z','+00:00'))
+                if at.tzinfo is None or at >= anchor_at:
+                    raise ValueError('Newer conversation facts require re-evaluation')
+        except (KeyError,TypeError,AttributeError) as e:
+            raise ValueError('Incomplete follow-up source verification') from e
+        return
     original=next((m for m in rows if m.get('id')==ref['msg']),None)
     if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
             or collect.sender(original).get('id') in (None,me)
             or original.get('createdDateTime')!=row['source_at']
             or collect.plain((original.get('body') or {}).get('content')) != row.get('source_text')
-            or original.get('attachments')):
+            or media_attachments(original)):
         raise ValueError('Source facts changed; re-evaluate the current conversation')
     if any(m.get('id')!=ref['msg'] and (m.get('createdDateTime') or '') >= row['source_at']
            and not m.get('deletedDateTime') for m in rows):
