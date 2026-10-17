@@ -9,6 +9,35 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
+        self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Keep this Inbox reply")
+        for mid,name in (("sent-one","Sent colleague"),("archived-one","Archived colleague"),("failed-one","Failed colleague"),("later-one","Scheduled colleague")):
+            self.feed({"kind":"msg","id":mid,"contact":"synthetic/"+mid,"src":"dm","from":name,"text":name,"reply":True,"at":datetime.now(timezone.utc).isoformat()})
+        def owner(d): self.ev("ext.post",None,plugin="teams",channel="web",owner=True,text=json.dumps(d))
+        owner({"kind":"send","id":"sent-one","rid":"sent-r","text":"Delivered reply"})
+        self.feed({"kind":"sent","id":"sent-one","rid":"sent-r","receipt":{"id":"receipt-1"}})
+        owner({"kind":"hide","ids":["archived-one","later-one"]})
+        owner({"kind":"send","id":"later-one","rid":"later-r","text":"Later reply"})
+        self.feed({"kind":"scheduled","id":"later-one","rid":"later-r","at":"2030-01-01T12:00:00Z"})
+        owner({"kind":"send","id":"failed-one","rid":"failed-r","text":"Failed reply"})
+        self.feed({"kind":"send_failed","id":"failed-one","rid":"failed-r","error":"Synthetic refusal"})
+        self.page({"tapSelector":".tm-close-conversation"},{"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertTrue(self.page({"eval":"!!document.querySelector('[aria-label=\"Sent conversations\"]')"})[-1]["eval"])
+        for label,names in (("Sent conversations",["Sent colleague","Scheduled colleague"]),("Archived conversations",["Archived colleague","Scheduled colleague"]),("Failed replies",["Failed colleague"])):
+            self.page({"tapSelector":f"[aria-label='{label}']"})
+            got=self.page({"eval":"[...document.querySelectorAll('.tm-person .tm-from')].map(n=>n.textContent)"})[-1]["eval"]
+            self.assertEqual(set(got),set(names),(label,got))
+        self.page({"tapSelector":"[aria-label='Inbox conversations'] button[data-folder='new']"})
+        self.page({"eval":"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Review colleague')).click();true"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep this Inbox reply")
+        self.page({"tapSelector":".tm-close-conversation"},{"viewport":{"width":402,"height":874}})
+        got=self.page({"eval":"({bottom:document.querySelector('.tm-top').getBoundingClientRect().bottom,filterVisible:!!document.querySelector('.tm-srcs').getClientRects().length,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]["eval"]
+        self.assertLess(got["bottom"],155,got);self.assertFalse(got["filterVisible"],got);self.assertEqual(got["overflow"],0,got)
+        self.page({"tapSelector":".tm-options summary"})
+        self.assertTrue(self.page({"eval":"!!document.querySelector('.tm-srcs').getClientRects().length"})[-1]["eval"])
+        self.page({"key":"Escape"})
+        self.assertFalse(self.page({"eval":"document.querySelector('.tm-options').open"})[-1]["eval"])
+
     def test_inbox_media_and_unread_state_survive_navigation_without_source_read(self):
         self.seed_inbox(start_editing=False)
         self.feed({"kind":"msg", "id":"photo-a", "contact":"synthetic/media-a", "src":"whatsapp", "from":"Media colleague", "text":"[media]",
@@ -109,13 +138,13 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind":"reacted","id":"source-a","rid":retry["rid"],"emoji":"❤️"})
         self.page({"wait":"Reaction sent"})
         self.feed({"kind":"answered","id":"source-a"})
-        self.page({"click":"Разобранные"},{"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"})
+        self.page({"tapSelector":"[aria-label='Sent conversations']"},{"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
         got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-reaction-status'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
         self.assertTrue(got["attached"],got)
         self.assertNotIn("Вы ответили",got["notice"])
         self.shot("reaction-confirmed-draft-retained")
-        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"click":"Разобранные"},
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('[aria-label=\"Sent conversations\"]')"},{"tapSelector":"[aria-label='Sent conversations']"},
                   {"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"},{"wait":"Reaction sent"})
         self.assertIn("❤️",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
 
@@ -123,7 +152,7 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox()
         self.queued("draft_control")
         raw = "  Review every open conversation.\nKeep unresolved deadlines.  "
-        self.page({"eval": "document.querySelector('.tm-close-conversation').click();true"},
+        self.page({"tapSelector": ".tm-close-conversation"},{"tapSelector":".tm-options summary"},
                   {"eval": "(()=>{const t=document.querySelector('.tm-whole-prompt textarea');t.value=" + json.dumps(raw) + ";t.dispatchEvent(new Event('input',{bubbles:true}));t.closest('form').requestSubmit();return true})()"})
         q = self.queued("manage")
         self.assertEqual(q["text"], raw)
@@ -155,7 +184,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-1]["eval"])
         self.feed({"kind": "sent", "id": "source-a", "rid": q["rid"], "submitted_inbox": self.token,
                    "inbox": {**self.token, "held": False, "holder": None, "edit_version": 2}, "receipt": {"id": "synthetic-confirmed-receipt"}})
-        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"click": "Разобранные"},
+        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"tapSelector": "[aria-label='Sent conversations']"},
                         {"until": "!!document.querySelector('.tm-person')"}, {"eval": "document.querySelector('.tm-person').click();true"},
                         {"until": "!!document.querySelector('.tm-mine-ok')"},
                         {"eval": "document.querySelector('.tm-mine-ok')?.textContent"})

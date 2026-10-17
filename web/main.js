@@ -89,6 +89,13 @@ let toBottom = false;   // открыли переписку с человеко
 const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
 const done = (m) => hidden.has(m.id) || answered.has(m.id) || work.has(m.id) || sentOk(m.id);
+const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
+function inFolder(m, folder = tab) {
+  if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
+  if (folder === "archive") return hidden.has(m.id) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
+  if (folder === "failed") return !hidden.has(m.id) && !answered.has(m.id) && outgoing(m,["fail","unresolved"]);
+  return folder === "new" ? !done(m) : done(m);
+}
 
 async function sync() {
   if (loading) return false;
@@ -191,7 +198,7 @@ const watching = () => watch ?? directory?.default ?? [];
 
 function list() {
   return [...msgs.values()]
-    .filter((m) => (tab === "new" ? !done(m) : done(m)) && (src === "all" || m.src === src))
+    .filter((m) => inFolder(m) && (src === "all" || m.src === src))
     .sort((a, b) => (a.at < b.at ? 1 : -1));
 }
 
@@ -810,10 +817,15 @@ function paintAll() {
     ui.promptFeedback.textContent = promptState.status;
     ui.promptFeedback.hidden = !promptState.status;
   }
-  const open = (m) => !done(m);
-  const pool = (m) => (tab === "new" ? open(m) : done(m));
-  ui.tabs.replaceChildren(seg([["new", "Новые"], ["done", "Разобранные"]],
-    tab, (v) => { tab = v; dmPerson = null; }, "Какие сообщения показать"));
+  const pool = (m) => inFolder(m);
+  const folders = [["new","Inbox","Inbox conversations",null],["sent","Sent","Sent conversations","send"],["archive","Archive","Archived conversations","archive"]];
+  if (tab === "failed" || count(m=>inFolder(m,"failed"))) folders.push(["failed","Failed","Failed replies","deny"]);
+  ui.tabs.replaceChildren(...folders.map(([key,title,label,icon]) => {
+    const b = button(icon ? "" : title, "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; paint(); },label);
+    b.dataset.folder=key; b.setAttribute("aria-pressed",String(tab===key)); b.title=title;
+    if (icon) b.append(icon === "archive" ? nativeIcon("archive") : icon === "send" ? nativeIcon("sent") : hub.icon(icon));
+    return b;
+  }));
   const active = new Set([...msgs.values()].map((m) => m.src));
   const on = (k) => TEAMS_SRCS.includes(k) || active.has(k) || statuses.has(k);
   ui.srcs.replaceChildren(seg([["all", "Все"], ...Object.entries(SRCS).filter(([k]) => on(k))
@@ -861,7 +873,8 @@ function paintAll() {
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"
       ? (msgs.size ? "Новых сообщений нет. Разобранные — во вкладке рядом." : emptyNote())
-      : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
+      : tab === "sent" ? "No sent or scheduled replies." : tab === "archive" ? "No archived conversations."
+      : tab === "failed" ? "No failed replies." : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
     const back = el("button", "btn quiet tm-close-conversation");
     back.append(hub.icon("close")); back.setAttribute("aria-label", "Close conversation");
@@ -954,16 +967,21 @@ function build(root) {
   const title = el("div", "tm-title-row");
   title.append(el("h2", "tm-title", "Inbox"));   // логотип Teams убран: здесь и WhatsApp, и почта (владелец 10.10)
   const bar = el("div", "tm-bar");
-  const tabs = el("div"), srcs = el("div", "tm-srcs"), bulk = el("div", "tm-bulk");
+  const tabs = el("div","tm-folders"), srcs = el("div", "tm-srcs"), bulk = el("div", "tm-bulk");
+  const options=el("details","tm-options"), summary=el("summary","btn quiet"), controls=el("div","tm-options-panel");
+  summary.setAttribute("aria-label","Inbox options"); summary.title="Inbox options"; summary.append(hub.icon("settings"));
+  options.addEventListener("keydown", e => { if(e.key === "Escape" && options.open) { e.preventDefault(); e.stopPropagation(); options.open=false; summary.focus(); } });
+  options.append(summary,controls);
   const pick = button("Выбрать каналы", "", openPicker);
   pick.setAttribute("aria-controls", "tm-panel");
-  bar.append(tabs, srcs, pick, bulk);
+  controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
+  bar.append(tabs,options);
   const panelNode = el("div", "tm-panel");
   panelNode.id = "tm-panel";
   panelNode.hidden = true;
   const alerts = el("div", "tm-alerts");
   alerts.setAttribute("role", "status");
-  head.append(title, bar, panelNode, alerts);
+  controls.append(panelNode); head.append(title, bar, alerts);
   let prompt = null, promptFeedback = null;
   if (hub.capabilities?.composerTransport === 1) {
     prompt = el("div", "tm-whole-prompt");
@@ -984,7 +1002,7 @@ function build(root) {
       },
       onSent() { input.set({text:promptState.text}); },
     });
-    prompt.append(input.node, promptFeedback); head.append(prompt);
+    prompt.append(input.node, promptFeedback); controls.append(prompt);
   }
   const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
   const search = el("div", "tm-conversation-search"), searchInput = el("input");

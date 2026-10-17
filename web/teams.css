@@ -107,7 +107,19 @@
 .tm-container { container-type: inline-size; }
 .tm { display: grid; grid-template-columns: minmax(280px,336px) minmax(0,1fr); }
 .tm-list-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--muted); }
-.tm-top { padding: var(--space-4); border: 0; }
+.tm-top { padding: 8px 16px; border: 0; }
+.tm-top { position: relative; }
+.tm-folders { display: flex; gap: 8px; flex: 1; }
+.tm-folder { min-width: 44px; min-height: 44px; border: 0; border-radius: 22px; padding: 8px 12px; background: transparent; color: var(--foreground); }
+.tm-folder[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
+.tm-folder .icon, .tm-folder .tm-native-icon, .tm-options > summary .icon { width: 28px; height: 28px; }
+.tm-options > summary { display: flex; list-style: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 22px; }
+.tm-options > summary::-webkit-details-marker { display: none; }
+.tm-options-panel { position: absolute; z-index: 20; inset-inline: 16px; top: calc(100% - 8px); padding: 12px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); box-shadow: var(--shadow-lift); max-height: 65dvh; overflow: auto; }
+.tm-options:not([open]) > .tm-options-panel { display: none; }
+.tm-options-panel .tm-bulk { margin: 0; }
+.tm-options-panel .tm-srcs { flex-basis: auto; order: initial; }
+.tm-bar { flex-wrap: nowrap; gap: 8px; }
 .tm-list { padding: 0 var(--space-4); gap: 0; }
 .tm-card { border: 0; background: transparent; box-shadow: none; min-width: 0; }
 .tm-person:hover, .tm-person:focus-visible { background: var(--accent); }
@@ -170,7 +182,7 @@
 /* Keep a 560px reading/editor pane beside the 336px conversation list. */
 @container (max-width: 900px) {
   .tm { display: flex; }
-  .tm-list-pane { flex: 1; }
+  .tm-list-pane { flex: 1; background: var(--background); }
   .tm-detail-open .tm-list-pane { display: none; }
   .tm-detail { flex: 1; padding: var(--space-4); }
 }
@@ -190,6 +202,7 @@
 
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
 .tm-icon-archive { --tm-icon: url("icons/archive.svg"); }
+.tm-icon-sent { --tm-icon: url("icons/sent.svg"); } /* Shared native Icons8 SF Regular asset. */
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
 
