@@ -9,6 +9,33 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_conversation_search_retains_history_target_and_unsent_reply(self):
+        self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Unsent exact reply")
+        self.feed({"kind":"msg", "id":"older-a", "contact":"synthetic-account/conversation-a", "src":"dm", "from":"Review colleague",
+                   "text":"Old telescope discussion", "at":"2026-01-01T12:00:00Z", "reply":True})
+        self.feed({"kind":"msg", "id":"source-b", "contact":"synthetic-account/conversation-b", "src":"dm", "from":"Review colleague",
+                   "text":"Different conversation", "at":"2026-01-02T12:00:00Z", "reply":True})
+        self.page({"tapSelector":".tm-close-conversation"}, {"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertTrue(self.page({"eval":"!!document.querySelector('input[aria-label=\"Search conversations\"]')"})[-1]["eval"])
+        def search(value):
+            return self.page({"eval":"(()=>{const s=document.querySelector('.tm-conversation-search input');s.value="+json.dumps(value)+";s.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        search("TELESCOPE")
+        got=self.page({"until":"document.querySelectorAll('.tm-person').length===1"}, {"tapSelector":".tm-person"},
+                      {"eval":"({count:document.querySelectorAll('.tm-detail .tm-line').length,text:document.querySelector('.tm-detail .tm-history').textContent,draft:document.querySelector('.tm-shared-compose .composer textarea').value})"})[-1]["eval"]
+        self.assertEqual(got["count"],2,got); self.assertIn("Please check the navigation",got["text"]); self.assertEqual(got["draft"],"Unsent exact reply")
+        self.page({"viewport":{"width":1440,"height":900}})
+        search("no possible match")
+        self.page({"wait":"No matching conversations"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Unsent exact reply")
+        self.page({"tapSelector":"[aria-label='Clear conversation search']"},{"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Search conversations")
+        self.page({"tapSelector":".tm-close-conversation"})
+        for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
+            got=self.page({"media":theme},{"viewport":{"width":width,"height":874}}, {"eval":"(()=>{const r=document.querySelector('.tm-conversation-search').getBoundingClientRect(),p=document.querySelector('.tm-person').getBoundingClientRect();return {bottom:r.bottom,height:r.height,row:p.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
+            self.assertLessEqual(got["bottom"],874,got);self.assertGreaterEqual(got["height"],44,got);self.assertGreaterEqual(got["row"],44,got);self.assertEqual(got["overflow"],0,got)
+            if os.environ.get("HUB_INBOX_SCREENSHOTS"):
+                self.page({"media":theme},{"shot":str(Path(os.environ["HUB_INBOX_SCREENSHOTS"])/f"list-{theme}-{width}.png"),"width":width,"height":874})
+
     def test_tablet_detail_uses_the_available_content_width(self):
         self.seed_inbox(); self.queued("draft_control")
         for width in (390, 768, 834, 1024, 1280, 1440):

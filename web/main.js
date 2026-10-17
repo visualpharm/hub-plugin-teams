@@ -73,6 +73,7 @@ let watch = null;            // выбор владельца (ключи кан
 let picking = null;          // открыта панель «Каналы»: Set отмеченных до «Сохранить»
 let since = 0, loading = false, loaded = false, failed = "";
 let tab = "new", src = "all", confirmAll = false, error = "";
+let searchQuery = "";
 let dmPerson = null;   // личка сгруппирована по людям: имя выбранного — список всех его сообщений, иначе — по одному на человека (последнее)
 let ui = null;
 let toBottom = false;   // открыли переписку с человеком — прокрутить к последнему сообщению
@@ -314,12 +315,19 @@ function byPerson(items) {
   return groups;
 }
 
+// Search chooses whole conversations: an older matching message must not hide newer replies.
+function matchingConversations(items) {
+  const query = searchQuery.trim().toLocaleLowerCase();
+  return [...byPerson(items)].filter(([, group]) => !query || group.some((m) =>
+    `${m.from || ""}\n${m.text || ""}\n${m.where || ""}`.toLocaleLowerCase().includes(query)));
+}
+
 function personRow(key, group) {
   const latest = group[0];
   const name = latest.from || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   const head = el("div", "tm-head");
-  head.append(el("span", `tm-src tm-src-${latest.src}`, SRC[latest.src] || latest.src), el("b", "tm-from", name));
+  head.append(el("b", "tm-from", name));
   head.append(stamp(secs(latest.at)));
   row.append(head);
   const text = el("div", "tm-text tm-clamp", latest.text);
@@ -327,7 +335,7 @@ function personRow(key, group) {
   row.addEventListener("click", () => { dmPerson = key; toBottom = true; paint(); });
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
-  row.setAttribute("aria-label", `Переписка с ${name}, ${group.length} сообщени${group.length === 1 ? "е" : "й"}`);
+  row.setAttribute("aria-label", `Переписка с ${name}, ${SRC[latest.src] || latest.src}, ${group.length} сообщени${group.length === 1 ? "е" : "й"}`);
   row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); dmPerson = key; toBottom = true; paint(); } });
   return row;
 }
@@ -746,6 +754,10 @@ function paintAll() {
     src, (v) => { src = v; dmPerson = null; }, "Откуда"));
 
   const items = list();
+  const matching = matchingConversations(items);
+  const rows = () => matching.length ? matching.map(([key, group]) => personRow(key, group))
+    : [el("p", "tm-empty", "No matching conversations")];
+  ui.clearSearch.hidden = !searchQuery;
   ui.bulk.replaceChildren();
   if (tab === "new" && items.length > 1) {
     if (!confirmAll) ui.bulk.append(button(`Скрыть все (${items.length})`, "quiet", () => { confirmAll = true; paint(); }));
@@ -789,12 +801,15 @@ function paintAll() {
     back.type = "button";
     back.addEventListener("click", () => { dmPerson = null; paint(); });
     const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
-    ui.list.replaceChildren(...[...byPerson(items)].map(([key, group]) => personRow(key, group)));
+    ui.list.replaceChildren(...rows());
     ui.detail.replaceChildren(back, thread(mine));
     if (toBottom) { const h = ui.detail.querySelector('.tm-history'); h.scrollTop = h.scrollHeight; toBottom = false; }
   } else if (grouped) {
-    ui.list.replaceChildren(...[...byPerson(items)].map(([name, group]) => personRow(name, group)));
-  } else ui.list.replaceChildren(...items.map((m) => thread([m])));
+    ui.list.replaceChildren(...rows());
+  } else {
+    const visible = matching.flatMap(([, group]) => group);
+    ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m])) : [el("p", "tm-empty", "No matching conversations")]));
+  }
 }
 
 function openPicker() {
@@ -905,11 +920,18 @@ function build(root) {
     prompt.append(input.node, promptFeedback); head.append(prompt);
   }
   const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
+  const search = el("div", "tm-conversation-search"), searchInput = el("input");
+  searchInput.type = "search"; searchInput.placeholder = "Search"; searchInput.value = searchQuery;
+  searchInput.setAttribute("aria-label", "Search conversations");
+  searchInput.addEventListener("input", () => { searchQuery = searchInput.value; paint(); });
+  const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; paint(); searchInput.focus(); });
+  clearSearch.append(hub.icon("close")); clearSearch.setAttribute("aria-label", "Clear conversation search");
+  search.append(hub.icon("search"), searchInput, clearSearch);
   listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
-  listPane.append(head, listNode); detail.hidden = true;
+  listPane.append(head, listNode, search); detail.hidden = true;
   wrap.append(listPane, detail);
   root.replaceChildren(wrap);
-  ui = { root, wrap, detail, list: listNode, tabs, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback };
+  ui = { root, wrap, detail, list: listNode, tabs, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
