@@ -934,6 +934,11 @@ def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, q
     return collect.reply(reader.mcp, ref, text)
 
 
+def auto_text(q):
+    """Текст отложенного автоответа разбора — в посте scheduled: владелец видит, что уйдёт (своё он и так видит)."""
+    return {"text": q["text"][:1500]} if q.get("automatic") and isinstance(q.get("text"), str) else {}
+
+
 def send_replies(st, reader, queue, put=post, now=None):
     """Слово владельца из вкладки и приложений по порядку: ответ {"id", "rid", "text"[, "at"]} («Ответить», «Отправить»
     у черновика; at в будущем — ждёт своего часа в состоянии), реакция {"react", "id", "rid"}, отмена {"cancel": rid}.
@@ -998,8 +1003,16 @@ def send_replies(st, reader, queue, put=post, now=None):
             ask_hub(st, q, put)
             continue
         if "dismiss" in q:
-            if st.get("open", {}).pop(q["dismiss"], None) is not None:
+            # снятый пункт уносит отложенный автоответ разбора (17.10: «приглашение не ушло» ждало понедельника, а
+            # приглашение уже отправили); отложенный ответ самого владельца остаётся
+            gone = [r for r, h in later.items() if h.get("id") == q["dismiss"] and h.get("automatic")]
+            for r in gone:
+                done.append(r)
+                put({"kind": "canceled", "id": later.pop(r)["id"], "rid": r})
+            closed = st.get("open", {}).pop(q["dismiss"], None) is not None
+            if closed:
                 put({"kind": "answered", "id": q["dismiss"]})
+            if closed or gone:
                 save(st)
             continue
         if "hours_for" in q:
@@ -1028,7 +1041,7 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if q.get("at") and not due(q["at"], now):
             later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q}
-            put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": q["at"]})
+            put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": q["at"], **auto_text(q)})
             save(st)
             continue
         send_one(st, reader, q, put, now)
@@ -1052,7 +1065,7 @@ def hold(st, q, why, put=post, now=None):
     done = st.setdefault("sent_rids", [])
     if q["rid"] in done:
         done.remove(q["rid"])   # не отправлено: после перезапуска уйдёт из later, а не потеряется
-    put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": at, "held": why})
+    put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": at, "held": why, **auto_text(q)})
     save(st)
     return True
 

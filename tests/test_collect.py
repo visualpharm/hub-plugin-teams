@@ -523,6 +523,20 @@ class Later(unittest.TestCase):
         self.assertEqual([p["kind"] for p in self.out], ["scheduled", "sent", "answered"])
         self.assertEqual(st["later"], {})
 
+    def test_dismiss_cancels_the_triage_reply_queued_for_that_item(self):
+        """17.10: разбор поставил автоответ на понедельник, потом снял пункт (dismiss) — отложенный автоответ не уйдёт;
+        отложенный ответ самого владельца dismiss не трогает."""
+        st = {"refs": {"k1": {"chat": "c1"}, "k2": {"chat": "c2"}}, "open": {"k1": ["b", "t"]}}
+        q = [{"id": "k1", "rid": "r1", "text": "Авто", "at": "2026-10-10T09:00:00Z", "automatic": True},
+             {"id": "k1", "rid": "r2", "text": "Своё", "at": "2026-10-10T09:00:00Z"}]
+        early, late = datetime(2026, 10, 10, 8, 0, tzinfo=timezone.utc), datetime(2026, 10, 10, 9, 0, 1, tzinfo=timezone.utc)
+        main.send_replies(st, self.R(), q, self.out.append, now=early)
+        main.send_replies(st, self.R(), q + [{"dismiss": "k1"}], self.out.append, now=early)
+        self.assertIn({"kind": "canceled", "id": "k1", "rid": "r1"}, self.out)
+        self.assertEqual(sorted(st["later"]), ["r2"])
+        main.send_replies(st, self.R(), q + [{"dismiss": "k1"}], self.out.append, now=late)   # перезапуск: журнал заново
+        self.assertEqual([x[2] for x in self.sent], ["Своё"])
+
     def test_canceled_later_never_goes_even_after_restart(self):
         st = {"refs": {"k1": {"chat": "c1"}}}
         q = [{"id": "k1", "rid": "r1", "text": "Позже", "at": "2026-10-10T09:00:00Z"}]

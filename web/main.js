@@ -124,7 +124,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) hidden.delete(id);
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, state: sends.get(d.rid)?.state || "wait" });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = msgs.get(d.id)?.inbox?.v === 1 || inboxProtocol?.version === 1;
         if (guarded && !d.receipt?.id) continue;
@@ -133,7 +133,7 @@ async function sync() {
         const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
         if (!guarded) { composing.get(d.id)?.box?.set({text:""}); composing.delete(d.id); editorDrafts.delete(d.id); }
       }
-      else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
+      else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) sends.delete(d.rid);
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; }
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "ошибка" });
@@ -575,7 +575,7 @@ function sentBlock(m, rid, x) {
     : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
     : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
     : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
-  const by = el("div", "tm-draft-by", "Вы · ");
+  const by = el("div", "tm-draft-by", x.mine ? "Вы · " : "Хаб · ");   // автоответ разбора — не слова владельца
   by.append(stamp(x.ts), ` · ${stateText}`);
   d.append(by, el("div", "tm-draft-text", x.text));
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
