@@ -104,3 +104,12 @@ only the exact paths returned by take. The deterministic fixture regression
 keeps an in-flight file and inserts a second fact after the snapshot; both must
 remain available. This is fixture ownership, not a product retry or a weakened
 recipient/delivery assertion.
+
+
+### Preserve conversation menu state across feed refresh
+The conversation header is rebuilt while message/media rows retain identity.
+An open details menu and its focused action therefore need explicit restoration
+only when the stable conversation key still matches. Scope persisted local
+preferences independently from provider read state. Lazy storage access keeps
+browsers that refuse localStorage from breaking module initialization; failed
+writes must not be reflected as a saved pin.

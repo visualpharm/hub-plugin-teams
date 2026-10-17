@@ -7,3 +7,7 @@ Delivery indicators clock, warning and double-tick are unchanged native0597a826 
 Message-menu copy and reply use unchanged native0597a826 assets at22px. The reply
 arrow is mirrored for Hand This Message to Hub, matching the native forward/handoff
 metaphor; the existing draft sparkles complete the same SF Regular family.
+
+The pin is the unchanged native0597a826 icon-pin asset, rendered at16px in
+conversation rows. Phone and desktop light/dark checks confirm a visible,
+muted pin beside the timestamp; the pin toggle keeps a44px menu target.
