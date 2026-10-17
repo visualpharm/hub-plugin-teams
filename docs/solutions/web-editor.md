@@ -69,3 +69,12 @@ A pending POST restored after reload is uncertain, not permanently sending. Keep
 Unschedule posts the existing cancel protocol with the exact source id, delivery rid and editor identity. Keep the scheduled item visible until the collector confirms the matching source and rid; refusal/timeout leaves a retry. Cancellation releases only the local pending marker, preserving later text/files and the collector editor hold. A send_failed fact with unresolved:true is not a definitive refusal: retain the original pending delivery and same-rid recovery, including across reload. Never turn uncertainty into a fresh delivery id.
 
 Cancellation facts are replayed from history on reload. Only release a stored pendingRid when it equals the canceled rid (or this page initiated the active cancellation); never clear a newer pending reply. A real reload regression reproduced the old cancellation clearing the new receipt binding, and checks the new matching receipt still clears the delivered draft.
+
+### Suggested reply with a lost web acknowledgment
+The legacy suggested-reply button treated a failed HTTP acknowledgment as a definitive
+delivery refusal, enabling another Send with a new rid. Preserve unresolved state and
+the original draft until a matching collector receipt arrives, as the shared composer
+already does. Only change a still-waiting request: a collector outcome arriving first
+must not be overwritten by a late HTTP failure. Reproduce by accepting the synthetic
+POST, then throwing away its response; verify the suggestion remains disabled and the
+exact sent receipt resolves it without another request.

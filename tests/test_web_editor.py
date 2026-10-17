@@ -9,6 +9,24 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_suggested_reply_lost_acknowledgement_cannot_create_second_delivery(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Exact suggested reply')
+        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'},
+          {'until':"!!document.querySelector('.tm-draft button.primary')"},
+          {'eval':"window.__fetch=window.fetch;window.fetch=async(url,opts)=>{const r=await __fetch(url,opts);if(String(url).endsWith('/api/feed/post')&&JSON.parse(opts?.body||'{}').text?.includes('\\\"kind\\\":\\\"send\\\"'))throw new Error('Synthetic lost acknowledgment after acceptance');return r};true"},
+          {'tapSelector':'.tm-draft button.primary'},{'sleep':200})
+        q=self.queued('send');self.assertEqual(q['text'],'Exact suggested reply')
+        got=self.page({'eval':"({unknown:!!document.querySelector('.tm-mine-unresolved'),blocked:!document.querySelector('.tm-draft button.primary') || document.querySelector('.tm-draft button.primary').disabled})"})[-1]['eval']
+        self.assertEqual(got,{'unknown':True,'blocked':True})
+        self.page({'eval':"window.fetch=__fetch;document.querySelector('.tm-draft button.primary')?.click();true"},{'sleep':100})
+        self.assertEqual(self.non_history_actions(),[])
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+        self.page({'tapSelector':"[aria-label='Sent conversations']"},
+          {'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        got=self.page({'until':"!!document.querySelector('.tm-mine-ok')"});self.assertTrue(got[-1]['until'],got)
+
     def test_suggested_draft_cannot_bypass_a_pending_reply(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Already pending exact reply')
         self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
