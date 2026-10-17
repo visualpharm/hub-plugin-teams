@@ -10,6 +10,7 @@ import { stamp } from "/static/js/dom.js";
 import { T } from "/static/js/ui-text.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
+import { newMessage } from "./new-message.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -19,6 +20,7 @@ const TEAMS_SRCS = ["dm", "mention", "channel"];   // WhatsApp и почта —
 const NAMES = { teams: "Teams", whatsapp: "WhatsApp", telegram: "Telegram", email: "Почта" };   // чьё чтение: пост status с полем source
 const statuses = new Map();   // источник → последний status процесса
 let hub = null;
+let newComposer = null;
 const el = (...a) => hub.el(...a);
 
 const msgs = new Map();      // id → сообщение (+ post — номер поста, на него отвечают черновиком)
@@ -210,6 +212,7 @@ async function sync() {
       let d = null;
       try { d = JSON.parse(p.text); } catch { /* не JSON — черновик текстом */ }
       if (p.by === AUTHOR && d) editorFact(d);
+      if (p.by === AUTHOR && d) newComposer?.fact(d);
       if (p.by === AUTHOR && ["manage_asked", "manage_failed"].includes(d?.kind) && d.rid === promptState.rid) {
         promptState.rid = null;
         promptState.status = d.kind === "manage_failed" ? d.error || "The instruction was refused."
@@ -1374,7 +1377,9 @@ function build(root) {
   const pick = button("Выбрать каналы", "", openPicker);
   pick.setAttribute("aria-controls", "tm-panel");
   controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
-  bar.append(tabs,sort,options);
+  const newTrigger = button("", "quiet tm-new-trigger", () => newComposer.open(), T("Новое сообщение", "New message"));
+  newTrigger.append(hub.icon("edit"));
+  bar.append(tabs,newTrigger,sort,options);
   const panelNode = el("div", "tm-panel");
   panelNode.id = "tm-panel";
   panelNode.hidden = true;
@@ -1451,6 +1456,7 @@ function registerView() {
 
 export default function register(h) {
   hub = h;
+  newComposer = newMessage(h);
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки

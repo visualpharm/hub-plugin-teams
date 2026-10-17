@@ -315,3 +315,22 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry attach actions" "feedback feedback feedback feedback" "error error error error";
 }
 .tm-sent-file { display: block; color: inherit; overflow-wrap: anywhere; }
+
+.tm-new { width: min(520px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--background); color: var(--foreground); }
+.tm-new::backdrop { background: #0005; }
+.tm-new h2 { flex: 1; margin: 0; font-size: var(--text-lg); }
+.tm-new form { display: grid; gap: 16px; }
+.tm-new-field { display: grid; grid-template-columns: 7em minmax(0, 1fr); align-items: start; gap: 12px; }
+.tm-new-field > span { padding-block: 10px; }
+.tm-new input, .tm-new textarea { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: max(16px, var(--text-base)); background: var(--background); }
+.tm-new textarea { resize: vertical; }
+.tm-new-chosen { display: flex; align-items: center; gap: 8px; }
+.tm-new-chosen > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tm-new-hint { display: block; color: var(--muted-foreground); font-size: var(--text-base); }
+.tm-new-results { max-height: 220px; overflow: auto; }
+.tm-new-contact { display: block; width: 100%; text-align: left; min-height: 44px; overflow-wrap: anywhere; }
+.tm-new-send { justify-self: end; }
+.tm-new-status { margin: 0; overflow-wrap: anywhere; }
+.tm-new-trigger, .tm-new-close { min-width: 44px; min-height: 44px; padding: 10px; }
+.tm-new-trigger .icon { width: 24px; height: 24px; }
+@media (max-width: 479px) { .tm-new-field { grid-template-columns: minmax(0,1fr); gap: 4px; } .tm-new-field > span { padding-block: 0; } }
