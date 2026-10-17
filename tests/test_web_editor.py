@@ -9,6 +9,35 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_unsent_reply_survives_reload_and_stays_with_exact_source(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Exact unsent reply after reload')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Exact unsent reply after reload')
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.feed({'kind':'msg','id':'source-a','contact':'different-account/conversation-b','src':'dm','from':'Review colleague','text':'Same name, different account','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-list').textContent.includes('Same name, different account')"},{'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelector('.tm-list')?.textContent.includes('Same name, different account')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'')
+
+    def test_delivery_receipt_cannot_erase_a_newer_draft_even_after_reload(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('First approved reply')
+        self.page({'eval':"document.querySelector('.tm-shared-compose .composer').requestSubmit();true"})
+        q=self.queued('send');self.edit('Newer reply still being written')
+        self.feed({'kind':'sent','id':'source-a','rid':q['rid'],'submitted_inbox':self.token,
+                   'inbox':{**self.token,'held':False,'holder':None,'edit_version':2},'receipt':{'id':'accepted-first'}})
+        self.page({'until':"document.querySelector('.tm-mine-ok')?.textContent.includes('First approved reply')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Newer reply still being written')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Newer reply still being written')
+        sends=[json.loads(e['data']['text']) for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send']
+        self.assertEqual(sends,[], 'The original request was consumed by queued(); reload must not send another.')
+
+    def test_blocked_draft_storage_is_visible_without_losing_current_text(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'eval':"Storage.prototype.setItem=function(){throw new DOMException('Blocked','QuotaExceededError')};true"})
+        self.edit('Keep this page text')
+        self.page({'wait':'This browser could not save the draft.'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep this page text')
+
     def test_narrow_conversation_has_one_header_and_keeps_draft_when_returning(self):
         self.seed_inbox(start_editing=False)
         self.edit("Keep my exact draft")

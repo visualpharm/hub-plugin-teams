@@ -41,3 +41,12 @@ The proposal body is bounded and scrolls separately from its Apply button. It
 lives outside the private instruction disclosure, so receiving a result never
 hides Apply below that disclosure's clipping boundary or moves the pinned reply.
 The real-browser check verifies hit-testing the visible Apply action on390px.
+
+## Durable owner text
+Keep owner text in origin-local storage keyed by source, exact account/conversation,
+and inbound message. Store the submitted request ID alongside a pending draft.
+A matching accepted receipt may clear that record, but must never erase a newer
+edit. Navigation and reload do not acquire a hold or replay a send. A blocked
+store keeps the current text and displays an explicit save warning.
+Browser action-spool reads consume events: after `queued("send")` asserts the
+original request, the reload assertion must expect zero additional requests.
