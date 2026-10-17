@@ -41,8 +41,8 @@ class InboxWebAcceptance(PageInChrome):
         rows=[]
         for index,width in enumerate((360,390,768,834,1024,1280,1440)):
             theme='dark' if index%2 else 'light'
-            steps=[{'media':theme},{'viewport':{'width':width,'height':874}},
-              {'tapSelector':'.tm-conversation-options > summary'}]
+            steps=[{'media':theme},{'viewport':{'width':width,'height':874}},{'sleep':150},
+              {'tapSelector':'.tm-conversation-options > summary'},{'until':"document.querySelector('.tm-conversation-options').open"}]
             if os.environ.get('HUB_INBOX_SCREENSHOTS'):
                 out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
                 steps.append({'shot':str(out/f'pin-menu-{theme}-{width}.png'),'width':width,'height':874})
@@ -72,6 +72,30 @@ class InboxWebAcceptance(PageInChrome):
                     self.page({'media':theme},{'viewport':{'width':width,'height':874}}, {'shot':str(out/f'pin-list-{theme}-{width}.png'),'width':width,'height':874})
         self.page({'eval':"const s=document.querySelector('.tm-conversation-search input');s.value='not a matching phrase';s.dispatchEvent(new Event('input',{bubbles:true}));true"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_pin_storage_event_refreshes_list_without_losing_draft(self):
+        self.seed_inbox(start_editing=False);self.edit('Cross-tab draft');self.queued('draft_control')
+        self.page({'eval':"localStorage.setItem('hub.inbox.pinned.v1:hub',JSON.stringify([JSON.stringify(['teams','synthetic-account/conversation-a'])]));window.dispatchEvent(new StorageEvent('storage',{key:'hub.inbox.pinned.v1:hub'}));true"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Cross-tab draft')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-pinned')"})[-1]['eval'])
+        self.page({'eval':"localStorage.removeItem('hub.inbox.pinned.v1:hub');window.dispatchEvent(new StorageEvent('storage',{key:'hub.inbox.pinned.v1:hub'}));true"})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-pinned')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_pin_flat_cards_keep_exact_menu_focus(self):
+        self.seed_inbox(start_editing=False)
+        for n in (1,2):self.feed({'kind':'msg','id':f'channel-{n}','contact':'teams/synthetic-thread','src':'channel','from':'Synthetic channel','text':f'Message {n}','at':f'2099-01-0{n}T12:00:00Z'})
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'tapSelector':'.tm-options > summary'},
+          {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        self.page({'until':"document.querySelectorAll('.tm-list .tm-conversation-options').length===2"})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-list .tm-conversation-options').length"})[-1]['eval'],2)
+        self.page({'eval':"const menu=document.querySelectorAll('.tm-list .tm-conversation-options')[1];window.__option=menu.dataset.optionKey;menu.querySelector('summary').click();menu.querySelector('button').focus();true"})
+        self.feed({'kind':'status','src':'channel','ok':True})
+        self.assertTrue(self.page({'eval':"document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
+        self.page({'key':'Enter'})
+        self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
     def menu_history(self):

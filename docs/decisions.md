@@ -239,3 +239,17 @@ refusal leaves the displayed pin unchanged and preserves the reply draft.
 Menu open state and keyboard focus survive feed refreshes. The native pin asset
 is unchanged; synthetic phone and desktop frames verify its rendering, not
 cross-device synchronization or complete native pixel parity.
+
+
+### 2026-10-17 — Pin state across already-open tabs
+Read the current serialized preference before a pin mutation and refresh visible
+rows on storage events. Two open tabs must not overwrite each other's sequential
+pin changes. Conversation options use their own semantic class, sharing only CSS
+presentation with editor options so existing editor controls keep exact ownership.
+
+Teams channel roots and mentions share the same collector conversation contact,
+so their pins use one Teams family identity. Existing category pins migrate when
+read. Corrupt or unreadable preference values are never overwritten by a toggle.
+Flat cards restore focus by exact visible message/card identity. Tab closes the
+menu consistently with sibling controls. Hub renames remain a separate scope
+migration question; the current key follows the existing Hub-name convention.

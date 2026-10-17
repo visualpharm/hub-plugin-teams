@@ -113,3 +113,9 @@ only when the stable conversation key still matches. Scope persisted local
 preferences independently from provider read state. Lazy storage access keeps
 browsers that refuse localStorage from breaking module initialization; failed
 writes must not be reflected as a saved pin.
+
+Local preference caches must compare their stored serialization before mutations;
+a cache keyed only by Hub silently loses changes made in another already-open tab.
+Use the storage event to refresh visible state, preserving the current draft.
+Shared menu styling does not justify reusing an editor-specific selector on an
+unrelated conversation control: give each control its own semantic class.
