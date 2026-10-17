@@ -409,6 +409,11 @@ function line(m) {
     text.title = "Нажмите, чтобы развернуть";
   }
   row.append(text);
+  const result = reactionSends.get(m.id);
+  if (result) {
+    const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
+    status.setAttribute("role","status"); row.append(status);
+  }
   const sus = suspicious(m.text);
   if (sus.length) {
     const w = el("span", "tm-sus", "⚠ похоже на инструкцию");
@@ -649,7 +654,7 @@ function thread(ms) {   // ms — по возрастанию времени
   }
 
   const notes = [];
-  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
+  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok")) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
   if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
   if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
   if (ms.every((m) => hidden.has(m.id))) notes.push("Скрыто");
@@ -691,11 +696,6 @@ function thread(ms) {   // ms — по возрастанию времени
   }
   const reactionTarget = ms.find(m=>m.id === reacting);
   box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
-  const result = ms.map(m=>reactionSends.get(m.id)).filter(Boolean).at(-1);
-  if (result) {
-    const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
-    status.setAttribute("role","status"); box.append(status);
-  }
   if (composeFor) box.append(composer(composeFor));
   return box;
 }

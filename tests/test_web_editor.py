@@ -67,6 +67,9 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind":"answered","id":"source-a"})
         self.page({"click":"Разобранные"},{"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
+        got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-reaction-status'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
+        self.assertTrue(got["attached"],got)
+        self.assertNotIn("Вы ответили",got["notice"])
         self.shot("reaction-confirmed-draft-retained")
         self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"click":"Разобранные"},
                   {"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"},{"wait":"Reaction sent"})
