@@ -539,6 +539,14 @@ def tick(st, items, owner_last, now, put=post):
         if owner_last.get(box, "") > at:
             put({"kind": "answered", "id": k})
             del opened[k]
+    newest = {}   # в переписке открыта одна карточка — последняя (пункты, оставшиеся до правки 16.10, закрываются сами)
+    for k, (box, at) in opened.items():
+        if str(box).startswith(("wa:", "mail:", "tg:")) and at >= newest.get(box, ("", ""))[1]:
+            newest[box] = (k, at)
+    for k, (box, at) in list(opened.items()):
+        if box in newest and newest[box][0] != k:
+            put({"kind": "answered", "id": k})
+            del opened[k]
     st["seen"] = st.get("seen", [])[-SEEN_MAX:]
     for k in [k for k in texts if k not in opened]:
         del texts[k]
