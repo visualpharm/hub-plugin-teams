@@ -468,9 +468,44 @@ function mediaURL(raw) {
   } catch { return ""; }
 }
 const mediaList = (m) => Array.isArray(m.media) ? m.media.filter(x => x && typeof x === "object") : [];
+function fileSize(value) {
+  if (typeof value!=="number" || !Number.isFinite(value) || value<0) return "";
+  const units=["B","KB","MB","GB","TB"];
+  let n=value,i=0;while(n>=1000 && i<units.length-1){n/=1000;i++;}
+  return `${new Intl.NumberFormat(undefined,{maximumFractionDigits:i>1 ? 1 : 0}).format(n)} ${units[i]}`;
+}
 function messageText(m) {
   const text = String(m.text || "");
   return mediaList(m).length && ["[media]", "[медиа]"].includes(text.trim()) ? "" : text;
+}
+
+const previewCache=new Map();
+function pageURL(raw) {
+  try {const u=new URL(raw);return ["http:","https:"].includes(u.protocol) && !u.username && !u.password ? u.href : "";}catch{return "";}
+}
+function linkPreview(m) {
+  const links=Array.isArray(m.links) ? m.links.filter(x=>x && typeof x==="object") : [];
+  const first=String(m.text || "").match(/https?:\/\/[^\s<>"']+/)?.[0]?.replace(/[.,!?:;]+$/,"");
+  const url=pageURL(first || links[0]?.url);if(!url)return null;
+  const info=links.find(x=>pageURL(x.url)===url && typeof x.title==="string" && x.title);
+  const card=el("a","tm-link-preview");card.href=url;card.target="_blank";card.rel="noopener noreferrer";card.hidden=true;
+  const show=page=>{
+    if(!page || typeof page.title!=="string" || !page.title.trim())return;
+    const history=card.closest('.tm-history'),bottom=history && history.scrollHeight-history.scrollTop-history.clientHeight<4;
+    const imageURL=typeof page.image==="string" && (page.image.startsWith('/api/file?') || page.image.startsWith('api/file?') || /^https?:\/\//.test(page.image)) ? mediaURL(page.image) : "";
+    if(imageURL){const image=el("img");image.src=imageURL;image.alt="";image.loading="lazy";card.append(image);}
+    const copy=el("span","tm-preview-copy");copy.append(el("strong","",page.title),el("span","",typeof page.site==="string" && page.site ? page.site : new URL(url).hostname));
+    card.append(copy);card.hidden=false;if(bottom)history.scrollTop=history.scrollHeight;
+  };
+  if(info)show(info);
+  else {
+    if(!previewCache.has(url)) {
+      if(previewCache.size>=500)previewCache.delete(previewCache.keys().next().value);
+      previewCache.set(url,fetch('/api/linkpreview?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(10000)}).then(r=>r.ok ? r.json() : null).catch(()=>null));
+    }
+    previewCache.get(url).then(show);
+  }
+  return card;
 }
 
 function mediaBody(m) {
@@ -490,7 +525,11 @@ function mediaBody(m) {
       box.append(player);
       if (item.text || item.transcript) box.append(el("p", "tm-transcript", item.text || item.transcript));
     } else {
-      const file = el("a", "tm-media-file", label); file.href = url; file.target = "_blank"; file.rel = "noopener noreferrer";
+      const file = el("a", "tm-media-file"); file.href = url; file.target = "_blank"; file.rel = "noopener noreferrer";
+      const icon=el("span","tm-file-icon");icon.setAttribute("aria-hidden","true");
+      const info=el("span","tm-file-info");info.append(el("span","tm-file-name",label));
+      const size=fileSize(item.size);if(size)info.append(el("span","tm-file-size",size));
+      file.append(icon,info);
       box.append(file);
     }
   }
@@ -501,6 +540,7 @@ function personRow(key, group) {
   const latest = group[0];
   const name = latest.from || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
+  if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
   head.append(stamp(secs(latest.at)));
@@ -600,15 +640,30 @@ function line(m) {
   row.dataset.message=m.id;
   row.dataset.media=JSON.stringify(m.media || []);
   const text = el("div", "tm-text" + (hub.taskBody ? " tm-task-text" : ""));
+  if(m.reply && typeof m.reply==="object" && typeof m.reply.text==="string") {
+    const quote=el("blockquote","tm-quote");
+    if(typeof m.reply.from==="string" && m.reply.from)quote.append(el("strong","",m.reply.from));
+    quote.append(el("span","",m.reply.text));text.append(quote);
+  }
   text.append(messageBody({...m, text:messageText(m)}));
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
     text.classList.add("tm-clamp");
     text.addEventListener("click", () => text.classList.toggle("tm-clamp"));
     text.title = "Нажмите, чтобы развернуть";
   }
-  if (messageText(m)) row.append(text);
+  if(typeof m.fwd==="string" && m.fwd)row.append(el("span","tm-forwarded",`${T("Переслано от","Forwarded from")} ${m.fwd}`));
+  if (messageText(m) || text.querySelector('.tm-quote')) row.append(text);
   if (mediaList(m).length) row.append(mediaBody(m));
-  if(m.src!=="email" && Number.isFinite(Date.parse(m.at)))row.append(el("time","tm-message-time",clock(new Date(m.at))));
+  const preview=linkPreview(m);if(preview)row.append(preview);
+  if(Array.isArray(m.reactions)) {
+    const reactions=el("div","tm-received-reactions");
+    for(const r of m.reactions)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
+    if(reactions.childElementCount)row.append(reactions);
+  }
+  if(m.src!=="email") {
+    const foot=[m.edited ? T("Изменено","Edited") : "",Number.isFinite(Date.parse(m.at)) ? clock(new Date(m.at)) : ""].filter(Boolean).join(" · ");
+    if(foot)row.append(el("time","tm-message-time",foot));
+  }
   const result = reactionSends.get(m.id);
   if (result) {
     const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
@@ -890,7 +945,7 @@ function thread(ms) {   // ms — по возрастанию времени
   head.append(el("b", "tm-from", last.from || "—"));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
-  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>m.src))].map(k=>(TEAMS_SRCS.includes(k) ? "Teams · " : "")+(SRC[k] || k)).join(" · ")));
+  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>[(TEAMS_SRCS.includes(m.src) ? "Teams · " : "")+(SRC[m.src] || m.src),m.where].filter(Boolean).join(" · ")))].join(" · ")));
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
     const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
