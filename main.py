@@ -1049,7 +1049,8 @@ def send_replies(st, reader, queue, put=post, now=None):
                              'inbox':token})
                 done.append(q["cancel"])
                 tomb(st, q["cancel"])
-                gone = {"kind": "canceled", "id": held["id"], "rid": q["cancel"]}
+                gone = {"kind": "canceled", "id": held["id"], "rid": q["cancel"],
+                        **({"target": held["target"]} if held.get("target") else {})}   # target отложенного (m477679)
                 st.setdefault("reply_out", {})[q["cancel"]] = {"state": "done", "id": held["id"], "event": gone,
                                                                **({"editor": q["editor"]} if q.get("editor") else {})}
                 put(gone)
@@ -1065,10 +1066,11 @@ def send_replies(st, reader, queue, put=post, now=None):
         if q["rid"] in later:
             if time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # потерян пост scheduled: повтор получает его снова
                 held = later[q["rid"]]
-                same = all(held.get(k) == q.get(k) for k in ("id", "editor", "automatic")) and \
+                same = all(held.get(k) == q.get(k) for k in ("id", "editor", "automatic", "target")) and \
                     inbox_delivery.payload(held) == inbox_delivery.payload(q)
                 put({"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at"), **auto_text(held),
-                     **({"held": held["held"]} if held.get("held") else {})} if same else
+                     **({"held": held["held"]} if held.get("held") else {}),
+                     **({"target": held["target"]} if held.get("target") else {})} if same else
                     {"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input"})
             continue
         if q.get("at") and not due(q["at"], now):
@@ -1321,7 +1323,8 @@ def reply_outcome(st, q):
     оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10, codex m458240)."""
     held = (st.get("later") or {}).get(q["rid"])
     if held:
-        return {"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at")}
+        return {"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at"),
+                **({"target": held["target"]} if held.get("target") else {})}
     o = (st.get("reply_out") or {}).get(q["rid"]) or {}
     if o.get("event"):
         return o["event"]

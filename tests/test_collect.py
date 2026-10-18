@@ -667,6 +667,12 @@ class Later(unittest.TestCase):
                           ("scheduled", "l1", None), ("send_failed", "r2", None), ("send_failed", "r2", None)])
         self.assertEqual({p.get("target") for p in mine if p.get("rid")}, {a})
         self.assertIn("Conversation changed", mine[-1]["error"])
+        # повтор «отложено», отмена и повтор отмены — тоже с target отложенного (codex m477679)
+        del self.out[:]
+        main.send_replies(st, self.R(), [{**q, "rid": "l1", "at": "2999-01-01T00:00:00Z"},
+                                         {"cancel": "l1", "ts": now}, {"cancel": "l1", "ts": now}], self.out.append)
+        self.assertEqual([(p["kind"], p.get("target")) for p in self.out],
+                         [("scheduled", a), ("canceled", a), ("canceled", a)])
 
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
         # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
