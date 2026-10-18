@@ -315,3 +315,12 @@ Receipt-first external success may have no preceding owner request and therefore
 
 ### Replay after the collector forgets a failed outcome
 The collector keeps request tombstones indefinitely but bounds its detailed outcome cache. Replaying an evicted failed request returns unknown rather than inventing a disposition. A client that already read its definitive failure must preserve that journal evidence before editorFact runs. Guard only the same validated id/target/rid; do not infer that all unknown requests in a successfully retried conversation are settled. Still allow matching actual success. Reproduce failure → fresh retry → success → old unknown, reload the journal, and inject a different unknown request to prove it still blocks sending. Producer exceptions after transport begins must remain uncertain; that classification belongs to the collector owner.
+
+### Compact toolbar surfaces
+
+Native FolderBar uses 32px capsules and 16px icons. On the web, preserve 44px
+interactive targets and inset only the painted surface. A pointer-transparent
+pseudo-element keeps the entire target clickable without making the native
+shape oversized. Scope icon dimensions to the trigger, not its descendant menu.
+Check every folder, the extra failed state, both themes, and narrow list panes;
+then open sort, compose and options from the rendered controls.

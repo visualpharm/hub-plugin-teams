@@ -675,6 +675,22 @@ class InboxWebAcceptance(PageInChrome):
                 got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-folder[aria-pressed=true]');return {text:getComputedStyle(b).color,icon:getComputedStyle(b.querySelector('.tm-native-icon')).backgroundColor}})()"})[-1]['eval']
                 self.assertEqual(got,{'text':'rgb(255, 255, 255)','icon':'rgb(255, 255, 255)'},(theme,folder,got))
 
+    def test_folder_toolbar_keeps_native_capsules_inside_full_touch_targets(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for width in (320,360,402,834,1240,1440):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+            for folder in ('new','sent','archive'):
+                self.page({'tapSelector':f'[data-folder={folder}]'})
+                rows=self.page({'eval':"[...document.querySelectorAll('.tm-bar .tm-folder,.tm-bar > .tm-new-trigger,.tm-bar > details > summary')].filter(n=>n.checkVisibility()).map(n=>{const r=n.getBoundingClientRect(),s=getComputedStyle(n,'::before'),i=n.querySelector('.icon,.tm-native-icon').getBoundingClientRect();return {label:n.getAttribute('aria-label'),width:r.width,height:r.height,visibleHeight:r.height-parseFloat(s.top)-parseFloat(s.bottom),fill:s.backgroundColor,rounding:parseFloat(s.borderRadius),iconWidth:i.width,iconHeight:i.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+2))}})"})[-1]['eval']
+                for row in rows:
+                    self.assertGreaterEqual(row['width'],44,(width,folder,row));self.assertGreaterEqual(row['height'],44)
+                    self.assertEqual(row['visibleHeight'],32,(width,folder,row))
+                    self.assertNotIn(row['fill'],('transparent','rgba(0, 0, 0, 0)'),row)
+                    self.assertGreaterEqual(row['rounding'],16,row)
+                    self.assertEqual((row['iconWidth'],row['iconHeight']),(16,16),row)
+                    self.assertTrue(row['hit'],row)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_native_folder_reminders_stay_in_inbox_without_erasing_saved_state(self):
         self.seed_inbox(start_editing=False)
         for mid,at in (('older','2026-01-01T12:00:00Z'),('newer','2026-01-02T12:00:00Z')):
