@@ -348,3 +348,6 @@ Display native-style draft, suggested reaction and delivery marks beside each co
 
 ### 2026-10-18 — Native Inbox folder affordance
 Reuse the pinned native tray asset beside Inbox and let this control occupy the remaining folder space. Put Sort before Compose, matching native reading order. Keep web-only Inbox options reachable; do not remove functional controls for a screenshot match. When Failed appears, keep Inbox accessible by its label and compact its visible text so every target still fits the pane. Remaining toolbar surfaces and extra options placement need a separate native comparison.
+### 2026-10-18 — Native group-message attribution and days
+
+Group conversations name the first incoming bubble from each consecutive speaker, including loaded history. Direct messages and outgoing bubbles do not repeat names. Chat separators follow local calendar days across the history/current boundary, while source context stays above the conversation. Missing dates produce no empty separator. Mail retains its existing dated headers. This is presentation only: source identities, provider actions and drafts remain unchanged.

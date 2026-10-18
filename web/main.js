@@ -914,9 +914,8 @@ function personRow(key, group) {
   return row;
 }
 
-// Переписка с человеком — один блок: заголовок один раз, сообщения подряд (по возрастанию времени), дата и время —
-// разделителем только когда был большой перерыв или сменился чат/канал (владелец 11.10: «не надо писать каждому
-// заголовок, только даты разделителями при большом перерыве»)
+// Chat dates follow native calendar-day boundaries; source context lives above the thread.
+// Mail retains its dated header until its separate message-header presentation is aligned.
 const GAP = 3 * 3600e3;
 const clock = (d) => d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
 function dayLabel(iso, withTime=true) {
@@ -929,8 +928,13 @@ function dayLabel(iso, withTime=true) {
 }
 
 function divider(m) {
-  const where = m.src !== "dm" && m.where ? `${m.where} · ` : "";
+  const where = m.src === "email" && m.where ? `${m.where} · ` : "";
   return el("div", "tm-divider", `${where}${dayLabel(m.at,m.src==="email")}`);
+}
+function calendarDay(at) {
+  if(!at)return null;
+  const d=new Date(at);
+  return Number.isFinite(d.getTime()) ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : null;
 }
 
 // Optional explicit core task identity. Incoming prose never grants a task action.
@@ -982,8 +986,9 @@ function messageBody(m) {
   return r.node;
 }
 
-function line(m, source=m) {
+function line(m, source=m, named=false) {
   const row = el("div", "tm-line" + (done(m) ? " tm-done" : "") + (m.src === "email" ? " tm-mail" : ""));
+  if(named)row.append(el("div","tm-message-sender",personName(m.from)));
   row.dataset.message=m.id;
   row.tabIndex=0;row.setAttribute('aria-haspopup','menu');
   const identity=JSON.stringify([draftKey(source),source.post,m.id,m.text,m._place,m.at,m.from,m.providerId]);
@@ -1573,6 +1578,17 @@ function thread(ms) {   // ms — по возрастанию времени
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source", [...new Set(ms.map(conversationSource))].join(" · ")));
+  let previous=null;
+  const appendMessage=(m,source=m,historical=false)=>{
+    const day=calendarDay(m.at),prior=calendarDay(previous?.at);
+    const split=m.src==="email" ? !previous || Date.parse(m.at)-Date.parse(previous.at)>=GAP || (m.where || "")!==(previous.where || "") : day!==prior;
+    if(day && (!previous || split))history.append(divider(m));
+    const named=["mention","channel"].includes(last.src) && !m.me && !!m.from && (!previous || previous.me || previous.from!==m.from);
+    const row=line(m,source,named);
+    if(historical)row.classList.add("tm-history-row");
+    if(m.me)row.classList.add("tm-own");
+    history.append(row);previous=m;
+  };
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
     const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
@@ -1590,21 +1606,12 @@ function thread(ms) {   // ms — по возрастанию времени
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
     const current=ms.map(m=>flat(m.text)).join(" ");
     const older=h.items.filter(t=>t.me || !flat(t.text) || !current.includes(flat(t.text).slice(0,80).replace(/…$/, "")));
-    let previous=null;
     for (const [index,t] of older.entries()) {
-      if (!previous || Date.parse(t.at)-Date.parse(previous.at)>=GAP) history.append(divider({...t,src:last.src}));
-      const row=line({...t,providerId:t.id,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")},last);
-      row.classList.add("tm-history-row");if(t.me)row.classList.add("tm-own");history.append(row);
-      previous=t;
+      appendMessage({...t,providerId:t.id,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")},last,true);
     }
   }
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
-  let prev = null;
-  for (const m of ms) {
-    if (!prev || Date.parse(m.at) - Date.parse(prev.at) >= GAP || (prev.where || "") !== (m.where || "")) history.append(divider(m));
-    history.append(line(m));
-    prev = m;
-  }
+  for (const m of ms) appendMessage(m);
 
   const notes = [];
   if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok")) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
