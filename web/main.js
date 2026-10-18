@@ -17,6 +17,7 @@ import { conversationPins } from "./conversation-pins.js";
 import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
+import { inboxAge } from "./inbox-time.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -973,6 +974,22 @@ function folderReplyPreview(group) {
   return null;
 }
 
+function updateListAge(node, ts) {
+  const lang=T('ru','en'), text=inboxAge(ts,lang);
+  if(node.textContent!==text)node.textContent=text;
+  if(!text){node.removeAttribute('datetime');node.removeAttribute('title');return;}
+  const date=new Date(ts*1000);
+  node.dateTime=date.toISOString();
+  node.title=date.toLocaleString(lang==='ru'?'ru-RU':'en-GB',{year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+}
+function listAge(ts) {
+  const node=el('time','tm-age');node.dataset.inboxTs=ts;updateListAge(node,ts);return node;
+}
+function refreshListAges() {
+  if(ui?.root.isConnected)for(const node of ui.root.querySelectorAll('.tm-age'))updateListAge(node,Number(node.dataset.inboxTs));
+}
+let agesTimer=null;
+
 function personRow(key, group) {
   const latest = group[0];
   const name = personName(latest.from) || "—";
@@ -992,7 +1009,7 @@ function personRow(key, group) {
     icon.setAttribute("role", "img"); icon.setAttribute("aria-label", mark.label); icon.setAttribute("title", mark.label);
     head.append(icon);
   }
-  head.append(stamp(secs(latest.at)));
+  head.append(listAge(secs(latest.at)));
   if (tab === "new" && reads.isUnread(latest)) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
   }
@@ -2250,6 +2267,7 @@ function registerView() {
         if ((await sync()) || first) paint();
       }
       if((snap?.feeds?.proactivity||0)>rankSince)syncRanks();
+      refreshListAges();
       // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
       // заново зарегистрированному виду новый узел, и поле ответа теряло курсор
       if (count((m) => !done(m)) !== badgeShown) registerView();
@@ -2265,5 +2283,7 @@ export default function register(h) {
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
+  if(agesTimer!==null)clearInterval(agesTimer);
+  agesTimer=setInterval(refreshListAges,30000);
   registerView();
 }

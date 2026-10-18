@@ -10,6 +10,23 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_list_ages_are_compact_and_refresh_without_repainting_a_draft(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'eval':"window.__listNow=Date.parse('2026-10-17T11:17:00Z');Date.now=()=>__listNow;true"})
+        for name,at in [('Minutes','2026-10-17T11:15:00Z'),('Hours','2026-10-17T10:17:00Z'),('Yesterday','2026-10-16T11:17:00Z'),('Old date','2025-10-10T11:17:00Z')]:
+            self.feed({'kind':'msg','id':'age-'+name,'contact':'synthetic/age/'+name,'src':'telegram','from':name,'text':'Synthetic timestamp','reply':True,'at':at})
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.querySelectorAll('.tm-person').length===5"})
+        labels="Object.fromEntries([...document.querySelectorAll('.tm-person')].map(n=>[n.querySelector('.tm-from').textContent,n.querySelector('.tm-age,.ago').textContent]))"
+        got=self.page({'eval':labels})[-1]['eval']
+        self.assertIn(got['Minutes'],['2 min','2 мин']);self.assertIn(got['Hours'],['1 h','1 ч']);self.assertIn(got['Yesterday'],['Yesterday','Вчера'])
+        self.assertIn('2025',got['Old date'])
+        self.assertTrue(self.page({'eval':"[...document.querySelectorAll('.tm-person time')].every(n=>n.dateTime&&n.title.includes('202')) && document.querySelectorAll('.tm-person time').length===5"})[-1]['eval'])
+        self.page({'viewport':{'width':1240,'height':874}},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Review colleague')).click();true"},
+                  {'eval':"window.__ageDraft=document.querySelector('.tm-shared-compose textarea');__ageDraft.focus();__ageDraft.setSelectionRange(0,0);window.__listNow+=120000;true"},{'sleep':31000})
+        self.assertIn(self.page({'eval':labels})[-1]['eval']['Minutes'],['4 min','4 мин'])
+        self.assertTrue(self.page({'eval':"document.activeElement===__ageDraft && __ageDraft.isConnected"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_failed_chat_retry_sends_original_files_and_preserves_newer_draft(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='retry-telegram')
         self.attach_synthetic_file('original.txt');self.edit('Original _exact_ reply')
