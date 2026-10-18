@@ -14,9 +14,9 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for width in (360,402,768,1024,1240,1440):
             self.page({'viewport':{'width':width,'height':874}})
-            got=self.page({'eval':"(()=>{const folder=document.querySelector('[data-folder=new]'),sort=document.querySelector('.tm-sort'),compose=document.querySelector('.tm-new-trigger'),icon=folder.querySelector('.tm-icon-inbox');return {tray:!!icon,label:folder.textContent,width:folder.getBoundingClientRect().width,order:!!(sort.compareDocumentPosition(compose)&Node.DOCUMENT_POSITION_FOLLOWING),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            got=self.page({'eval':"(()=>{const folder=document.querySelector('[data-folder=new]'),sort=document.querySelector('.tm-sort'),compose=document.querySelector('.tm-new-trigger'),icon=folder.querySelector('.tm-icon-inbox');return {tray:!!icon,font:parseFloat(getComputedStyle(folder).fontSize),label:folder.textContent,width:folder.getBoundingClientRect().width,order:!!(sort.compareDocumentPosition(compose)&Node.DOCUMENT_POSITION_FOLLOWING),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
             self.assertTrue(got['tray'],(width,got));self.assertEqual(got['label'],'Inbox')
-            self.assertGreaterEqual(got['width'],80,(width,got));self.assertTrue(got['order']);self.assertEqual(got['overflow'],0)
+            self.assertGreaterEqual(got['font'],16,(width,got));self.assertGreaterEqual(got['width'],80,(width,got));self.assertTrue(got['order']);self.assertEqual(got['overflow'],0)
         self.page({'tapSelector':'.tm-options summary'})
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-options-panel').checkVisibility()"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
