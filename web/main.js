@@ -47,6 +47,7 @@ const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(sign
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
+const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
 let reacting = null;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
@@ -299,6 +300,11 @@ async function sync() {
         if (reply && !d.mention) continue;
         const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
         const previous=msgs.get(d.id);
+        if(previous && pendingReplyKey(previous)!==pendingReplyKey(message)) {
+          const reaction=reactionSends.get(d.id);
+          if(reaction)detachedSends.add(reaction.rid);
+          reactionSends.delete(d.id);
+        }
         if (previous && draftKey(previous)!==draftKey(message)) {
           composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
           for (const [rid,send] of sends) if (send.id===d.id) {
@@ -357,11 +363,12 @@ async function sync() {
       }
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
-        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
+        if(d.target && d.target!==msgs.get(d.id)?.target)continue;
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
       }
       else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
         const r = reactionSends.get(d.id);
-        if (r?.rid === d.rid) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
+        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) {
@@ -1317,12 +1324,15 @@ function sentBlock(m, rid, x) {
 }
 
 async function reactTo(m, emoji) {
-  if (!m.react || reactionSends.get(m.id)?.state === "wait") return;
-  const r = {id:m.id,rid:requestId(),emoji,state:"wait",error:"",local:true};
+  const currentMessage=msgs.get(m.id);
+  if(!currentMessage || pendingReplyKey(currentMessage)!==pendingReplyKey(m)){error=REACTION_REOPEN_NOTICE;paint();return;}
+  if (!currentMessage.react || reactionSends.get(m.id)?.state === "wait") return;
+  if(error===REACTION_REOPEN_NOTICE)error="";
+  const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true};
   reactionSends.set(m.id,r); reacting = null; paint();
   let failure = "";
   try {
-    if (!(await mark("react",{id:m.id,rid:r.rid,emoji}))) failure = error || "Reaction refused";
+    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(m.target ? {target:m.target} : {})}))) failure = error || "Reaction refused";
   } catch { failure = "Could not send reaction. Try again."; }
   const current = reactionSends.get(m.id);
   if (failure && current?.rid === r.rid && current.state === "wait")
