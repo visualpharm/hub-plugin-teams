@@ -324,3 +324,17 @@ pseudo-element keeps the entire target clickable without making the native
 shape oversized. Scope icon dimensions to the trigger, not its descendant menu.
 Check every folder, the extra failed state, both themes, and narrow list panes;
 then open sort, compose and options from the rendered controls.
+
+### Shared conversation and draft menu
+
+Keep the draft instruction body as a persistent node when merging its menu into
+conversation options. Feed repaint replaces the surrounding menu, so preserve
+the active persistent descendant and textarea selection before falling back to
+an action key for regenerated buttons. Close editor must close the parent menu
+explicitly: the parent now survives after the editor is removed.
+
+Older failed-reply editing tests must target the edit/resume action, not the first
+button: direct Retry precedes it for chat. Reproduce stale selector failures on
+the unchanged baseline before attributing them to an unrelated header change.
+
+The detail menu key follows the exact conversation rather than its newest message ID: a newly arriving message must not collapse a private instruction mid-entry. Flat cards retain message-specific keys because several cards can belong to the same conversation. Their merged draft menu stays at the trailing edge with a readable width; sharing the narrower conversation-only menu sizing regresses the instruction field.

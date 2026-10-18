@@ -437,9 +437,9 @@ class InboxWebAcceptance(PageInChrome):
                 {'tapSelector':'.tm-mine-wait a'},{'eval':"document.querySelector('.tm-mine-wait a').focus();true"},{'key':'Enter'})
             self.assertEqual(self.page({'eval':'__linkClicks'})[-1]['eval'],[expected[0],expected[0]])
             self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
-            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button')"})[-1]['until'])
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button:not(.tm-retry-failed)')"})[-1]['until'])
             self.assertEqual(self.page({'eval':"[...document.querySelectorAll('.tm-mine-fail .tm-draft-text a')].map(n=>n.href)"})[-1]['eval'],expected)
-            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button:not(.tm-retry-failed)'})
             self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],raw)
         self.assertEqual(self.non_history_actions(),[])
 
@@ -455,9 +455,9 @@ class InboxWebAcceptance(PageInChrome):
             self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
             self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':rid,'text':'Older failed reply'}))
             self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
-            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button')"})[-1]['until'])
-            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button').textContent"})[-1]['eval'],['Resume draft','Продолжить черновик'])
-            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button:not(.tm-retry-failed)')"})[-1]['until'])
+            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button:not(.tm-retry-failed)').textContent"})[-1]['eval'],['Resume draft','Продолжить черновик'])
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button:not(.tm-retry-failed)'})
             self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],newer)
             self.assertIn('newer-'+source+'.txt',self.page({'eval':"document.querySelector('.tm-shared-compose .pchip').textContent"})[-1]['eval'])
             self.assertIn('Older failed reply',self.page({'eval':"document.querySelector('.tm-mine-fail').textContent"})[-1]['eval'])
@@ -486,9 +486,9 @@ class InboxWebAcceptance(PageInChrome):
             check('wait')
             self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
             self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail')"})[-1]['until']);check('fail')
-            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button').textContent"})[-1]['eval'],['Edit reply','Править ответ'])
-            self.assertTrue(self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-fail .tm-acts button');return b.getAttribute('aria-label').startsWith(b.textContent+': ')})()"})[-1]['eval'])
-            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button:not(.tm-retry-failed)').textContent"})[-1]['eval'],['Edit reply','Править ответ'])
+            self.assertTrue(self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-fail .tm-acts button:not(.tm-retry-failed)');return b.getAttribute('aria-label').startsWith(b.textContent+': ')})()"})[-1]['eval'])
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button:not(.tm-retry-failed)'})
             self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],raw)
         self.assertEqual(self.non_history_actions(),[])
 
@@ -2740,12 +2740,83 @@ class InboxWebAcceptance(PageInChrome):
         self.assertGreater(self.page({"eval":"document.querySelector('.view-nav').getBoundingClientRect().height"})[-1]['eval'],0)
         self.page({"tapSelector":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],"Keep my exact draft")
-        self.assertTrue(self.page({"eval":"!!document.querySelector(\'.tm-editor-options use[href=\"/static/icons.svg#i-menu\"]\')"})[-1]["eval"])
+        self.assertTrue(self.page({"eval":"document.querySelector('.tm-editor-options > summary .tm-from').textContent==='Review colleague'"})[-1]["eval"])
         self.page({"tapSelector":".tm-editor-options > summary"})
         self.assertTrue(self.page({"eval":"document.querySelector('.tm-editor-options').open"})[-1]['eval'])
         self.page({"key":"Escape"})
         self.assertFalse(self.page({"eval":"document.querySelector('.tm-editor-options').open"})[-1]['eval'])
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+
+    def test_conversation_title_centers_and_owns_one_options_menu(self):
+        self.seed_inbox(start_editing=False)
+        for width in (320,360,402,834,992):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+            got=self.page({'eval':"(()=>{const h=document.querySelector('.tm-detail .tm-head'),n=h.querySelector('.tm-from'),r=n.getBoundingClientRect(),b=h.getBoundingClientRect();return {offset:r.x+r.width/2-b.x-b.width/2,menus:h.querySelectorAll(':scope > details').length,titleMenu:!!n.closest('.tm-conversation-options'),targets:[...h.querySelectorAll(':scope > a,:scope > button,:scope > details > summary')].filter(n=>n.checkVisibility()).map(n=>{const r=n.getBoundingClientRect();return {width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}}),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertAlmostEqual(got['offset'],0,delta=1,msg=(width,got));self.assertEqual(got['menus'],1,got);self.assertTrue(got['titleMenu'],got)
+            self.assertEqual(got['overflow'],0,got)
+            for target in got['targets']:
+                self.assertGreaterEqual(target['width'],44,target);self.assertGreaterEqual(target['height'],44,target);self.assertTrue(target['hit'],target)
+        self.page({'tapSelector':'.tm-conversation-options > summary'})
+        self.assertTrue(self.page({'eval':"['Pin conversation','Mark unread','Private draft instruction','Close editor'].every(t=>[...document.querySelectorAll('.tm-conversation-options button,.tm-conversation-options summary')].some(n=>n.checkVisibility()&&n.textContent===t))"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_shared_header_menu_preserves_private_instruction_focus_on_refresh(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'.tm-instruction > summary'},
+                  {'eval':"const t=document.querySelector('.tm-instruction textarea');t.value='Keep my exact instruction';t.dispatchEvent(new Event('input',{bubbles:true}));t.focus();t.setSelectionRange(5,10);window.__instruction=t;true"})
+        self.acknowledge(self.queued('draft_control'))
+        self.feed({'kind':'status','src':'dm','ok':True})
+        got=self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-conversation-options').open})"})[-1]['eval']
+        self.assertEqual(got,{'same':True,'value':'Keep my exact instruction','selection':[5,10],'open':True})
+        self.feed({'kind':'msg','id':'new-same-conversation','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'New message while typing','reply':True,'at':'2099-01-01T12:00:00Z'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('New message while typing')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-conversation-options').open})"})[-1]['eval'],got)
+        self.page({'key':'Escape'})
+        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_flat_card_draft_menu_keeps_readable_width_and_bounds(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'flat-draft','contact':'synthetic/channel','src':'channel','from':'Synthetic channel','text':'Draft menu fixture','reply':True,'inbox':self.token,'at':'2099-01-01T12:00:00Z'})
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'tapSelector':'.tm-options > summary'},
+                  {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"},
+                  {'eval':"document.querySelector('[aria-label=\"Ответить: Synthetic channel\"]').click();true"})
+        for width in (320,402,834,1240):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':100},
+                      {'eval':"document.querySelector('.tm-list .tm-editor-options').open=true;document.querySelector('.tm-list .tm-instruction').open=true;true"})
+            got=self.page({'eval':"(()=>{const m=document.querySelector('.tm-list .tm-editor-options > .tm-editor-menu'),r=m.getBoundingClientRect(),t=m.querySelector('textarea').getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,field:t.width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertGreaterEqual(got['width'],min(280,width-64),got)
+            self.assertGreaterEqual(got['left'],0,got);self.assertLessEqual(got['right'],width,got);self.assertEqual(got['overflow'],0,got)
+            self.assertGreaterEqual(got['field'],got['width']-32,got)
+            if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                self.page({'shot':str(out/f'flat-draft-menu-{width}.png'),'width':width,'height':874})
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_closing_editor_dismisses_shared_menu_and_keeps_saved_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.edit('Retain this draft')
+        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
+        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-shared-compose textarea') && !document.querySelector('.tm-conversation-options').open"})[-1]['eval'])
+        self.page({'tapSelector':'[aria-label="Ответить: Synthetic telegram"]'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retain this draft')
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_title_menu_long_name_without_source_link_fits_short_viewport(self):
+        self.seed_inbox(start_editing=False)
+        name='A very long synthetic conversation name that must stay accessible'
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':name,'text':'Short viewport fixture','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Short viewport fixture')"})[-1]['until'])
+        for width in (320,402,834,1240):
+            self.page({'viewport':{'width':width,'height':340}},{'sleep':100},
+                      {'eval':"document.querySelector('.tm-conversation-options').open=true;document.querySelector('.tm-instruction').open=true;true"})
+            got=self.page({'eval':"(()=>{const m=document.querySelector('.tm-conversation-options'),b=m.querySelector(':scope > .tm-editor-menu'),r=b.getBoundingClientRect(),n=m.querySelector('.tm-from');return {label:m.querySelector('summary').getAttribute('aria-label'),name:n.textContent,left:r.left,right:r.right,bottom:r.bottom,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertIn(name,got['label']);self.assertEqual(got['name'],name)
+            self.assertGreaterEqual(got['left'],0,got);self.assertLessEqual(got['right'],width,got);self.assertLessEqual(got['bottom'],340,got);self.assertEqual(got['overflow'],0,got)
+            self.page({'eval':"document.querySelector('.tm-draft-options button:last-child').scrollIntoView({block:'nearest'});true"})
+            self.assertTrue(self.page({'eval':"(()=>{const n=document.querySelector('.tm-draft-options button:last-child'),r=n.getBoundingClientRect();return r.height>=44&&n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()"})[-1]['eval'])
+            self.page({'eval':"document.querySelector('.tm-conversation-options').open=false;true"})
+        self.assertEqual(self.non_history_actions(),[])
 
     def test_short_history_stacks_above_actions_and_own_links_stay_readable(self):
         self.seed_inbox(start_editing=False)
