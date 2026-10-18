@@ -1766,7 +1766,8 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const explanation=el("div","tm-guidance");explanation.append(el("strong",null,T("Почему такой ответ","Why this reply")),el("div",null,guidance));box.append(explanation);
   }
   const reactionTarget = ms.find(m=>m.id === reacting);
-  box.append(reactionTarget ? reactionRow(reactionTarget) : acts);
+  if (reactionTarget) box.append(reactionRow(reactionTarget));
+  else if (acts.childElementCount) box.append(acts);
   if (composeFor) {
     box.append(composer(composeFor));
     const options=composing.get(composeFor.id)?.options;if(options)head.append(options);

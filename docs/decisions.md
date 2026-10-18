@@ -418,3 +418,6 @@ Decided: successful owner replies show Sent followed by the confirmed age, match
 
 ## 2026-10-18 · Native outgoing emphasis
 Decided: render standalone underscore-delimited runs as emphasis in outgoing chat and mail, matching the native Emphasis boundary rules. Keep identifiers, unfinished runs and literal HTML as text. Why: approved Hub signatures were displaying raw markup instead of the native italic line. The renderer constructs text nodes and em elements; original reply payloads and retry text remain exact. Undo: revert replyText rendering. By: agent.
+
+## 2026-10-18 · One gap between flat cards
+Decided: the flat list owns card separation through its existing 24px gap; its cards have no extra vertical padding. Do not append empty action footers. Why: nested padding and an empty flex child inflated the blank separation to 56px. Keep nonempty action footers, reaction rows and grouped conversation padding. Undo: restore flat card padding and unconditional footer insertion. By: agent.

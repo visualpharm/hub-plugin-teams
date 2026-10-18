@@ -10,6 +10,31 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_flat_completed_cards_keep_one_gap_and_archive_restore(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for mid in ('spacing-a','spacing-b'):
+            self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':mid,'text':'Confirmed reply'}))
+            self.feed({'kind':'sent','id':mid,'rid':mid,'receipt':{'id':mid+'-receipt'}})
+        self.page({'tapSelector':'[data-folder=sent]'},{'until':"document.querySelectorAll('.tm-person').length===2"},
+            {'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"},
+            {'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})
+        for theme in ('light','dark'):
+            for width in (360,834,1240):
+                self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+                got=self.page({'eval':"(()=>{const a=[...document.querySelectorAll('.tm-list > .tm-thread')];return {gap:a[1].querySelector('.tm-head').getBoundingClientRect().top-a[0].querySelector('.tm-history').getBoundingClientRect().bottom,empty:document.querySelectorAll('.tm-thread > .tm-acts:empty').length,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertGreaterEqual(got['gap'],16,(theme,width,got));self.assertLessEqual(got['gap'],32,(theme,width,got))
+                self.assertEqual(got['empty'],0);self.assertEqual(got['overflow'],0)
+        for mid in ('archive-a','archive-b'):
+            self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['archive-a','archive-b']}))
+        self.page({'tapSelector':'[data-folder=archive]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread > .tm-acts button').length===2"})[-1]['until'])
+        self.page({'eval':"document.querySelector('[aria-label=\"Вернуть сообщения archive-a\"]').scrollIntoView({block:'center'});true"})
+        self.page({'tapSelector':'[aria-label="Вернуть сообщения archive-a"]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
+        self.assertEqual(self.queued('unhide')['ids'],['archive-a'])
+
     def test_outgoing_emphasis_matches_native_without_changing_reply_text(self):
         self.seed_inbox(start_editing=False)
         raw='Exact snake_case and имя_файла. <img src=x onerror=alert(1)>\n_Emphasis_\n\n🤖 _Хаб, вычитано Иваном_\n_unclosed'

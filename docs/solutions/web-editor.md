@@ -287,3 +287,6 @@ Use one successful-delivery label and one age node. Removing the owner prefix fr
 
 ### Outgoing signatures and emphasis
 Native Emphasis uses Unicode letter/number boundaries to distinguish standalone underscore markup from identifiers. Port that display rule to the shared outgoing renderer without a general HTML/Markdown parser. Construct DOM text and em nodes, preserving literal HTML, line breaks, unclosed runs and source payloads. The regression verifies pending/failed chat and mail rendering and uses Retry to prove the original text survives; successful flat Sent uses actual served assets and synthetic signatures. Close the fixture's initially open editor before testing Retry; otherwise its guard correctly hides that action.
+
+### Flat card spacing
+Measure from the previous card's final content to the next header, not only the list's computed gap. A 24px list gap plus two 12px card paddings and an empty action footer's 8px flex gap created 56px of blank space. Make the flat list the sole owner of separation and omit empty footers. Browser acceptance covers phone/tablet/desktop themes and nonempty archive Restore; use unsent archived messages for that fixture because delivered messages intentionally remain in Sent. Grouped media reconciliation handles absent footers through syncChildren.
