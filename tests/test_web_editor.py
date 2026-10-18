@@ -10,6 +10,29 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_flat_sent_cards_follow_each_message_delivery_across_conversations(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        now=time.time()
+        for mid,contact,incoming,delivered in [('a-old','shared-a',1,30),('a-new','shared-a',3,10),('b-mid','other-b',2,20)]:
+            self.feed({'kind':'msg','id':mid,'contact':contact,'src':'channel','from':mid,'where':'Synthetic team','text':'Incoming '+mid,'reply':True,'at':f'2026-01-0{incoming}T12:00:00Z'})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':mid+'-send','text':'Reply '+mid}))
+            self.j.append('ext.post',None,{'plugin':'teams','channel':'plugin','sender':'teams','text':json.dumps({'kind':'sent','id':mid,'rid':mid+'-send','receipt':{'id':mid+'-receipt'}})},ts=now+delivered)
+        self.page({'tapSelector':'[data-folder=sent]'},{'until':"document.querySelectorAll('.tm-person').length===2"},
+                  {'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        def names(): return self.page({'eval':"[...document.querySelectorAll('.tm-list > .tm-thread')].map(n=>n.querySelector('.tm-from').textContent)"})[-1]['eval']
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===3"})[-1]['until'])
+        self.assertEqual(names(),['a-old','b-mid','a-new'])
+        self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='a-old';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        self.assertEqual(names(),['a-old','a-new'])
+        self.page({'tapSelector':'[aria-label="Clear conversation search"]'},{'viewport':{'width':1240,'height':780}})
+        self.assertEqual(names(),['a-old','b-mid','a-new'])
+        # A schedule outranks older accepted activity without borrowing a sibling's time.
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'a-new','rid':'later','text':'Scheduled reply'}))
+        self.feed({'kind':'scheduled','id':'a-new','rid':'later','at':'2099-01-01T12:00:00Z'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-list > .tm-thread .tm-from')?.textContent==='a-new'"})[-1]['until'])
+        self.assertEqual(names(),['a-new','a-old','b-mid'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_sent_retains_confirmed_reaction_during_retry_and_clears_rebound_target(self):
         self.seed_inbox(start_editing=False)
         msg={'kind':'msg','id':'reaction-history','contact':'synthetic/reaction-history','src':'dm','from':'Reaction history','text':'Synthetic incoming','reply':True,'react':True,'target':'target-first','at':'2026-01-01T12:00:00Z'}
