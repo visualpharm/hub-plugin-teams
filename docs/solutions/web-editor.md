@@ -252,3 +252,7 @@ Resolved themes can assign the same color to accent and muted. An accent-filled 
 Use a separate placeholder node instead of replacing the hidden conversation tree. The latter risks disconnecting a retained editor, recording or draft while the user browses the list. Mirror grouped/selected state for visibility, and suppress the placeholder at the same container breakpoint as the single-pane layout. Exercise resize, close/reopen with the same textarea node, exact draft retention and both flat source filters.
 
 Folder label and flex-space ownership must follow aria-pressed, not the Inbox folder ID. Native Sent and Archive expand their selected label, leaving Inbox as an icon. Check each selection across phone/tablet/desktop and retain the extra Failed-control compact mode; testing only the default Inbox misses this navigation mismatch.
+
+## Outgoing folder previews
+
+Incoming-message text cannot represent a Sent row. Select eligible outgoing states from the existing receipt reducer using the group's exact message IDs, and share that preview with conversation search. Never read the current editor or an unaccepted retry for Sent. Attachment-only replies use filenames; confirmed reactions use their emoji. Missing latest reply text falls back to incoming context, not older reply text. Cover accepted reply plus failed retry, scheduling, attachment-only/reaction receipts, literal markup, grouped latest delivery and unchanged Inbox/draft behavior.

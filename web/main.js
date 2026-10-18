@@ -719,7 +719,7 @@ function byPerson(items) {
 // Search chooses whole conversations: an older matching message must not hide newer replies.
 function matchingConversations(items) {
   const query = searchQuery.trim().toLocaleLowerCase();
-  const groups=[...byPerson(items)].filter(([, group]) => !query || group.some((m) =>
+  const groups=[...byPerson(items)].filter(([, group]) => !query || (folderReplyPreview(group) || "").toLocaleLowerCase().includes(query) || group.some((m) =>
     `${m.from || ""}\n${m.text || ""}\n${m.where || ""}`.toLocaleLowerCase().includes(query)));
   if(tab==="new" && sortOrder==="importance") {
     const weight=group=>Math.max(...group.map(m=>ranks.get(m.post)??100));
@@ -886,6 +886,29 @@ function conversationMark(group) {
   return null;
 }
 
+// Folder previews use only the delivery states admitted by that folder, never a newer unsent draft.
+function folderReplyPreview(group) {
+  const states = tab === "sent" ? ["ok","later"] : tab === "failed" ? ["fail","unresolved"] : [];
+  if (!states.length) return null;
+  const ids = new Set(group.map(m => m.id));
+  const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state))
+    .reverse().sort((a,b) => (b.ts || 0) - (a.ts || 0));
+  const reply = outgoing[0];
+  if (reply) {
+    const text = String(reply.text || "").trim();
+    const files = (Array.isArray(reply.files) ? reply.files : []).map(f => typeof f === "string" ? f : f?.name || f?.path)
+      .filter(f => typeof f === "string").map(f => f.split(/[\\/]/).pop()).filter(Boolean);
+    if (text || files.length) return text || files.join(", ");
+  }
+  if (tab === "sent") {
+    for (const m of group) {
+      const reaction = reactionSends.get(m.id);
+      if (reaction?.state === "ok" && reaction.emoji) return reaction.emoji;
+    }
+  }
+  return null;
+}
+
 function personRow(key, group) {
   const latest = group[0];
   const name = personName(latest.from) || "—";
@@ -910,7 +933,8 @@ function personRow(key, group) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
   }
   row.append(head);
-  const media = mediaList(latest), text = el("div", "tm-text tm-clamp", messageText(latest) || media.map(mediaLabel).join(", "));
+  const reply = folderReplyPreview(group);
+  const media = reply === null ? mediaList(latest) : [], text = el("div", "tm-text tm-clamp", reply ?? (messageText(latest) || media.map(mediaLabel).join(", ")));
   const preview = el("div", "tm-preview"); preview.append(text);
   const photo = media.find(m => mediaKind(m) === "image" && mediaURL(m.url || m.path));
   if (photo) { const img = el("img"); img.src = mediaURL(photo.thumb && typeof photo.thumb === "string" ? photo.thumb : photo.url || photo.path); img.alt = photo.name || "Photo"; img.loading = "lazy"; preview.append(img); }

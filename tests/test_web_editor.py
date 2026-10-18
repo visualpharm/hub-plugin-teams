@@ -10,6 +10,51 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_sent_preview_uses_accepted_reply_not_incoming_or_failed_retry(self):
+        self.seed_inbox(start_editing=False)
+        for mid in ('delivered','scheduled','attachment','reaction','failed'):
+            self.feed({'kind':'msg','id':mid,'contact':'synthetic/'+mid,'src':'dm','from':mid,
+                       'text':'Incoming '+mid,'reply':True,'target':'synthetic-target-'+mid,'at':datetime.now(timezone.utc).isoformat()})
+        def owner(d): self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(d))
+        for mid,text,files in (('delivered','Accepted telescope reply',[]),('scheduled','Deferred reply',[]),('attachment','',['/synthetic/Report.pdf']),('failed','Refused reply',[])):
+            owner({'kind':'send','id':mid,'rid':mid+'-r','text':text,'files':files})
+            self.feed({'kind':{'scheduled':'scheduled','failed':'send_failed'}.get(mid,'sent'),'id':mid,'rid':mid+'-r','at':'2030-01-01T12:00:00Z','error':'Synthetic refusal','receipt':{'id':'receipt-'+mid}})
+        owner({'kind':'send','id':'delivered','rid':'later-failure','text':'Unaccepted retry'})
+        self.feed({'kind':'send_failed','id':'delivered','rid':'later-failure','error':'Synthetic refusal'})
+        owner({'kind':'react','id':'reaction','rid':'reaction-r','emoji':'👍','target':'synthetic-target-reaction'})
+        self.feed({'kind':'reacted','id':'reaction','rid':'reaction-r','target':'synthetic-target-reaction'})
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===4"})[-1]['until'],self.page({'eval':"document.querySelector('.tm-list').textContent"})[-1]['eval'])
+        previews=lambda:self.page({'eval':"Object.fromEntries([...document.querySelectorAll('.tm-person')].map(n=>[n.querySelector('.tm-from').textContent,n.querySelector('.tm-preview').textContent]))"})[-1]['eval']
+        self.assertEqual(previews(),{'delivered':'Accepted telescope reply','scheduled':'Deferred reply','attachment':'Report.pdf','reaction':'👍'})
+        self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='telescope';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        self.assertEqual(previews(),{'delivered':'Accepted telescope reply'})
+        self.page({'tapSelector':'[aria-label="Clear conversation search"]'},{'tapSelector':'[data-folder=failed]'})
+        self.assertEqual(previews(),{'failed':'Refused reply'})
+        self.page({'tapSelector':'[data-folder=new]'})
+        self.assertEqual(previews().get('failed'),'Incoming failed')
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_sent_preview_latest_known_delivery_does_not_borrow_older_reply(self):
+        self.seed_inbox(start_editing=False)
+        for mid in ('first','second'):
+            self.feed({'kind':'msg','id':mid,'contact':'synthetic/same-chat','src':'dm','from':'Same colleague',
+                       'text':'Incoming '+mid,'reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        def deliver(mid,rid,text=None):
+            if text is not None:
+                self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':rid,'text':text}))
+            self.feed({'kind':'sent','id':mid,'rid':rid,'receipt':{'id':'receipt-'+rid}})
+        deliver('first','older','Older accepted reply')
+        deliver('second','newer','Newest <b>literal</b> reply')
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-preview').textContent"})[-1]['eval'],'Newest <b>literal</b> reply')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-preview b')"})[-1]['eval'])
+        # An accepted request without text must not be mislabeled as an older reply.
+        deliver('second','empty','')
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='Incoming second'"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_selected_folder_owns_native_label_and_available_toolbar_space(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for folder,title in (('sent','Sent'),('archive','Archive'),('new','Inbox')):
