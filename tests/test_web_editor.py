@@ -10,6 +10,17 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_selected_folder_owns_native_label_and_available_toolbar_space(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for folder,title in (('sent','Sent'),('archive','Archive'),('new','Inbox')):
+            self.page({'tapSelector':f'[data-folder={folder}]'})
+            for width in (320,402,834,1240):
+                self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+                got=self.page({'eval':"(()=>{const a=document.querySelector('.tm-folder[aria-pressed=true]'),r=a.getBoundingClientRect(),p=document.querySelector('.tm-list-pane').getBoundingClientRect();return {labels:[...document.querySelectorAll('.tm-folder-label')].filter(n=>n.checkVisibility()).map(n=>n.textContent),text:a.textContent,width:r.width,font:parseFloat(getComputedStyle(a).fontSize),hit:[...document.querySelectorAll('.tm-bar button,.tm-bar > details > summary')].filter(n=>n.checkVisibility()).every(n=>{const b=n.getBoundingClientRect();return b.width>=44&&b.left>=p.left&&b.right<=p.right&&n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))}),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertEqual(got['labels'],[title],(folder,width,got));self.assertEqual(got['text'],title)
+                self.assertGreaterEqual(got['width'],80);self.assertGreaterEqual(got['font'],16);self.assertTrue(got['hit'],got);self.assertEqual(got['overflow'],0)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_native_unselected_detail_tracks_width_without_replacing_reply(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Retained while browsing the list')
         before=self.non_history_actions()

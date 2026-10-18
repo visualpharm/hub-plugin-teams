@@ -371,3 +371,7 @@ Both grouped conversations and flat source lists use the pinned native no-match 
 ### 2026-10-18 — Explain the unselected desktop Inbox pane
 
 Wide grouped lists show the pinned native tray and No Message Selected state until a conversation opens. This placeholder is a separate pane: closing a conversation must keep its original hidden editor and durable draft intact. Phone/tablet single-pane layouts and flat source lists hide the placeholder; they must not gain an extra screen or consume list space.
+
+### 2026-10-18 — Label the active Inbox folder
+
+The visible expanded folder label follows selection: Inbox, Sent or Archive. Inactive folders remain icon controls with their existing accessible labels. This matches pinned native folder navigation and prevents the toolbar from continuing to emphasize Inbox while showing Sent. Retain the existing compact-label exception when Failed adds an extra control, preserving all touch targets.

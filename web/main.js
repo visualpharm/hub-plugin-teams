@@ -1808,7 +1808,8 @@ function paintAll() {
     const b = button("", "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; paint(); },label);
     b.dataset.folder=key; b.setAttribute("aria-pressed",String(tab===key)); b.title=title;
     if (icon) b.append(icon === "archive" ? nativeIcon("archive") : icon === "send" ? nativeIcon("sent") : hub.icon(icon));
-    else b.append(nativeIcon("inbox"),el("span","tm-folder-label",title));
+    else b.append(nativeIcon("inbox"));
+    if (tab === key) b.append(el("span","tm-folder-label",title));
     return b;
   }));
   const active = new Set([...msgs.values()].map((m) => m.src));

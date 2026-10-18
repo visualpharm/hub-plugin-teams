@@ -250,3 +250,5 @@ Resolved themes can assign the same color to accent and muted. An accent-filled 
 ## Unselected desktop details
 
 Use a separate placeholder node instead of replacing the hidden conversation tree. The latter risks disconnecting a retained editor, recording or draft while the user browses the list. Mirror grouped/selected state for visibility, and suppress the placeholder at the same container breakpoint as the single-pane layout. Exercise resize, close/reopen with the same textarea node, exact draft retention and both flat source filters.
+
+Folder label and flex-space ownership must follow aria-pressed, not the Inbox folder ID. Native Sent and Archive expand their selected label, leaving Inbox as an icon. Check each selection across phone/tablet/desktop and retain the extra Failed-control compact mode; testing only the default Inbox misses this navigation mismatch.
