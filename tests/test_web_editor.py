@@ -100,6 +100,14 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_conversation_menu_remains_above_native_header_backdrop(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.page({'viewport':{'width':360,'height':874}}, {'eval':"const sheet=document.createElement('style');sheet.textContent='.app .tm-detail .tm-head {position:relative;justify-content:flex-end}.app .tm-detail .tm-head::after {content:\"\";position:absolute;right:12px;top:2px;width:104px;height:46px;border-radius:24px;background:var(--background);box-shadow:0 8px 22px #0001}';document.head.append(sheet);true"})
+        hit=self.page({'eval':"(()=>{const b=document.querySelector('.tm-detail .tm-conversation-options > summary'),r=b.getBoundingClientRect();return b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))})()"})[-1]['eval']
+        self.assertTrue(hit,'Native header backdrop covers the conversation menu')
+        self.page({'tapSelector':'.tm-detail .tm-conversation-options > summary'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-detail .tm-conversation-options').open"})[-1]['eval'])
+
     def test_provider_read_requires_explicit_action_and_exact_receipt(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
         self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Bound source','reply':True,'unread':True,'target':'target-a','at':datetime.now(timezone.utc).isoformat()})
