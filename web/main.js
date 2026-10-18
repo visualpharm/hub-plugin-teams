@@ -1581,7 +1581,7 @@ function thread(ms) {   // ms — по возрастанию времени
   let previous=null;
   const appendMessage=(m,source=m,historical=false)=>{
     const day=calendarDay(m.at),prior=calendarDay(previous?.at);
-    const split=m.src==="email" ? !previous || Date.parse(m.at)-Date.parse(previous.at)>=GAP || (m.where || "")!==(previous.where || "") : day!==prior;
+    const split=m.src==="email" ? !previous || Date.parse(m.at)-Date.parse(previous.at)>=GAP || !historical && (m.where || "")!==(previous.where || "") : day!==prior;
     if(day && (!previous || split))history.append(divider(m));
     const named=["mention","channel"].includes(last.src) && !m.me && !!m.from && (!previous || previous.me || previous.from!==m.from);
     const row=line(m,source,named);
@@ -1611,6 +1611,8 @@ function thread(ms) {   // ms — по возрастанию времени
     }
   }
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
+  // Mail keeps a dated header for the current message, even after same-day history.
+  if(last.src==="email")previous=null;
   for (const m of ms) appendMessage(m);
 
   const notes = [];
