@@ -150,3 +150,6 @@ quota; compaction and stable Hub rename migration remain separate work.
 Conversation menus are anchored before two other header controls. A viewport-wide max-width can still place their left edge offscreen. Bound width to the space available before those controls and allow status text to wrap. The provider-read browser scenario checks actual menu edges at seven widths, light and dark when capturing.
 
 Native header pseudo-element backdrops can cover positioned menu anchors even when their dropdown is layered. Keep both conversation and editor menu anchors above the backdrop; test hit targets with the actual header decoration, not visibility alone.
+
+### Reply storage admission
+A visible draft-storage warning is insufficient if the Send callback proceeds. Check persistence of the pending rid before invoking transport in both shared and fallback composers. If it fails, remove the local unsent pending claim, retain text/files, and restore the shared composer through its existing error-return path. A guarded editor's delivery token is still only local at this point and can be released; never clear a claim after transport has run. Synthetic browser tests cover quota refusal, recovery, guarded/external sources and attachments; the fallback VM test rejects transport while storage is blocked.
