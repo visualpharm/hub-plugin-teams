@@ -421,3 +421,6 @@ Decided: render standalone underscore-delimited runs as emphasis in outgoing cha
 
 ## 2026-10-18 · One gap between flat cards
 Decided: the flat list owns card separation through its existing 24px gap; its cards have no extra vertical padding. Do not append empty action footers. Why: nested padding and an empty flex child inflated the blank separation to 56px. Keep nonempty action footers, reaction rows and grouped conversation padding. Undo: restore flat card padding and unconditional footer insertion. By: agent.
+
+## 2026-10-18 · Flat search follows its content column
+Decided: center the flat Inbox search field at the same maximum width and side inset as its cards, without a second icon inset. Why: the footer previously stretched beyond the centered desktop reading column and started 12px inside the phone content edge. Keep the grouped list search unchanged and retain 44px controls. Undo: remove the scoped flat-search override. By: agent.

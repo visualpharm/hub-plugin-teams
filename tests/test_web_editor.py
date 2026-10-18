@@ -10,6 +10,26 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_flat_search_aligns_with_cards_and_keeps_filter_clear_working(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for mid in ('alignment-one','alignment-two'):
+            self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        self.page({'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})[-1]['until'])
+        for theme in ('light','dark'):
+            for width in (360,402,834,1240,1440):
+                self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+                got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-list > .tm-thread').getBoundingClientRect(),s=document.querySelector('.tm-conversation-search').getBoundingClientRect(),i=document.querySelector('.tm-conversation-search > .icon').getBoundingClientRect();return {left:s.left-c.left,right:s.right-c.right,icon:i.left-c.left,height:s.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                for key in ('left','right','icon'):self.assertLessEqual(abs(got[key]),1,(theme,width,got))
+                self.assertGreaterEqual(got['height'],44);self.assertEqual(got['overflow'],0)
+        self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='alignment-one';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
+        self.page({'tapSelector':'[aria-label="Clear conversation search"]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.activeElement===document.querySelector('.tm-conversation-search input')"})[-1]['eval'],True)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_flat_completed_cards_keep_one_gap_and_archive_restore(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for mid in ('spacing-a','spacing-b'):
