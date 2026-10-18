@@ -50,6 +50,9 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({**receipt,'target':'wrong'})
         self.page({'sleep':200},{'tapSelector':'.tm-close-conversation'},{'tapSelector':"[aria-label='Archived conversations']"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        # Real collector order: sent first. Native Sent retains the replied item;
+        # Archive contains only the older members without their own answer.
+        self.feed({**q,'kind':'sent'})
         self.feed(receipt)
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
         self.page({'tapSelector':'.tm-person'})

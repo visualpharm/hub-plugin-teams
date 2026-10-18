@@ -146,7 +146,7 @@ function archiveSelection(m) {
   if(!archiveSupported)throw Error("Send and Archive is unavailable. Refresh Inbox or choose Send now.");
   const current=msgs.get(m.id);
   if(!current || pendingReplyKey(current)!==pendingReplyKey(m))throw Error("Reopen this editor using the current conversation.");
-  const members=[...msgs.values()].filter(x=>x.id===m.id || pinKey(x)===pinKey(m) && !done(x));
+  const members=[...msgs.values()].filter(x=>x.id===m.id || pinKey(x)===pinKey(m) && !done(x) && !deliveryPending(x));
   if(members.length>200 || members.some(x=>!x.target || [x.id,x.target,x.contact||''].some(v=>typeof v!=='string' || v.length>300)))
     throw Error("This conversation cannot be archived safely. Choose Send now.");
   return members.map(x=>({id:x.id,target:x.target,...(x.contact ? {contact:x.contact} : {})}));
@@ -155,12 +155,13 @@ function acceptArchive(d) {
   if(archivedRequests.has(d.rid))return;
   const q=sends.get(d.rid),current=msgs.get(d.id);
   if(!q?.archive || q.at || q.id!==d.id || q.target!==d.target || current?.target!==q.target || !Array.isArray(q.archive_ids))return;
-  if(q.guarded && (!q.inbox?.version || q.inbox.version!==d.version || !d.receipt?.id))return;
+  if((q.inbox || q.guarded) && (!q.inbox?.version || q.inbox.version!==d.version || !d.receipt?.id))return;
   if(!Array.isArray(d.members) || !Array.isArray(d.ids) || d.ids.length!==d.members.length || new Set(d.ids).size!==d.ids.length)return;
   if(d.members.some(x=>!x || !d.ids.includes(x.id) || !q.archive_ids.some(y=>y.id===x.id && y.target===x.target && (y.contact||'')===(x.contact||''))))return;
   archivedRequests.add(d.rid);
   for(const member of d.members) {
     const m=msgs.get(member.id);
+    if(member.id!==q.id && m && deliveryPending(m))continue;
     if(m && m.target===member.target && (!member.contact || m.contact===member.contact))replyArchived.add(m.id);
   }
 }
