@@ -2,6 +2,7 @@
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+const {providerReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/provider-read.js','utf8')));
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const source=readFileSync(process.argv[2], 'utf8').replace(/^import .*;\s*$/gm,'')
@@ -13,7 +14,7 @@ const initial=[post(9,{kind:'config',signature:'Existing configured signature'})
   post(21,'inert owner post','owner','p10'),post(22,'The exact unsent draft','helper','p10')];
 const correction=post(23,{kind:'reopened',id:key,post:'p10',corrects:'p20',contact,reset_history:true});
 async function replay(batches, ownText) {
-  const ctx={console,URL,Map,Set,conversationPins,localReadState};vm.createContext(ctx);
+  const ctx={console,URL,Map,Set,conversationPins,localReadState,providerReadState};vm.createContext(ctx);
   vm.runInContext(source+`\nglobalThis.test={sync,setHub:h=>hub=h,done,canReply,msgs,replies,composing};`,ctx);
   let at=0,sends=0;
   ctx.test.setHub({feed:async()=>batches[at++]||[],post:async()=>{sends++;throw Error('must not send');}});
@@ -47,7 +48,7 @@ for(const kind of ['answered','sent']) {
 console.log('Exact closure correction, restart, draft preservation, editor and send boundary passed');
 if(process.argv[3]) {
   const fixture=JSON.parse(readFileSync(process.argv[3],'utf8'));
-  const ctx={console,URL,Map,Set,conversationPins,localReadState};vm.createContext(ctx);
+  const ctx={console,URL,Map,Set,conversationPins,localReadState,providerReadState};vm.createContext(ctx);
   vm.runInContext(source+`\nglobalThis.test={sync,setHub:h=>hub=h,done,canReply,msgs,replies,composing};`,ctx);
   let batch=fixture.posts;
   ctx.test.setHub({feed:async()=>{const p=batch;batch=[];return p;},post:async()=>{throw Error('outbound prohibited');}});

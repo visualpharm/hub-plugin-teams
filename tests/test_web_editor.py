@@ -100,6 +100,79 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.activeElement.tagName==='SUMMARY' && document.activeElement.closest('.tm-conversation-options').dataset.optionKey===window.__option"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_provider_read_requires_explicit_action_and_exact_receipt(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Bound source','reply':True,'unread':True,'target':'target-a','at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Bound source')"})
+        self.edit('Keep provider draft')
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertTrue(self.page({'eval':"!!document.querySelector('[data-action=provider-read]')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=provider-read]'})
+        q=self.queued('read');self.assertEqual(q['target'],'target-a');self.assertEqual(q['id'],'external-telegram')
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for theme in ('light','dark'):
+                for width in (360,390,402,768,834,1024,1440):
+                    self.page({'media':theme},{'viewport':{'width':width,'height':874}},{'sleep':150},
+                      {'shot':str(out/f'provider-read-{theme}-{width}.png'),'width':width,'height':874})
+                    bounds=self.page({'eval':"(()=>{const r=document.querySelector('.tm-conversation-options[open] .tm-editor-menu').getBoundingClientRect();return {left:r.left,right:r.right,width:innerWidth}})()"})[-1]['eval']
+                    self.assertGreaterEqual(bounds['left'],8,bounds);self.assertLessEqual(bounds['right'],bounds['width']-8,bounds)
+        self.assertIn('Check read status',self.page({'eval':"document.querySelector('[data-action=provider-read]').textContent"})[-1]['eval'])
+        self.feed({'kind':'read','id':q['id'],'rid':'wrong','target':q['target']})
+        self.feed({'kind':'read','id':q['id'],'rid':q['rid'],'target':'wrong'})
+        self.page({'sleep':150})
+        self.assertIn('Check read status',self.page({'eval':"document.querySelector('[data-action=provider-read]').textContent"})[-1]['eval'])
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=provider-read]'})
+        self.assertEqual(self.queued('read'),q,'Lost acknowledgement must reuse the original request')
+        self.feed({'kind':'read','id':q['id'],'rid':q['rid'],'target':q['target']})
+        self.assertTrue(self.page({'until':"document.querySelector('[data-action=provider-read]')?.textContent==='Read in Telegram'"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep provider draft')
+
+    def test_provider_read_transport_refusal_reuses_original_request(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Transport failure source','reply':True,'target':'target-a','at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"!!document.querySelector('[data-action=provider-read]')"})
+        self.edit('Retain through lost acknowledgement');self.non_history_actions()
+        self.page({'eval':"window.__fetch=window.fetch;window.fetch=async(url,opts)=>{const r=await __fetch(url,opts);if(String(url).endsWith('/api/feed/post')&&JSON.parse(JSON.parse(opts.body).text).kind==='read')return new Response(JSON.stringify({error:'Synthetic read transport refusal'}),{status:503});return r};true"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=provider-read]'})
+        q=self.queued('read')
+        self.assertTrue(self.page({'until':"document.body.textContent.includes('Synthetic read transport refusal')"})[-1]['until'])
+        self.page({'eval':'window.fetch=__fetch;true'},{'tapSelector':'[data-action=provider-read]'})
+        self.assertEqual(self.queued('read'),q)
+        self.feed({**q,'kind':'read'})
+        self.assertTrue(self.page({'until':"document.querySelector('[data-action=provider-read]')?.textContent==='Read in Telegram'"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retain through lost acknowledgement')
+
+    def test_provider_read_refusal_rebinding_and_unknown_keep_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        message={'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Bound read failure','reply':True,'target':'target-a','at':datetime.now(timezone.utc).isoformat()}
+        self.feed(message)
+        self.page({'until':"!!document.querySelector('[data-action=provider-read]')"})
+        self.edit('Retain on all read errors');self.non_history_actions()
+        self.page({'eval':"window.__saveRead=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.provider-read.'))throw Error('quota');return window.__saveRead.call(this,k,v)};true"},
+          {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=provider-read]'})
+        self.assertTrue(self.page({'eval':"document.body.innerText.includes('No request was sent')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.page({'eval':'Storage.prototype.setItem=window.__saveRead;true'},{'tapSelector':'[data-action=provider-read]'})
+        q=self.queued('read')
+        self.ev('ext.post',None,plugin='teams',channel='plugin',sender='intruder',text=json.dumps({**q,'kind':'read'}))
+        self.page({'sleep':150})
+        self.assertEqual(self.page({'eval':"document.querySelector('[data-action=provider-read]').textContent"})[-1]['eval'],'Check read status')
+        self.feed({**message,'target':'target-b','text':'Rebound read source'})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Rebound read source')"})
+        self.feed({**q,'kind':'read'})
+        self.page({'sleep':150})
+        self.assertEqual(self.page({'eval':"document.querySelector('[data-action=provider-read]').textContent"})[-1]['eval'],'Mark read in Telegram')
+        self.page({'tapSelector':'[data-action=provider-read]'})
+        rebound=self.queued('read');self.assertEqual(rebound['target'],'target-b');self.assertNotEqual(rebound['rid'],q['rid'])
+        self.feed({**rebound,'kind':'read_failed','unresolved':True,'error':'Check the conversation before marking again.'})
+        self.assertTrue(self.page({'until':"document.querySelector('[data-action=provider-read]')?.textContent==='Read status unknown'"})[-1]['until'])
+        self.assertTrue(self.page({'eval':"document.querySelector('[data-action=provider-read]').disabled"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retain on all read errors')
+
     def test_mark_unread_persists_reminder_and_draft_without_provider_action(self):
         self.seed_inbox(start_editing=False);self.edit('Read reminder draft');self.queued('draft_control')
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Already read at source','unread':False,'reply':True,'at':datetime.now(timezone.utc).isoformat()})
@@ -1310,6 +1383,10 @@ class InboxWebAcceptance(PageInChrome):
         return [e for e in self.spooled() if not (e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "history")]
 
     def queued(self, kind):
+        if kind=='read':
+            ready=self.page({'until':"document.querySelector('[data-action=provider-read]')?.textContent==='Check read status' && !document.querySelector('[data-action=provider-read]').disabled"},
+              {'eval':"document.body.innerText"})
+            self.assertTrue(ready[-2]['until'],ready[-1]['eval'])
         posts = [json.loads(e["data"]["text"]) for e in self.spooled() if e["type"] == "ext.post"]
         found = [p for p in posts if p.get("kind") == kind]
         self.assertEqual(len(found), 1, posts)
