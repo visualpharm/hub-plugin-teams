@@ -687,14 +687,16 @@ const providerReads = providerReadState(hubName);
 const readingRequests = new Set();
 const readTransportErrors = new Map();
 const readRequestKey = m => JSON.stringify([hubName(),m.id,m.target]);
-function conversationOptions(m) {
+function conversationOptions(m, title=null) {
   const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
-  menu.dataset.optionKey = JSON.stringify([id,m.id]);
+  menu.dataset.optionKey = JSON.stringify([id,title===null ? m.id : 'detail']);
   const focusMenu = () => [...ui.root.querySelectorAll('.tm-conversation-options')]
     .find(n=>n.checkVisibility() && n.dataset.optionKey===menu.dataset.optionKey)?.querySelector('summary')?.focus();
   const summary = el("summary", "btn quiet");
-  summary.setAttribute("aria-label", "Conversation options"); summary.append(hub.icon("menu"));
+  summary.setAttribute("aria-label", title===null ? "Conversation options" : `${title}: Conversation options`);
+  if(title!==null){menu.classList.add('tm-title-options');summary.append(el('b','tm-from',title));}
+  else summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
   const toggle = button(pins.has(id) ? "Unpin conversation" : "Pin conversation", "quiet", () => {
     if (!pins.toggle(id)) { error = "Could not save the pin. Try again."; }
@@ -1234,10 +1236,7 @@ function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
     const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
-    const options=st.options=el("details","tm-editor-options"), optionsToggle=el("summary","btn quiet"), optionsBody=el("div","tm-editor-menu");
-    optionsToggle.setAttribute("aria-label","Draft options");optionsToggle.append(hub.icon("menu"));options.append(optionsToggle,optionsBody);
-    options.addEventListener("keydown",e=>{if(e.key==="Escape"){options.open=false;optionsToggle.focus();e.stopPropagation();}});
-    options.addEventListener("focusout",e=>{if(e.relatedTarget && !options.contains(e.relatedTarget))options.open=false;});
+    const optionsBody=st.options=el("div","tm-draft-options");
     const discard=st.discard=button("","quiet tm-discard",()=>{
       if(st.state?.control || st.state?.delivery)return;
       st.text="";st.files=[];st.suggested=false;st.why="";st.error="";saveDraft(m,"",null,[]);
@@ -1423,6 +1422,7 @@ function sharedReply(m, st) {
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
     const close = button("Close editor", "quiet", () => {
+      const menu=optionsBody.closest('.tm-conversation-options');if(menu)menu.open=false;
       if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
     });
@@ -1786,7 +1786,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const head = el("div", "tm-head");
   const sourceLabel=conversationSources(ms);
   const headerSource=el("span","tm-header-source",sourceLabel);headerSource.title=sourceLabel;
-  head.append(el("b", "tm-from", personName(last.from) || "—"), headerSource, conversationOptions(last));
+  const name=personName(last.from) || "—", options=conversationOptions(last,detail ? name : null);
+  if(detail)head.append(options,headerSource);
+  else head.append(el("b","tm-from",name),headerSource,options);
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source",sourceLabel));
@@ -1880,7 +1882,11 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   else if (acts.childElementCount) box.append(acts);
   if (composeFor) {
     box.append(composer(composeFor));
-    const options=composing.get(composeFor.id)?.options;if(options)head.append(options);
+    const draftOptions=composing.get(composeFor.id)?.options;
+    if(draftOptions){
+      options.classList.add('tm-editor-options');options.querySelector(':scope > .tm-editor-menu').append(draftOptions);
+      if(!detail)head.append(options);
+    }
   }
   return box;
 }
@@ -1903,7 +1909,9 @@ function paint() {
   if (!ui) return;
   const sendFocus=ui.root.contains(document.activeElement) && document.activeElement.closest('.tm-send-options') ? document.activeElement : null;
   const optionStates = [...ui.root.querySelectorAll('.tm-conversation-options')].filter(menu=>menu.checkVisibility()).map(menu=>({key:menu.dataset.optionKey,open:menu.open,
-    focus:menu.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null}));
+    focus:menu.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null,
+    node:menu.contains(document.activeElement) ? document.activeElement : null,
+    selection:menu.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA' ? [document.activeElement.selectionStart,document.activeElement.selectionEnd] : null}));
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
@@ -1915,7 +1923,11 @@ function paint() {
     const state = optionStates.find(s=>s.key===options.dataset.optionKey);
     if (!state) continue;
     options.open = state.open;
-    if (state.focus) { const target=options.querySelector(state.focus === 'summary' ? 'summary' : `[data-action="${CSS.escape(state.focus)}"]`); (target && !target.disabled ? target : options.querySelector('summary'))?.focus(); }
+    if (state.focus) {
+      const target=state.node?.isConnected && options.contains(state.node) ? state.node : options.querySelector(state.focus === 'summary' ? 'summary' : `[data-action="${CSS.escape(state.focus)}"]`);
+      (target && !target.disabled ? target : options.querySelector('summary'))?.focus({preventScroll:true});
+      if(target===state.node && state.selection)target.setSelectionRange(...state.selection);
+    }
   }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;

@@ -446,5 +446,21 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
 .tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 16px; height: 16px; }
 
+/* The conversation name owns its menu; source and Hub remain the trailing actions. */
+.tm-detail .tm-title-options { min-width: 0; }
+.tm-detail .tm-title-options > summary { width: 100%; min-width: 44px; background: transparent; }
+.tm-detail .tm-title-options .tm-from { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.tm-detail .tm-title-options > .tm-editor-menu { width: min(320px,calc(100vw - 32px)); max-height: calc(100dvh - 120px); overflow-y: auto; }
+.tm-narrow .tm-detail > .tm-thread > .tm-head { display: grid; grid-template-columns: minmax(0,1fr) 44px 44px; padding-left: 88px; }
+.tm-narrow .tm-title-options { grid-column: 1; }
+.tm-narrow .tm-head > .tm-link { grid-column: 2; }
+.tm-narrow .tm-head > .tm-quick-trigger { grid-column: 3; }
+.tm-narrow .tm-title-options > .tm-editor-menu { left: 50%; right: auto; transform: translateX(-50%); }
+.tm-container:not(.tm-narrow) .tm-detail .tm-title-options { flex: 0 1 auto; max-width: 35%; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-title-options .tm-from { text-align: left; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-title-options > .tm-editor-menu { left: 0; right: auto; }
+.tm-flat .tm-head > .tm-editor-options { margin-left: auto; }
+.tm-flat .tm-editor-options > .tm-editor-menu { width: min(320px,calc(100vw - 64px)); max-height: calc(100dvh - 120px); overflow-y: auto; }
+
 .tm-rich-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-rich-text a { color: inherit; text-decoration: underline; }
