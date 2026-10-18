@@ -427,3 +427,6 @@ Decided: center the flat Inbox search field at the same maximum width and side i
 
 ## 2026-10-18 · Truthful failed-reply editing label
 Decided: label the failed/late reply action Edit reply because it opens the composer, rather than claiming Retry. Keep exact raw text and existing unknown-outcome replay behavior unchanged. Why: native distinguishes editing from sending again, and an editing action must not promise transmission. This microcopy fix does not implement direct retry or change draft recovery policy; those remain separate acceptance work. Undo: revert the shared label. By: agent.
+
+## 2026-10-18 · Keep newer drafts when recovering older failures
+Decided: the failed/late reply action resumes an existing nonempty saved draft, including attachment-only and pending drafts, instead of replacing its text with the older attempt. Name that action Resume draft; use Edit reply only when there is no saved content. Recheck conversation identity and preserve an already open editor. Why: replacing old text while inheriting newer files mixes two different replies and can lose unsent work. Keep original failed history and exact pending request untouched; this does not add direct retry. Undo: revert recovery selection and labels. By: agent.

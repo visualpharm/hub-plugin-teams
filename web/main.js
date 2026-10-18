@@ -1556,6 +1556,22 @@ function replyText(raw) {
   return body;
 }
 
+function hasReplyToResume(m) {
+  const draft=savedDraft(m);
+  return !!(draft?.text.trim() || draft?.files?.length);
+}
+
+function editFailedReply(m, x) {
+  const current=msgs.get(m.id);
+  if(!current || pendingReplyKey(current)!==pendingReplyKey(m)) {
+    error="Reopen this editor using the current conversation.";paint();return;
+  }
+  // A closed editor can still own a newer durable draft and attachments.
+  // Recover that draft together; never replace only its text with an old attempt.
+  if(composing.has(current.id)) { focusId=current.id;paint();return; }
+  openCompose(current,hasReplyToResume(current) ? undefined : x.text);
+}
+
 function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const chat=m.src!=="email";
@@ -1594,8 +1610,8 @@ function sentBlock(m, rid, x) {
   }
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
     const a = el("div", "tm-acts");
-    const editLabel=T("Править ответ", "Edit reply");
-    a.append(button(editLabel, "", () => openCompose(m, x.text), `${editLabel}: ${personName(m.from)}`));
+    const editLabel=hasReplyToResume(m) ? T("Продолжить черновик", "Resume draft") : T("Править ответ", "Edit reply");
+    a.append(button(editLabel, "", () => editFailedReply(m, x), `${editLabel}: ${personName(m.from)}`));
     d.append(a);
   }
   return d;
