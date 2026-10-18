@@ -1670,6 +1670,7 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_detached_reaction_button_cannot_send_to_replacement_destination(self):
         self.seed_inbox(start_editing=False,target='synthetic-target-a')
+        self.page({'viewport':{'width':390,'height':874}})
         self.page({'tapSelector':'.tm-react-trigger'},{'eval':"window.__oldReaction=document.querySelector('.tm-reactions button');true"})
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Replacement reaction target','react':True,'reply':True,'inbox':self.token,'target':'synthetic-target-b','at':datetime.now(timezone.utc).isoformat()})
         self.assertTrue(self.page({'until':"document.body.innerText.includes('Replacement reaction target')"})[-1]['until'])

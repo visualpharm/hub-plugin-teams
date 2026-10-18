@@ -194,3 +194,5 @@ A target can change while a draft-key-stable composer remains mounted. Revalidat
 
 ### A reaction is also a destination-bound operation
 Binding replies alone left reactions with an id/rid pair and no target. A changed provider reference could receive the reaction, while a wrong-target receipt painted success. Carry target through the request, parser and receipt; verify it before updating reaction state. Detach old reaction requests when the source/contact/target identity changes, reject late owner echoes for the former target, and revalidate the current message when an old DOM control is activated. Keep the local ownership marker when its own echo arrives so a later unrelated echo cannot replace an in-flight local action. Legacy targetless events remain compatible; no automatic resend is introduced.
+
+Live phone acceptance found the list-pane error banner is hidden while a conversation is open. Stale reaction controls now write a destination-scoped notice beside that message; a valid current reaction clears only that notice. The regression runs at390px and verifies zero stale sends, visible feedback and recovery.
