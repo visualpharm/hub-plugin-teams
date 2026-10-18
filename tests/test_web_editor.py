@@ -10,6 +10,24 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_blocked_storage_does_not_invent_a_pending_delivery_mark(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Draft retained in this page')
+        self.page({'eval':"Storage.prototype.getItem=function(){throw new DOMException('Blocked','SecurityError')};true"},
+                  {'tapSelector':'.tm-close-conversation'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Draft')
+        self.page({'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Draft retained in this page')
+        self.page({'eval':"document.querySelector('.tm-shared-compose .composer').requestSubmit();true"})
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_late_send_mark_is_unconfirmed_and_never_resubmits(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Original request')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'});q=self.queued('send')
+        self.page({'eval':"const now=Date.now();Date.now=()=>now+151000;true"},{'tapSelector':'.tm-close-conversation'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Delivery unconfirmed')
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertEqual(q['text'],'Original request')
+
     def test_native_list_marks_drafts_reactions_and_cleans_display_names_only(self):
         self.seed_inbox(start_editing=False)
         self.page({'tapSelector':'.tm-close-conversation'})

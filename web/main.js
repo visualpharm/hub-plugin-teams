@@ -93,8 +93,11 @@ function replyNotice(st,text) {
 }
 function pendingReply(m) {
   if(!m)return null;
+  let raw;
+  try { raw=localStorage.getItem(pendingReplyKey(m)); }
+  catch { return {blocked:true,storageUnavailable:true}; }
   try {
-    const raw=localStorage.getItem(pendingReplyKey(m));if(!raw)return null;
+    if(!raw)return null;
     const row=JSON.parse(raw);
     if(row?.q?.kind!=="send" || row.q.id!==m.id || typeof row.q.rid!=="string" || typeof row.q.text!=="string" || !Number.isFinite(row.ts))throw Error("Invalid pending reply");
     return row;
@@ -249,6 +252,7 @@ function editorFact(d) {
 }
 const replyOk = new Set();   // id сообщений, запощенных до «Ответить»: процесс дописал им адрес ответа (пост reply)
 const WAIT_MAX = 150;        // с: процесс отвечает за пару секунд; дольше — он не запущен
+const replyLate = x => x?.state === "wait" && Date.now() / 1000 - x.ts > WAIT_MAX;
 // пусто: что чтение идёт, а нового нет — со ссылкой на последнее входящее (последний пост status процесса)
 function emptyNote() {
   const l = status?.ok && status.last;
@@ -846,10 +850,12 @@ function conversationMark(group) {
   const out = [...sends.values()].filter(s => ids.has(s.id)).reverse().sort((a,b) => (b.ts || 0) - (a.ts || 0));
   const latest = [...new Map([...out].reverse().map(s => [s.id,s])).values()];
   // Unsettled delivery must stay visible even when a newer draft exists.
+  if (out.some(replyLate)) return {icon:"warning",label:"Delivery unconfirmed"};
   for (const [state, icon, label] of [["unresolved","warning","Delivery unconfirmed"], ["wait","send-now","Sending"], ["later","clock","Scheduled"]]) {
     if (out.some(s => s.state === state)) return {icon,label};
   }
-  if (group.some(m => pendingReply(m))) return {icon:"warning",label:"Delivery unconfirmed"};
+  // A denied storage read is not evidence that a reply was submitted. Admission still fails closed.
+  if (group.some(m => { const p=pendingReply(m); return p && !p.storageUnavailable; })) return {icon:"warning",label:"Delivery unconfirmed"};
   if (latest.some(s => s.state === "fail")) return {icon:"warning",label:"Send failed"};
   for (const [state, icon, label] of [["wait","send-now","Sending reaction"], ["fail","warning","Reaction failed"]]) {
     if (group.some(m => reactionSends.get(m.id)?.state === state)) return {icon,label};
@@ -1423,7 +1429,7 @@ async function unschedule(m,rid) {
 function recoverableReply(m,rid) {
   const current=msgs.get(m.id), x=sends.get(rid);
   if(!replyReplay || !current || pendingReplyKey(current)!==pendingReplyKey(m) || !x ||
-     x.id!==m.id || !(x.state==="unresolved" || x.state==="wait" && Date.now()/1000-x.ts>WAIT_MAX))return null;
+     x.id!==m.id || !(x.state==="unresolved" || replyLate(x)))return null;
   const q=pendingReply(current)?.q;
   if(!q || q.rid!==rid || !q.rid || typeof q.target!=="string" || !q.target || q.target!==current.target ||
      guardedReply(current) && (!q.inbox?.version || q.inbox.version!==current.inbox?.version))return null;
@@ -1454,7 +1460,7 @@ function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const chat=m.src!=="email";
   d.classList.toggle("tm-sent-chat",chat);
-  const late = x.state === "wait" && Date.now() / 1000 - x.ts > WAIT_MAX;
+  const late = replyLate(x);
   const stateText = x.state === "ok" ? "отправлено" : x.state === "fail" ? `не отправлено: ${x.error}`
     : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
     : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`

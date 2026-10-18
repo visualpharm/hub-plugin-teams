@@ -37,12 +37,21 @@ ctx.t.replies.set('p1',[{text:'👍'}]);assert.equal(label(),'Suggested reaction
 ctx.t.replies.set('p1',[{text:'Reply suggestion\n---\nWhy: Context'}]);assert.equal(label(),'Suggested reply');
 ctx.t.saveDraft(m,'Retained owner draft');assert.equal(label(),'Draft');
 for (const [state,expected] of [['wait','Sending'],['later','Scheduled'],['unresolved','Delivery unconfirmed'],['fail','Send failed']]) {
- ctx.t.sends.set('old',{id:'one',ts:1,state});assert.equal(label(),expected);
+ ctx.t.sends.set('old',{id:'one',ts:Date.now()/1000,state});assert.equal(label(),expected);
 }
-ctx.t.sends.set('retry',{id:'one',ts:2,state:'ok'});assert.equal(label(),'Draft','Successful retry must not resurrect an old failure or hide a new draft');
+ctx.t.sends.set('retry',{id:'one',ts:Date.now()/1000+1,state:'ok'});assert.equal(label(),'Draft','Successful retry must not resurrect an old failure or hide a new draft');
 ctx.t.saveDraft(m,'');assert.equal(label(),'Sent');
 ctx.t.sends.clear();
 for (const [state,expected] of [['wait','Sending reaction'],['fail','Reaction failed'],['ok','Reaction sent']]) {
  ctx.t.reactionSends.set('one',{state});assert.equal(label(),expected);
 }
 console.log('Native display-name cleanup and list marks preserve draft and delivery truth');
+
+ctx.t.reactionSends.clear();
+ctx.localStorage.getItem=()=>{throw new Error('Storage denied')};
+assert.equal(label(),'Suggested reply','No request is implied by a denied storage read');
+ctx.localStorage.getItem=()=>'{invalid';
+assert.equal(label(),'Delivery unconfirmed','Corrupt existing pending record remains fail-closed');
+ctx.localStorage.getItem=()=>null;
+ctx.t.sends.set('late',{id:'one',state:'wait',ts:Date.now()/1000-151});
+assert.equal(label(),'Delivery unconfirmed');
