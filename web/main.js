@@ -359,6 +359,12 @@ async function sync() {
         // An accepted delivery is terminal for this request. Delayed refusal,
         // schedule or reconciliation facts must not offer to send it again.
         if(sends.get(d.rid)?.state==='ok' && d.kind!=='sent' && !(d.kind==='send_duplicate' && d.state==='sent'))continue;
+        // The collector can forget a cached outcome while retaining the rid
+        // tombstone. Replay uncertainty adds no evidence to a definite refusal
+        // already in this journal. Keep it scoped to this exact request; an
+        // unrelated unknown delivery must still prevent another submission.
+        if(sends.get(d.rid)?.state==='fail' && (d.kind==='send_failed' && d.unresolved ||
+           d.kind==='send_uncertain' || d.kind==='send_duplicate' && d.state!=='sent'))continue;
         if(d.kind==="send_duplicate" && d.state==="sent" && guardedReply(msgs.get(d.id))) {
           const token=pending?.q?.inbox || editorStates.get(d.id)?.delivery?.token || msgs.get(d.id)?.inbox;
           if(!token?.version || d.version!==token.version || !d.receipt?.id)continue;
