@@ -296,3 +296,6 @@ The search footer belongs to the same reading column as flat cards. Test its lef
 
 ### Failed reply action names
 The shared sentBlock action opens the editor; call it Edit reply in both visible and accessible text. A retry label is reserved for an action that submits the appropriate request. The existing chat/mail raw-text regression now checks the label and no-send outcome; exact original-request recovery tests remain separate. Native direct retry parity is still open and must not reuse unresolved requests as fresh sends.
+
+### Recovering an old failure beside a newer draft
+Do not call openCompose with an old attempt text while inheriting files from the current saved draft. Resume current text and files together. A pendingRid is not permission to replace that draft: the separate pending record still owns exact delivery identity. Browser regression covers chat text plus attachment, attachment-only email, a newer pending WhatsApp request, reload and no additional sends. Preserve failed history and reject stale conversation callbacks.

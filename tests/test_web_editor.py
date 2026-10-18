@@ -55,6 +55,34 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
         self.assertEqual(self.queued('unhide')['ids'],['archive-a'])
 
+    def test_failed_reply_edit_preserves_newer_draft_and_attachment(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('telegram','email','whatsapp'):
+            self.open_external_source(source);mid='external-'+source;rid='failed-'+source
+            newer='Newer draft '+source if source!='email' else ''
+            self.edit(newer);self.attach_synthetic_file('newer-'+source+'.txt')
+            if source=='whatsapp':
+                self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"})
+                pending=self.queued('send')
+            self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':rid,'text':'Older failed reply'}))
+            self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button')"})[-1]['until'])
+            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button').textContent"})[-1]['eval'],['Resume draft','Продолжить черновик'])
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],newer)
+            self.assertIn('newer-'+source+'.txt',self.page({'eval':"document.querySelector('.tm-shared-compose .pchip').textContent"})[-1]['eval'])
+            self.assertIn('Older failed reply',self.page({'eval':"document.querySelector('.tm-mine-fail').textContent"})[-1]['eval'])
+            if source=='whatsapp':
+                retained=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.pending.v1:')).map(k=>JSON.parse(localStorage[k]).q).find(q=>q.id==='external-whatsapp')"})[-1]['eval']
+                self.assertEqual(retained,pending)
+            self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+                {'until':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic {source}'))"},
+                {'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic {source}')).click();true"})
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],newer)
+            self.assertIn('newer-'+source+'.txt',self.page({'eval':"document.querySelector('.tm-shared-compose .pchip').textContent"})[-1]['eval'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+
     def test_outgoing_emphasis_matches_native_without_changing_reply_text(self):
         self.seed_inbox(start_editing=False)
         raw='Exact snake_case and имя_файла. <img src=x onerror=alert(1)>\n_Emphasis_\n\n🤖 _Хаб, вычитано Иваном_\n_unclosed'
