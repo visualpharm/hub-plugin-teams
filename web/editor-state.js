@@ -68,7 +68,7 @@ export class InboxEditor {
         && [d.text, d.context, d.next_action].every((x) => typeof x === "string")) {
       this.proposal = { ...d, revision: this.request.revision }; return true;
     }
-    if (this.delivery?.rid !== d.rid) return false;
+    if (!this.delivery || this.delivery.rid !== d.rid) return false;
     if (this.delivery.target && d.target !== this.delivery.target) return false;
     if (d.kind === "send_duplicate" && d.version === this.delivery.token.version && d.state === "sent" && d.receipt?.id) {
       this.delivery.state = "sent"; this.text = ""; return true;

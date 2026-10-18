@@ -10,6 +10,11 @@ const confirm=(e,rid='hold')=>{
   const held={...token,edit_version:1,held:true,holder:'web-tab'};
   assert.equal(e.receive({kind:'draft_state',id:'source',rid,inbox:held}),true);return held;
 };
+for (const kind of ['thread','media','msg','status']) {
+  const idle=start();
+  assert.equal(idle.receive({kind,id:'source'}),false);
+  assert.equal(idle.text,'Owner exact draft');
+}
 const e=start();assert.throws(()=>e.send('send','Hello'),/Confirm/);
 const hold=e.hold('hold');assert.equal(hold.editor,'web-tab');
 assert.equal(e.receive({kind:'draft_state',id:'other',rid:'hold',inbox:{...token,edit_version:1}}),false);
