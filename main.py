@@ -193,6 +193,9 @@ class Choice:
                     q["target"] = body["target"]   # отпечаток адреса, который видел клиент (target_of): сменился — отказ
                 if body.get("archive") is True:
                     q["archive"] = True   # «Отправить и убрать»: archived после подтверждённого sent (archive_intent)
+                    if isinstance(body.get("archive_ids"), list):   # какие сообщения переписки клиент видел и убирает
+                        q["archive_ids"] = [{k: str(m[k])[:300] for k in ("id", "target", "contact") if isinstance(m.get(k), str) and m[k]}
+                                            for m in body["archive_ids"][:200] if isinstance(m, dict)]
                 if files:
                     q["files"] = files
                 for k in ("reply_to", "quote"):   # ответ на конкретное сообщение: его id и текст (для цитаты в источниках без reply)
@@ -650,7 +653,7 @@ def backfill_refs(st, reader, now, put=post):
     return len(keys)
 
 
-CONFIG_CAPS = 4   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
+CONFIG_CAPS = 5   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
 
 
 def config(st, put=post):
@@ -665,7 +668,8 @@ def config(st, put=post):
          'reply_replay':1,
          'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
          'reaction_target':1,
-         'send_archive':1,   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
+         'send_archive':1,
+         'archive_selection':1,   # send.archive_ids [{id, target, contact?}] — убрать ровно выбранное (m486330)   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
@@ -721,15 +725,28 @@ def archive_mismatch(st, q, later, put=None):
     known = q["rid"] in intents or q["rid"] in (st.get("sent_rids") or ()) or q["rid"] in later or entombed(st, q["rid"]) \
         or q["rid"] in (st.get("inbox_rejections") or {})
     want = q.get("archive") is True
-    if known and (q["rid"] in intents) != want:
+    sel = sorted(q["archive_ids"], key=lambda m: m.get("id", "")) if want and "archive_ids" in q else None
+    if known and ((q["rid"] in intents) != want or (want and intents[q["rid"]].get("members") != sel)):
         # защищённый путь отвечает на повтор всегда (как inbox_delivery.previous), обычный — только свежей просьбе
         if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
             pin = intents.get(q["rid"]) or ((st.get("reply_out") or {}).get(q["rid"]) or {})
             (put or post)({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input",
                            **({"target": pin["target"]} if pin.get("target") else {})})
         return True
+    if want and not known and sel is not None:
+        # выбор клиента сверяем сейчас: каждый пункт есть, тот же адрес (и собеседник, если назван), ответ — среди них
+        refs, who = st.get("refs") or {}, st.get("who") or {}
+        bad = not sel or q["id"] not in {m.get("id") for m in sel} or any(
+            not m.get("id") or not m.get("target") or m["id"] not in refs or target_of(refs[m["id"]]) != m["target"]
+            or (m.get("contact") and (who.get(m["id"]) or {}).get("contact") != m["contact"]) for m in sel)
+        if bad:
+            (put or post)({"kind": "send_blocked", "id": q["id"], "rid": q["rid"],
+                           "error": "Archive selection changed; reload before sending.",
+                           **({"target": q["target"]} if q.get("target") else {})})
+            return True
     if want and not known:
-        intents[q["rid"]] = {"id": q["id"], **({"target": q["target"]} if q.get("target") else {})}
+        intents[q["rid"]] = {"id": q["id"], **({"target": q["target"]} if q.get("target") else {}),
+                             **({"members": sel} if sel is not None else {})}
         for k in list(intents)[:-500]:
             del intents[k]
         save(st)
@@ -751,10 +768,18 @@ def archive_after(st, put):
         if guarded and not (isinstance(rc.get("id"), str) and rc["id"]):
             ok = False
         if intent and ok and event.get("id") == intent["id"] and event.get("target") == intent.get("target"):
-            put({"kind": "archived", "id": intent["id"], "rid": event["rid"], "ids": [intent["id"]],
-                 **({"target": intent["target"]} if intent.get("target") else {}),
-                 **({"receipt": rc} if guarded else {}),
-                 **({"version": event["version"]} if guarded and "version" in event else {})})
+            if not intent.get("event"):   # первый успех фиксирует состав; повтор rid отдаёт тот же archived
+                refs = st.get("refs") or {}
+                members = [m for m in intent.get("members") or ()   # сменившие адрес после просьбы не убираем
+                           if m["id"] in refs and target_of(refs[m["id"]]) == m["target"]]
+                intent["event"] = {"kind": "archived", "id": intent["id"], "rid": event["rid"],
+                                   "ids": [m["id"] for m in members] if "members" in intent else [intent["id"]],
+                                   **({"members": members} if "members" in intent else {}),
+                                   **({"target": intent["target"]} if intent.get("target") else {}),
+                                   **({"receipt": rc} if guarded else {}),
+                                   **({"version": event["version"]} if guarded and "version" in event else {})}
+                save(st)
+            put(intent["event"])
     return wrapped
 
 

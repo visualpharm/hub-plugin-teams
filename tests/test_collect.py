@@ -772,6 +772,46 @@ class Later(unittest.TestCase):
         self.assertEqual(due, [("sent", "s1"), ("archived", "s1"), ("answered", None)])
         self.assertEqual(len(ran), 3)                                        # r1, p1, s1 — повторы не отправляли
 
+    def test_send_and_archive_selection_is_checked_fixed_and_replayed_exactly(self):
+        # 18.10 (codex m486330): натив убирает всю переписку (more + id). Клиент шлёт archive_ids — что видел, с target;
+        # выбор сверяется при просьбе, состав фиксируется первым sent; сменивший адрес до отправки — не убирается
+        import sources
+        import time
+        ran, real = [], (sources.run, main.save)
+        sources.run = lambda cmd, timeout=0: ran.append(cmd) or ""
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            ref = {"wa": "whatsapp", "to": "1@c.us", "send": "/bin/send"}
+            st = {"refs": {"w": dict(ref), "w0": dict(ref), "x": {**ref, "to": "2@c.us"}}, "who": {"w0": {"contact": "wa:1"}}}
+            a, b = main.target_of(ref), main.target_of(st["refs"]["x"])
+            both = [{"id": "w0", "target": a, "contact": "wa:1"}, {"id": "w", "target": a}]
+            q = {"id": "w", "rid": "r1", "text": "Да", "ts": now, "target": a, "archive": True, "archive_ids": both}
+            main.send_replies(st, self.R(), [q], self.out.append)
+            first = next(p for p in self.out if p["kind"] == "archived")
+            del self.out[:]
+            main.send_replies(st, self.R(), [q, {**q, "archive_ids": both[1:]}], self.out.append)
+            replay = list(self.out)
+            del self.out[:]
+            main.send_replies(st, self.R(), [{**q, "rid": f"bad{i}", "archive_ids": sel} for i, sel in enumerate(
+                ([{"id": "w0", "target": b}, both[1]], both[:1], [], [{"id": "w0", "target": a, "contact": "wa:9"}, both[1]],
+                 [{"id": "gone", "target": a}, both[1]]))], self.out.append)
+            bad = [(p["kind"], p.get("error")) for p in self.out]
+            del self.out[:]
+            main.send_replies(st, self.R(), [{**q, "rid": "s1", "at": "2999-01-01T00:00:00Z"}], self.out.append)
+            st["refs"]["w0"] = {**ref, "to": "3@c.us"}                      # до отправки w0 сменил собеседника
+            st["later"]["s1"]["at"] = "2000-01-01T00:00:00Z"
+            main.send_replies(st, self.R(), [], self.out.append)
+            late = next(p for p in self.out if p["kind"] == "archived")
+        finally:
+            sources.run, main.save = real
+        self.assertEqual((first["ids"], first["members"], first["target"]), (["w", "w0"], sorted(both, key=lambda m: m["id"]), a))
+        self.assertEqual([p["kind"] for p in replay], ["sent", "archived", "send_blocked"])
+        self.assertEqual(replay[1], first)
+        self.assertEqual(bad, [("send_blocked", "Archive selection changed; reload before sending.")] * 5)
+        self.assertEqual((late["ids"], [m["id"] for m in late["members"]]), (["w"], ["w"]))
+        self.assertEqual(len(ran), 2)                                        # r1 и s1
+
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
         # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
         # повтор отмены не находил отложенного и молчал. Теперь повтор получает тот же итог; чужой пункт или редактор — нет
@@ -948,7 +988,7 @@ class Later(unittest.TestCase):
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
                                   'inbox_guard':True,'inbox_protocol':{'version':1,'private_proposal':True,
                                   'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True},
-                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1}])   # повтор rid сверяет просьбу и target (m479566); выходные — m484011
+                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1}])   # повтор rid сверяет просьбу и target (m479566); выходные — m484011
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
     def test_the_old_signature_becomes_the_approved_one(self):
