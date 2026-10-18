@@ -256,3 +256,5 @@ Folder label and flex-space ownership must follow aria-pressed, not the Inbox fo
 ## Outgoing folder previews
 
 Incoming-message text cannot represent a Sent row. Select eligible outgoing states from the existing receipt reducer using the group's exact message IDs, and share that preview with conversation search. Never read the current editor or an unaccepted retry for Sent. Attachment-only replies use filenames; confirmed reactions use their emoji. Missing latest reply text falls back to incoming context, not older reply text. Cover accepted reply plus failed retry, scheduling, attachment-only/reaction receipts, literal markup, grouped latest delivery and unchanged Inbox/draft behavior.
+
+Native row reminders are folder-specific presentation. Gate unread dots, pin marks and pin-first sorting on Inbox instead of deleting stored state while archiving or sending. Exercise Failed → Archive → Inbox → Sent with a pinned older conversation and verify restored reminders and unchanged storage. Selected native folder foreground is white in both themes; test a dark primary-foreground token explicitly rather than relying on the default browser test palette.

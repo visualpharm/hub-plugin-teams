@@ -379,3 +379,7 @@ The visible expanded folder label follows selection: Inbox, Sent or Archive. Ina
 ## 2026-10-18 · Outgoing folder previews
 
 Sent previews use the latest accepted or scheduled reply from the exact grouped message IDs; Failed previews use failed/unconfirmed reply text. Unsent edits and later refused retries cannot replace accepted Sent content. Reactions and attachment-only replies have readable previews, and search includes the displayed outgoing text. Incoming folders retain incoming context. A latest eligible reply without text falls back to incoming context rather than borrowing an older reply. This presentation change leaves receipts, drafts, targets and transport untouched.
+
+## 2026-10-18 · Native folder reminders
+
+Unread dots, pin marks and pin-first ordering belong to Inbox, matching both native clients. Sent, Archive and Failed retain their normal order without those Inbox reminders. Switching folders never clears saved pin/read state; it becomes visible again when the item returns to Inbox. The native selected folder uses white text/icons in both themes rather than the core theme's dark primary foreground.

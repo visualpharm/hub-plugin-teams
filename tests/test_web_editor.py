@@ -10,9 +10,47 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_folder_selection_keeps_white_text_and_icons_in_both_themes(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for theme in ('light','dark'):
+            self.page({'media':theme},{'eval':"document.querySelector('.tm').style.setProperty('--primary-foreground','#000');true"})
+            for folder in ('new','sent','archive'):
+                self.page({'tapSelector':f'[data-folder={folder}]'})
+                got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-folder[aria-pressed=true]');return {text:getComputedStyle(b).color,icon:getComputedStyle(b.querySelector('.tm-native-icon')).backgroundColor}})()"})[-1]['eval']
+                self.assertEqual(got,{'text':'rgb(255, 255, 255)','icon':'rgb(255, 255, 255)'},(theme,folder,got))
+
+    def test_native_folder_reminders_stay_in_inbox_without_erasing_saved_state(self):
+        self.seed_inbox(start_editing=False)
+        for mid,at in (('older','2026-01-01T12:00:00Z'),('newer','2026-01-02T12:00:00Z')):
+            self.feed({'kind':'msg','id':mid,'contact':'synthetic/'+mid,'src':'dm','from':mid,'text':mid,'reply':True,'at':at})
+        def owner(d): self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(d))
+        self.page({'eval':"localStorage.setItem('hub.inbox.pinned.v1:hub',JSON.stringify([JSON.stringify(['teams','synthetic/older'])]));true"},
+                  {'tapSelector':'.tm-close-conversation'})
+        for mid in ('older','newer'):
+            owner({'kind':'send','id':mid,'rid':mid+'-fail','text':'Unsent '+mid})
+            self.feed({'kind':'send_failed','id':mid,'rid':mid+'-fail','error':'Synthetic refusal'})
+        self.page({'until':"!!document.querySelector('[data-folder=failed]')"})
+        def check(folder):
+            self.page({'tapSelector':f'[data-folder={folder}]'},{'until':"document.querySelectorAll('.tm-person').length===2"})
+            got=self.page({'eval':"({names:[...document.querySelectorAll('.tm-person .tm-from')].map(n=>n.textContent),marks:document.querySelectorAll('.tm-person .tm-pinned,.tm-person .tm-unread').length})"})[-1]['eval']
+            self.assertEqual(got,{'names':['newer','older'],'marks':0},folder)
+        check('failed')
+        owner({'kind':'hide','ids':['older','newer']});self.page({'tapSelector':'[data-folder=archive]'})
+        check('archive')
+        owner({'kind':'unhide','ids':['older','newer']});self.page({'tapSelector':'[data-folder=new]'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-person .tm-from').textContent"})[-1]['eval'],'older')
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-person .tm-pinned') && !!document.querySelector('.tm-person .tm-unread')"})[-1]['eval'])
+        for mid in ('older','newer'):
+            owner({'kind':'send','id':mid,'rid':mid+'-ok','text':'Accepted '+mid})
+            self.feed({'kind':'sent','id':mid,'rid':mid+'-ok','receipt':{'id':'receipt-'+mid}})
+        check('sent')
+        self.assertTrue(self.page({'eval':"localStorage.getItem('hub.inbox.pinned.v1:hub').includes('synthetic/older')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_sent_preview_uses_accepted_reply_not_incoming_or_failed_retry(self):
         self.seed_inbox(start_editing=False)
-        for mid in ('delivered','scheduled','attachment','reaction','failed'):
+        for mid in ('delivered','scheduled','attachment','reaction','failed','waiting'):
             self.feed({'kind':'msg','id':mid,'contact':'synthetic/'+mid,'src':'dm','from':mid,
                        'text':'Incoming '+mid,'reply':True,'target':'synthetic-target-'+mid,'at':datetime.now(timezone.utc).isoformat()})
         def owner(d): self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(d))
@@ -21,6 +59,8 @@ class InboxWebAcceptance(PageInChrome):
             self.feed({'kind':{'scheduled':'scheduled','failed':'send_failed'}.get(mid,'sent'),'id':mid,'rid':mid+'-r','at':'2030-01-01T12:00:00Z','error':'Synthetic refusal','receipt':{'id':'receipt-'+mid}})
         owner({'kind':'send','id':'delivered','rid':'later-failure','text':'Unaccepted retry'})
         self.feed({'kind':'send_failed','id':'delivered','rid':'later-failure','error':'Synthetic refusal'})
+        owner({'kind':'send','id':'delivered','rid':'later-wait','text':'Unconfirmed later attempt'})
+        owner({'kind':'send','id':'waiting','rid':'waiting-r','text':'Unconfirmed first attempt'})
         owner({'kind':'react','id':'reaction','rid':'reaction-r','emoji':'👍','target':'synthetic-target-reaction'})
         self.feed({'kind':'reacted','id':'reaction','rid':'reaction-r','target':'synthetic-target-reaction'})
         self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
@@ -33,6 +73,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(previews(),{'failed':'Refused reply'})
         self.page({'tapSelector':'[data-folder=new]'})
         self.assertEqual(previews().get('failed'),'Incoming failed')
+        self.assertEqual(previews().get('waiting'),'Incoming waiting')
         self.assertEqual(self.non_history_actions(),[])
 
     def test_sent_preview_latest_known_delivery_does_not_borrow_older_reply(self):
