@@ -7,7 +7,7 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const ctx={console,URL,Map,Set,localStorage:{getItem:()=>null,setItem:()=>{}},conversationPins,localReadState,providerReadState,...hoursModule};vm.createContext(ctx);
-vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource,personName,conversationMark,sends,reactionSends,replies,saveDraft}; hub={snapshot:()=>({sessions:[]})};',ctx);
+vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource,conversationSources,personName,conversationMark,sends,reactionSends,replies,saveDraft}; hub={snapshot:()=>({sessions:[]})};',ctx);
 const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-a')]).size,1);
@@ -24,6 +24,9 @@ for (const [src,where,expected] of [
   ['channel','','Teams'],['telegram','Telegram','Telegram'],['whatsapp','Mint','WhatsApp · Mint'],
   ['email','Почта','Почта'],['telegram','   ','Telegram'],
 ]) assert.equal(ctx.t.conversationSource({src,where}),expected,'Source context must not repeat the provider or add an extra category');
+assert.equal(ctx.t.conversationSources([{src:'dm'},{src:'mention',where:' Design '},{src:'channel',where:'Design'},{src:'dm',where:'Personal'}]),'Teams · Design · Personal');
+assert.equal(ctx.t.conversationSources([{src:'dm',where:'Design · Team'},{src:'telegram',where:'Design · Team'}]),'Teams · Design · Team · Telegram · Design · Team','Keep full context and provider ownership');
+assert.equal(ctx.t.conversationSources([]),'');
 
 for (const [name,clean] of [
   ['Oleg Nov [UTC-03:00]','Oleg Nov'],['Name (gmt+2)','Name'],['Name [UTC −3]','Name'],

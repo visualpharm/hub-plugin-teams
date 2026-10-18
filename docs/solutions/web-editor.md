@@ -232,3 +232,7 @@ Use one previous-message cursor across loaded history and current messages. Rese
 Mail is a separate boundary: reset the history cursor before the current mail message so its exact time header remains visible even when older mail arrived one minute earlier. Chat continuity must not erase mail metadata.
 
 Teams surface types share a conversation key, so the newest message source cannot classify every earlier bubble. Use each current message source and honor explicit Teams history source metadata; history without metadata retains its parent source fallback. Flat cards already name their author in the header. Scope desktop header/source CSS to the detail pane so those cards retain one source label, and move the auto top margin to the first visible history child when the desktop source label is hidden.
+
+## Flat source layouts
+
+Hiding a grid detail does not remove its reserved column. Toggle the flat layout from the same source-filter predicate as detail visibility; test both source filters and the return to grouped conversations at phone, tablet and desktop widths. Await the synthetic feed before selecting its dynamically built filter. Group context by provider before deduplicating places: deduplicating full provider/place strings repeats the provider in mixed Teams conversations. Never split a supplied place on its display separator.
