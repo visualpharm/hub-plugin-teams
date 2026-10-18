@@ -640,6 +640,31 @@ class Later(unittest.TestCase):
         self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
                          [("send_failed", "r0", True), ("canceled", "l1", None)])
 
+    def test_reply_replay_confirms_only_the_original_request(self):
+        # 17.10 (codex m479506): повтор исходного rid вне Teams брал target из повтора и не сверял текст — «отправлено»
+        # подтверждалось другому собеседнику или другому тексту. Теперь повтор сверяется с исходной просьбой
+        import sources
+        import time
+        ran, real = [], (sources.run, main.save)
+        sources.run = lambda cmd, timeout=0: ran.append(cmd) or ""
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            st = {"refs": {"w": {"wa": "whatsapp", "to": "1@c.us", "send": "/bin/send"}}}
+            a = main.target_of(st["refs"]["w"])
+            q = {"id": "w", "rid": "r1", "text": "Да", "ts": now, "target": a}
+            main.send_replies(st, self.R(), [q], self.out.append)
+            del self.out[:]
+            main.send_replies(st, self.R(), [q, {**q, "target": "other"}, {**q, "text": "Нет"}], self.out.append)
+            plain = {"id": "w", "rid": "p1", "text": "Да", "ts": now}   # без target — как раньше
+            main.send_replies(st, self.R(), [plain, plain], self.out.append)
+        finally:
+            sources.run, main.save = real
+        self.assertEqual(len(ran), 2)
+        self.assertEqual([(p["kind"], p.get("rid"), p.get("target")) for p in self.out],
+                         [("sent", "r1", a), ("send_blocked", "r1", a), ("send_blocked", "r1", a),
+                          ("sent", "p1", None), ("answered", None, None), ("sent", "p1", None)])
+
     def test_reply_keeps_its_target_and_every_receipt_echoes_it(self):
         # 17.10 (codex m477541): ответ с target уходит только в ту переписку, которую видел клиент; сменился адрес
         # пункта — отказ без отправки; квитанции (и повтор, и «неизвестен», и «отложено») несут target просьбы

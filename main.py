@@ -1061,7 +1061,7 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
             elif time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # старая просьба из перечитанного журнала — молча
-                put({**reply_outcome(st, q), **({"target": q["target"]} if q.get("target") else {})})
+                put(reply_outcome(st, q))   # target — исходной просьбы, не повтора (m479506)
             continue
         if q["rid"] in later:
             if time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # потерян пост scheduled: повтор получает его снова
@@ -1318,6 +1318,12 @@ def entombed(st, rid):
     return hashlib.sha1(rid.encode()).hexdigest()[:12] in (st.get("rid_tombs") or ())
 
 
+def reply_print(q):
+    """Отпечаток просьбы ответа: повтор rid подтверждает итог только той же просьбе (тот же пункт, текст, файлы, цитата,
+    реакция и адрес) — иначе «отправлено» досталось бы другому собеседнику или тексту (17.10, codex m479506)."""
+    return inbox_delivery.digest({k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "react", "target") if k in q})
+
+
 def reply_outcome(st, q):
     """Повтор того же rid обычного ответа (клиент не получил итога): прежний итог; ждёт своего часа — «отложено»;
     оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10, codex m458240)."""
@@ -1326,10 +1332,14 @@ def reply_outcome(st, q):
         return {"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at"),
                 **({"target": held["target"]} if held.get("target") else {})}
     o = (st.get("reply_out") or {}).get(q["rid"]) or {}
+    pinned = {"target": o["target"]} if o.get("target") else {}
+    if o.get("print") and o["print"] != reply_print(q):   # тот же rid, другая просьба — исходный итог ей не достаётся
+        return {"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input",
+                **pinned}
     if o.get("event"):
-        return o["event"]
+        return {**o["event"], **pinned}
     return {"kind": "react_failed" if q.get("react") else "send_failed", "id": q["id"], "rid": q["rid"],
-            "error": UNKNOWN_OUTCOME, "unresolved": True}
+            "error": UNKNOWN_OUTCOME, "unresolved": True, **({"target": q["target"]} if q.get("target") else {})}
 
 
 def send_one(st, reader, q, put=post, now=None):
@@ -1342,7 +1352,8 @@ def send_one(st, reader, q, put=post, now=None):
                       "error": "Conversation changed; refresh before sending."}
             st.setdefault("sent_rids", []).append(q["rid"])
             tomb(st, q["rid"])
-            st.setdefault("reply_out", {})[q["rid"]] = {"state": "done", "id": q["id"], "event": failed}
+            st.setdefault("reply_out", {})[q["rid"]] = {"state": "done", "id": q["id"], "event": failed,
+                                                        "print": reply_print(q), "target": q["target"]}
             save(st)
             put(failed)
             return
@@ -1372,7 +1383,8 @@ def send_one(st, reader, q, put=post, now=None):
     done.append(q["rid"])
     del done[:-500]
     tomb(st, q["rid"])
-    outs[q["rid"]] = {"state": "pending", "id": q["id"]}
+    seal = {"print": reply_print(q), **({"target": q["target"]} if q.get("target") else {})}
+    outs[q["rid"]] = {"state": "pending", "id": q["id"], **seal}
     for k in list(outs)[:-500]:
         del outs[k]
     save(st)
@@ -1380,7 +1392,7 @@ def send_one(st, reader, q, put=post, now=None):
 
     def put(event):   # итог rid помним до того, как его увидит клиент: повтор получит тот же
         if event.get("rid") == q["rid"] and event.get("kind") != "scheduled":
-            outs[q["rid"]] = {"state": "done", "id": q["id"], "event": event}
+            outs[q["rid"]] = {"state": "done", "id": q["id"], "event": event, **seal}
             save(st)
         _put(event)
 
