@@ -321,3 +321,7 @@ Why: Queue acceptance cannot prove a setting changed, and a reused inbound id ca
 ## 2026-10-18 · Archive state follows the observed destination
 
 An owner hide event retains the message identity observed at its journal position. When a trusted replacement changes source, contact or target for the same id, discard its prior local hidden membership. Same-identity updates remain archived; replay derives the same result without writing an unhide event. This fixes historical archive leakage without guessing identity for a late legacy id-only hide. Send and Archive remains a separate receipt-bound collector contract.
+
+## 2026-10-18 · Remembered receipt-bound Send and Archive
+
+The native send menu remembers the primary action per Hub. Archive intent and the exact open conversation members are persisted with the original send request before transport. Only a matching collector archive receipt applies, with original version and provider receipt required for guarded Teams. Recheck each member's current target/contact, preserve newer drafts, and never include arrivals after submission. Custom scheduling explicitly omits archive intent. Missing capabilities or oversized selections explain the refusal without sending a partial selection. Plain-provider duplicate confirmation uses the collector's successful command outcome, matching ordinary send confirmation; it does not invent a provider receipt.

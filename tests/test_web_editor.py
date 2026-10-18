@@ -10,6 +10,114 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def archive_setup(self):
+        self.seed_inbox(start_editing=False)
+        self.open_external_source('telegram',target='archive-target')
+        self.feed({'kind':'config','v':3,'send_archive':1,'archive_selection':1,'reply_replay':1})
+        self.page({'until':"document.querySelector('.tm-send-archive')?.dataset.available==='true'"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-send-archive')"})[-1]['eval'])
+
+    def test_send_archive_default_survives_reload_and_schedule_never_archives(self):
+        self.archive_setup(); self.edit('Original archive reply')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        q=self.queued('send')
+        self.assertTrue(q['archive'])
+        self.assertEqual(q['archive_ids'],[{'id':'external-telegram','target':'archive-target','contact':'synthetic/telegram'}])
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===2"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.edit('Newer reply')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose button[type=submit]').getAttribute('aria-label')"})[-1]['eval'],'Send and Archive')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-archive').getAttribute('aria-pressed')"})[-1]['eval'],'true')
+        pending=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.pending.v1:')).map(k=>JSON.parse(localStorage[k]).q)"})[-1]['eval']
+        self.assertEqual(pending,[q])
+        self.feed({**q,'kind':'send_blocked','error':'Synthetic refusal'})
+        self.page({'until':"document.body.innerText.includes('Synthetic refusal')"})
+        self.page({'tapSelector':'.tm-send-options > summary'},{'eval':"document.querySelector('.tm-send-later').open=true;document.querySelector('.tm-send-date').value='2099-06-17T12:30';document.querySelector('.tm-schedule-send').click();true"})
+        scheduled=self.queued('send');self.assertIn('at',scheduled);self.assertNotIn('archive',scheduled);self.assertNotIn('archive_ids',scheduled)
+
+    def test_send_archive_group_receipt_preserves_new_arrivals_and_drafts(self):
+        self.archive_setup()
+        older={'kind':'msg','id':'older','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Older unanswered item','reply':True,'target':'older-target','at':'2026-10-17T00:00:00Z'}
+        self.feed(older)
+        self.page({'until':"document.body.innerText.includes('Older unanswered item')"})
+        self.edit('Reply and archive')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        q=self.queued('send')
+        self.assertTrue(q['archive']);self.assertEqual({m['id'] for m in q['archive_ids']},{'older','external-telegram'})
+        self.edit('Newer draft stays')
+        self.feed({**older,'id':'new-arrival','text':'Arrived after send','target':'new-target','at':'2026-10-18T12:00:00Z'})
+        receipt={'kind':'archived','id':q['id'],'rid':q['rid'],'target':q['target'],'ids':[m['id'] for m in q['archive_ids']],'members':q['archive_ids']}
+        self.feed({**receipt,'target':'wrong'})
+        self.page({'sleep':200},{'tapSelector':'.tm-close-conversation'},{'tapSelector':"[aria-label='Archived conversations']"})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        self.feed(receipt)
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
+        self.page({'tapSelector':'.tm-person'})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('[aria-label=\"Вернуть сообщения Synthetic telegram\"]')"})[-1]['eval'])
+        self.page({'tapSelector':'[aria-label="Вернуть сообщения Synthetic telegram"]'})
+        self.assertEqual(self.queued('unhide')['ids'],['older'])
+        self.feed(receipt)
+        self.page({'sleep':200})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0,'Duplicate archive receipt must not undo Restore')
+        self.page({'tapSelector':"[aria-label='Inbox conversations'] button[data-folder='new']"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.assertIn('Arrived after send',self.page({'eval':"document.body.innerText"})[-1]['eval'])
+        drafts=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.v1:')).map(k=>JSON.parse(localStorage[k]).text)"})[-1]['eval']
+        self.assertIn('Newer draft stays',drafts)
+        # Replay must not hide a new contact which happens to reuse a member id/target.
+        self.feed({**older,'contact':'replacement-contact','from':'Replacement person'})
+        self.feed(receipt)
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.body.innerText.includes('Replacement person')"})
+        self.assertIn('Replacement person',self.page({'eval':"document.body.innerText"})[-1]['eval'])
+
+    def test_send_archive_capability_and_size_refusals_preserve_draft(self):
+        self.archive_setup();self.edit('Preserved reply')
+        self.feed({'kind':'config','v':3})
+        self.page({'until':"document.querySelector('.tm-send-archive')?.dataset.available==='false'"},{'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('Send and Archive is unavailable')"})[-1]['until'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+        self.feed({'kind':'config','v':3,'send_archive':1,'archive_selection':1})
+        for n in range(25):
+            self.feed({'kind':'msg','id':'older-'+str(n),'contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Older '+str(n),'reply':True,'target':'target-'+str(n),'at':'2026-10-17T00:00:00Z'})
+        self.page({'until':"document.body.innerText.includes('Older 24')"},{'eval':"document.querySelector('.tm-send-options').open=true;document.querySelector('.tm-send-archive').click();true"})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('too large')"})[-1]['until'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Preserved reply')
+
+    def test_send_archive_guarded_receipt_requires_original_version(self):
+        self.seed_inbox(target='guarded-target');self.acknowledge(self.queued('draft_control'))
+        self.feed({'kind':'config','v':3,'send_archive':1,'archive_selection':1,'inbox_protocol':{'version':1,'editor_cas':True}})
+        self.page({'until':"document.querySelector('.tm-send-archive')?.dataset.available==='true'"})
+        self.edit('Guarded archive reply')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        q=self.queued('send')
+        receipt={'kind':'archived','id':q['id'],'rid':q['rid'],'target':q['target'],'ids':[q['id']],'members':q['archive_ids'],'version':q['inbox']['version'],'receipt':{'id':'synthetic-receipt'}}
+        for wrong in ({'version':'other'},{'receipt':{}},{'rid':'other'},{'members':[{'id':q['id'],'target':'other'}]}):self.feed({**receipt,**wrong})
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':"[aria-label='Archived conversations']"},{'sleep':200})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        self.feed(receipt)
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
+
+    def test_send_archive_primary_keyboard_and_plain_duplicate_recovery(self):
+        self.archive_setup();self.edit('First reply')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        q=self.queued('send')
+        self.feed({**q,'kind':'send_duplicate','state':'sent'})
+        self.assertTrue(self.page({'until':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.pending.v1:')).length===0"})[-1]['until'])
+        self.feed({'kind':'msg','id':'next-reply','contact':'next-contact','src':'telegram','from':'Next colleague','text':'Next inbound item','reply':True,'target':'next-target','at':'2026-10-18T12:00:00Z'})
+        self.page({'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Next colleague'))"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Next colleague')).click();true"})
+        self.edit('Keyboard archive reply')
+        self.page({'eval':"document.querySelector('.tm-shared-compose textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',metaKey:true,bubbles:true,cancelable:true}));true"})
+        keyboard=self.queued('send');self.assertTrue(keyboard['archive']);self.assertEqual(keyboard['id'],'next-reply')
+        # Switching back to Send now must override the remembered primary action.
+        self.feed({**keyboard,'kind':'send_blocked','error':'Keyboard synthetic refusal'})
+        self.page({'until':"document.body.innerText.includes('Keyboard synthetic refusal')"})
+        self.edit('Send only')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-now'})
+        plain=self.queued('send');self.assertNotIn('archive',plain)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-now').getAttribute('aria-pressed')"})[-1]['eval'],'true')
+        self.page({'eval':"(()=>{const key=Object.keys(localStorage).find(k=>k.startsWith('hub.inbox.send-action.v1:'));localStorage.setItem(key,'archive');dispatchEvent(new StorageEvent('storage',{key,newValue:'archive'}));return true})()"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-archive').getAttribute('aria-pressed')"})[-1]['eval'],'true')
+
     def test_weekend_change_waits_for_exact_receipt_and_preserves_reply(self):
         self.seed_inbox(start_editing=False)
         self.open_external_source('telegram',target='weekend-target')

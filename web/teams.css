@@ -373,6 +373,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-options:not([open]) > .tm-send-menu { display: none; }
 .tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
 .tm .tm-send-menu > .btn, .tm .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; font-size:16px; }
+.tm-send-now > svg, .tm-send-archive > svg { width:20px; height:20px; flex-shrink:0; color:var(--primary); }
+.tm-send-menu [aria-pressed="false"] > svg { visibility:hidden; }
+.tm-send-menu > hr { border:0; border-top:1px solid var(--border); margin:8px 0; }
+.tm .tm-send-working, .tm-send-later > summary { padding-left:36px; }
 .tm-send-weekends { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px; border-top:1px solid var(--border); cursor:pointer; font-size:16px; }
 .tm-send-weekends[hidden], .tm-weekend-retry[hidden], .tm-weekend-feedback[hidden] { display:none; }
 .tm-send-weekends input { width:18px; height:18px; margin:0; flex-shrink:0; }
