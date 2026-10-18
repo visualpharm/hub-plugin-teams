@@ -96,7 +96,8 @@ def expand(p):
 
 KIND_NAMES = {"ptt": ("голосовое", "голосовых"), "audio": ("аудио", "аудио"), "image": ("фото", "фото"),
               "video": ("видео", "видео"), "document": ("файл", "файлов"), "sticker": ("стикер", "стикеров"),
-              "chat": ("текст", "текстовых"), "location": ("геопозиция", "геопозиций")}
+              "chat": ("текст", "текстовых"), "location": ("геопозиция", "геопозиций"),
+              "call": ("звонок", "звонков")}
 
 
 SERVICE_TYPES = {"e2e_notification", "notification_template", "gp2", "protocol", "ciphertext", "revoked"}
