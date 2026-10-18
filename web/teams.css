@@ -260,6 +260,7 @@
 
 /* Native Inbox actions share one quiet row above the reply. */
 .tm-native-icon { display: inline-block; flex: none; width: 22px; height: 22px; background: currentColor; mask: var(--tm-icon) center / contain no-repeat; }
+.tm-action > .icon { flex: none; width: 22px; height: 22px; }
 .tm-thread > .tm-acts { flex-wrap: nowrap; gap: 8px; }
 .tm-thread .tm-action { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; border-radius: 22px; padding: 0 14px; background: var(--muted); color: var(--foreground); border: 0; }
 .tm-action-label { white-space: nowrap; }

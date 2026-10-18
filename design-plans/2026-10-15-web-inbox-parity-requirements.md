@@ -30,3 +30,8 @@ management work owns the protocol; this slice changes only its web consumer.
 - Weekends Too reads the trusted collector configuration for this exact contact, not an optimistic local toggle. Changing it requires the current target and correlated collector capability; HTTP acceptance is not confirmation. Persist original id/contact/target/rid/value before sending and use the same request for explicit retry after reload.
 - Wrong receipts, revoked capabilities, stale controls and changed destinations cannot mutate a replacement conversation. Preserve newer reply drafts. Unknown or refused setting changes stay visible.
 - Native Send and Archive and its remembered default remain a separate unfinished requirement.
+
+## Native context and action comparison (2026-10-18)
+- Pinned0597a826 Letter.origin renders provider plus distinct supplied place once. Teams DM must not read “Teams · Личка · Личка”; Telegram must not repeat its own name.
+- Shared row actions use one icon size at each layout width: existing22px labelled and28px compact. Keep44px targets. Verify360–1440 including tablet single-pane widths.
+- Pinned native reset feed at402×874 and1240×780 is the content baseline. Preserve mock photo bytes through a same-origin blob URL when capturing actual live static UI with intercepted APIs. Compare both themes; fixture parity alone is not pixel parity.

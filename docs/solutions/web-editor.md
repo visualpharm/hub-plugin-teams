@@ -213,3 +213,7 @@ selection stayed separate. Use the existing source-family/contact pin identity a
 conversation key too; keep Teams categories together. The serialized preference key
 must remain unchanged. Reproduce with identical contacts in two providers, then verify
 separate history, drafts after reload, unread/pin state and exact archive membership.
+
+
+## Context and icon drift
+The supplied where field already carries the Teams category or provider context. Build the display from provider plus a distinct place, matching native Letter.origin, rather than adding category twice. Test DM, mention, channel, Telegram, WhatsApp and Mail. Shared core SVG icons inherit a different default size than plugin masks; set both explicitly on the action row and test wide tablet as well as desktop. Compact container rules still override both together.

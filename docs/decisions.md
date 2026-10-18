@@ -336,3 +336,7 @@ Why: a hostile review found that raw-contact grouping combined unrelated histori
 while archive and pins already used the provider boundary. Keep the existing serialized
 pin/read keys, with no migration or loss of drafts. Undo: revert the grouping alias;
 stored preferences remain compatible. By: agent.
+
+
+### 2026-10-18 — Native conversation context and action glyphs
+Use the provider plus its distinct place once, matching pinned native Letter.origin. Do not synthesize a second Teams category before the supplied place. Deduplicate identical source context across conversation members. All action-row icons use22px in the labelled layout and28px in the existing compact layout; the shared React SVG previously inherited16px. Keep44px targets and existing reaction/draft semantics. Bounded native alignment, not a new layout.
