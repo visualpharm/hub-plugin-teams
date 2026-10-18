@@ -79,8 +79,13 @@ function saveDraft(m,text,pendingRid=null,files=savedDraft(m)?.files || []) {
 }
 function acceptDraft(m,rid) {
   if (!m || savedDraft(m)?.pendingRid!==rid) return false;
-  const key=draftKey(m);editorDrafts.delete(key);
-  try { localStorage.removeItem(key); } catch { /* Keep the accepted tombstone in this page. */ }
+  const key=draftKey(m),saved=savedDraft(m);
+  try {
+    // A receipt acknowledges this payload, never a newer draft saved by
+    // another tab while the request was in flight.
+    if(localStorage.getItem(key)!==JSON.stringify(saved)) {editorDrafts.delete(key);return false;}
+    localStorage.removeItem(key);
+  } catch { return false; }
   editorDrafts.set(key,undefined);return true;
 }
 const hasOwnerDraft=m=>!!(savedDraft(m)?.text.trim() || savedDraft(m)?.files?.length || composing.get(m?.id)?.uploading) && !savedDraft(m)?.pendingRid;
@@ -105,12 +110,30 @@ function pendingReply(m) {
     return row;
   } catch { return {blocked:true}; }
 }
-async function retainReply(m,q) {
+async function retainReply(m,q,{validate,retryOf,onRetained}={}) {
   const persist=()=>{
+    validate?.();
     if(pendingReply(m))throw Error("A reply is awaiting confirmation. Your draft is retained.");
-    try { localStorage.setItem(pendingReplyKey(m),JSON.stringify({q,ts:Date.now()/1000})); }
-    catch { throw Error("Could not save this reply before sending. Keep this page open and try again."); }
+    let retained=false;
+    try {
+      localStorage.setItem(pendingReplyKey(m),JSON.stringify({q,ts:Date.now()/1000}));retained=true;
+      if(retryOf) {
+        const saved=savedDraft(m),key=draftKey(m);
+        // Only move an untouched failed attempt's tombstone. A newer edit,
+        // attachment or another tab's persisted draft is never replaced.
+        if(saved?.pendingRid===retryOf && localStorage.getItem(key)===JSON.stringify(saved)) {
+          const next={...saved,pendingRid:q.rid};
+          localStorage.setItem(key,JSON.stringify(next));editorDrafts.set(key,next);
+        }
+      }
+    } catch {
+      if(retained)try {if(pendingReply(m)?.q?.rid===q.rid)localStorage.removeItem(pendingReplyKey(m));}catch {}
+      throw Error("Could not save this reply before sending. Keep this page open and try again.");
+    }
     sends.set(q.rid,{...q,guarded:guardedReply(m),ts:Date.now()/1000,mine:true,state:"wait"});
+    // Retry starts transport synchronously after its final admission check,
+    // without holding the Web Lock while waiting for the network response.
+    onRetained?.();
   };
   if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),persist);
   else persist();
@@ -1557,6 +1580,64 @@ function hasReplyToResume(m) {
   return !!(draft?.text.trim() || draft?.files?.length);
 }
 
+function failedReply(m,rid) {
+  const current=msgs.get(m.id),x=sends.get(rid);
+  if(!current || pendingReplyKey(current)!==pendingReplyKey(m) || current.post!==m.post ||
+     !x || x.id!==m.id || x.state!=="fail" || !x.mine || typeof x.text!=="string" ||
+     (x.target || "")!==(current.target || "") || x.inbox?.version && x.inbox.version!==current.inbox?.version)
+    throw Error("The failed reply or conversation changed. Reopen it before retrying.");
+  if(!canReply(current))throw Error("This conversation is no longer available for a reply.");
+  const files=(x.files || []).map(f=>typeof f==='string' ? f : f?.path);
+  if(files.some(f=>typeof f!=='string' || !f) || files.length>10)throw Error("The original attachments are unavailable.");
+  if(files.length && !acceptsFiles(current))throw Error("This destination accepts text only.");
+  if(!x.text.trim() && !files.length)throw Error("The original reply is unavailable.");
+  return {current,x,files};
+}
+
+async function retryFailedReply(m,rid) {
+  if(replyRecoveries.get(rid)?.busy)return;
+  const attempt={busy:true,error:""};replyRecoveries.set(rid,attempt);
+  const view=JSON.stringify([location.hash,tab,src,dmPerson]);
+  let q,st,transport;
+  try {
+    const {current,x,files}=failedReply(m,rid);
+    if(deliveryPending(current))throw Error(PENDING_REPLY_NOTICE);
+    const original=JSON.stringify([x.text,files]);
+    if(guardedReply(current)) {
+      if(hub.capabilities?.composerTransport!==1)throw Error("Open the current Inbox editor to retry this reply.");
+      if(!composing.has(current.id))openCompose(current,undefined,"",false);
+      st=composing.get(current.id);
+      if(!st?.state)throw Error("Reopen this editor using the current conversation.");
+      st.state.observe(current);
+      if(!st.state.control && !st.state.delivery){st.state.needsHold=true;st.started=false;}
+    }
+    const revision=st?.state.revision;
+    paint();
+    if(st){beginEditing(current,st);await waitForEditor(current,st,revision);}
+    const validate=()=>{
+      const live=failedReply(m,rid);
+      if(view!==JSON.stringify([location.hash,tab,src,dmPerson]) || !ui.root?.checkVisibility() ||
+         JSON.stringify([live.x.text,live.files])!==original ||
+         st && (composing.get(m.id)!==st || st.state.revision!==revision || !st.root?.checkVisibility() || st.closing))
+        throw Error("The draft or conversation changed. Review it before retrying.");
+      if(deliveryPending(live.current))throw Error(PENDING_REPLY_NOTICE);
+    };
+    validate();
+    q=st ? st.state.send(requestId(),x.text,{target:current.target})
+      : boundedRequest({kind:"send",id:current.id,rid:requestId(),text:x.text,...(current.target ? {target:current.target} : {}),...(files.length ? {files} : {})});
+    await retainReply(current,q,{validate,retryOf:rid,onRetained:()=>{transport=mark(q.kind,q);paint();}});
+    let accepted=false;try {accepted=await transport;}catch {}
+    if(!accepted && sends.get(q.rid)?.state==="wait") {
+      sends.set(q.rid,{...sends.get(q.rid),state:"unresolved",error:UNKNOWN_REPLY_NOTICE});
+      attempt.error=UNKNOWN_REPLY_NOTICE;
+    }
+  } catch(e) {
+    if(q && st?.state.delivery?.rid===q.rid)st.state.delivery=null;
+    restorePendingReply(msgs.get(m.id));
+    attempt.error=e.message;
+  } finally {attempt.busy=false;paint();}
+}
+
 function editFailedReply(m, x) {
   const current=msgs.get(m.id);
   if(!current || pendingReplyKey(current)!==pendingReplyKey(m)) {
@@ -1604,11 +1685,16 @@ function sentBlock(m, rid, x) {
     retry.disabled=!!attempt?.busy;d.append(retry);
     if(attempt?.error) { const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem); }
   }
-  if ((x.state === "fail" || late) && !composing.has(m.id)) {
+  if ((x.state === "fail" || late)) {
     const a = el("div", "tm-acts");
+    if(chat && x.state==="fail" && x.mine && typeof x.text==="string" && (x.text.trim() || x.files?.length)) {
+      const attempt=replyRecoveries.get(rid),retry=button(attempt?.busy ? T("Повторяю…","Retrying…") : T("Повторить","Retry"),"quiet tm-retry-failed",()=>retryFailedReply(m,rid),"Retry: "+personName(m.from));
+      retry.disabled=!!attempt?.busy || deliveryPending(m);a.append(retry);
+      if(attempt?.error){const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem);}
+    }
     const editLabel=hasReplyToResume(m) ? T("Продолжить черновик", "Resume draft") : T("Править ответ", "Edit reply");
-    a.append(button(editLabel, "", () => editFailedReply(m, x), `${editLabel}: ${personName(m.from)}`));
-    d.append(a);
+    if(!composing.has(m.id))a.append(button(editLabel, "", () => editFailedReply(m, x), `${editLabel}: ${personName(m.from)}`));
+    if(a.childElementCount)d.append(a);
   }
   return d;
 }
