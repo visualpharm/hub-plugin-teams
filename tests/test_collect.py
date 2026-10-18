@@ -830,6 +830,53 @@ class Later(unittest.TestCase):
         self.assertEqual(durable, [("send_blocked", "Archive selection changed; reload before sending.")] * 2)
         self.assertEqual(len(ran), 3)                                        # r1, s1, c2 — d1 не отправлялся
 
+    def test_automatic_reply_outside_teams_replays_once_and_archive_intent_survives(self):
+        # 18.10 (codex m486905/m486924): автоответ вне Teams на повтор получал send_blocked, а после вытеснения
+        # sent_rids уходил второй раз; ждущее намерение архива вытеснялось 500 новыми; старый журнал заливал ленту
+        import sources
+        import time
+        ran, real = [], (sources.run, main.save)
+        sources.run = lambda cmd, timeout=0: ran.append(cmd) or ""
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            ref = {"wa": "whatsapp", "to": "1@c.us", "send": "/bin/send"}
+            st = {"refs": {"w": dict(ref)}, "open": {"w": ["b", "t"]}, "cfg": {"inbox_guard": True},
+                  "hours": {"from": "00:00", "to": "24:00", "weekends": True}}   # круглосуточно: тест не зависит от часа
+            q = {"id": "w", "rid": "a1", "text": "Да", "ts": now, "automatic": True}
+            main.send_replies(st, self.R(), [q], self.out.append)
+            del self.out[:]
+            main.send_replies(st, self.R(), [q], self.out.append)                    # свежий повтор — прежний итог
+            replay = [p["kind"] for p in self.out]
+            st["sent_rids"] = []                                                      # вытеснен из кэша
+            st["open"]["w"] = ["b", "t"]
+            del self.out[:]
+            main.send_replies(st, self.R(), [q, {**q, "ts": now - 86400}], self.out.append)
+            evicted = [(p["kind"], p.get("unresolved")) for p in self.out if p.get("rid")]
+            # намерение архива ждёт отложенной отправки и переживает 600 новых намерений
+            del self.out[:]
+            arch = {"id": "w", "rid": "s1", "text": "Да", "ts": now, "archive": True, "at": "2999-01-01T00:00:00Z"}
+            main.send_replies(st, self.R(), [arch], self.out.append)
+            for i in range(600):
+                main.archive_mismatch(st, {"id": "w", "rid": f"n{i}", "text": "x", "archive": True}, st["later"], lambda e: None)
+                st["archive_rids"][f"n{i}"]["event"] = {"kind": "archived"}           # разрешённые — можно вытеснять
+            st["later"]["s1"]["at"] = "2000-01-01T00:00:00Z"
+            main.send_replies(st, self.R(), [], self.out.append)
+            due = [p["kind"] for p in self.out if p.get("rid") == "s1"]
+            del self.out[:]
+            main.send_replies(st, self.R(), [{**arch, "ts": now - 86400}], self.out.append)   # старый журнал — молча
+            stale = list(self.out)
+            main.send_replies(st, self.R(), [arch], self.out.append)                  # повтор клиента — итог
+            fresh = [p["kind"] for p in self.out]
+        finally:
+            sources.run, main.save = real
+        self.assertEqual(replay, ["sent"])
+        self.assertEqual(evicted, [("sent", None)])                                   # прежний итог по отпечатку, без отправки
+        self.assertEqual(due, ["scheduled", "sent", "archived"])
+        self.assertEqual(len(st["archive_rids"]), 500)
+        self.assertEqual((stale, fresh), ([], ["sent", "archived"]))
+        self.assertEqual(len(ran), 2)                                                 # a1 и s1 — по разу
+
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
         # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
         # повтор отмены не находил отложенного и молчал. Теперь повтор получает тот же итог; чужой пункт или редактор — нет

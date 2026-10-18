@@ -715,6 +715,24 @@ def hours_for(st, key, weekends, put=post):
     config(st, put)
 
 
+def plain_path(st, q):
+    """Пойдёт ли просьба обычным путём (как решит send_one): вне Teams (wa/tg/mail), реакция или ручной ответ без
+    inbox — да; автоответ и ответ с inbox в Teams — защищённый путь. Повтор rid обычного пути — reply_outcome и
+    вечные отпечатки, защищённого — inbox_delivery.previous (codex m486905: автоответ вне Teams уходил второй раз)."""
+    ref = (st.get("refs") or {}).get(q.get("id")) or {}
+    return bool(any(ref.get(k) for k in ("wa", "tg", "mail")) or q.get("react")
+                or (q.get("inbox") is None and not q.get("automatic")))
+
+
+def replay_fresh(st, q):
+    """Отвечать ли на повтор rid: свежая просьба (≤ HISTORY_FRESH) — да; старая из перечитанного журнала — нет, иначе
+    перезапуск заливает ленту повторными квитанциями (codex m486924). У защищённого пути просьба без ts (старые
+    клиенты, тесты) — свежая, как было."""
+    if not q.get("ts"):
+        return not plain_path(st, q)
+    return time.time() - q["ts"] <= HISTORY_FRESH
+
+
 def archive_mismatch(st, q, later, put=None):
     """«Отправить и убрать» помним по rid до отправки (st["archive_rids"]: id, target). Повтор rid с другим намерением
     (было с архивом — пришло без, или наоборот) — отказ с исходным target, без новой отправки и без архива (18.10,
@@ -728,12 +746,15 @@ def archive_mismatch(st, q, later, put=None):
     sel = sorted(q["archive_ids"], key=lambda m: m.get("id", "")) if want and "archive_ids" in q else None
     refused = (st.get("archive_refused") or {}).get(q["rid"])
     if refused:   # отказ по выбору окончателен: повтор rid получает его же, без переоценки и отправки (m486368)
-        if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
+        if replay_fresh(st, q):
             (put or post)(refused)
         return True
+    lost = q["rid"] not in intents and hashlib.sha1(q["rid"].encode()).hexdigest()[:12] in (st.get("archive_tombs") or ())
+    if lost:   # намерение давно разрешилось и вытеснено: повтор получит прежний итог обычным путём, архива не будет
+        return False
     if known and ((q["rid"] in intents) != want or (want and intents[q["rid"]].get("members") != sel)):
         # защищённый путь отвечает на повтор всегда (как inbox_delivery.previous), обычный — только свежей просьбе
-        if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
+        if replay_fresh(st, q):
             pin = intents.get(q["rid"]) or ((st.get("reply_out") or {}).get(q["rid"]) or {})
             (put or post)({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input",
                            **({"target": pin["target"]} if pin.get("target") else {})})
@@ -762,7 +783,9 @@ def archive_mismatch(st, q, later, put=None):
                              **({"members": sel,   # и собеседник каждого на момент просьбы: сменился — не убираем
                                  "seen": {m["id"]: ((st.get("who") or {}).get(m["id"]) or {}).get("contact") for m in sel}}
                                 if sel is not None else {})}
-        for k in list(intents)[:-500]:
+        st.setdefault("archive_tombs", []).append(hashlib.sha1(q["rid"].encode()).hexdigest()[:12])   # навсегда
+        resolved = [k for k, v in intents.items() if v.get("event")]   # ждущие отправки не вытесняем никогда
+        for k in resolved[:max(0, len(intents) - 500)]:
             del intents[k]
         save(st)
     return False
@@ -1221,8 +1244,10 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if archive_mismatch(st, q, later, put):
             continue
-        if q["rid"] in done or (q.get('inbox') is None and not q.get('automatic') and entombed(st, q["rid"])):
-            if q.get('inbox') is not None or q.get('automatic'):
+        if q["rid"] in done or (plain_path(st, q) and entombed(st, q["rid"])):
+            if not replay_fresh(st, q):   # перечитанный журнал после перезапуска — молча, повтор клиента — итог
+                continue
+            if not plain_path(st, q):   # защищённый путь Teams: итог — по претензии inbox_delivery
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
             elif time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # старая просьба из перечитанного журнала — молча
@@ -1588,6 +1613,8 @@ def send_guarded(st, reader, q, put=post, now=None):
     rejected=st.setdefault('inbox_rejections',{})
     fingerprint=inbox_delivery.digest({k:q[k] for k in ('id','inbox','text','editor','automatic','files','reply_to','quote','target') if k in q})
     if q['rid'] in rejected:
+        if not replay_fresh(st, q):   # отказ из перечитанного журнала не повторяем (m486924)
+            return
         old=rejected[q['rid']]
         put((inbox_delivery.previous(st,q) or old['result']) if old['fingerprint']==fingerprint else
             {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Request ID reused with different input'})

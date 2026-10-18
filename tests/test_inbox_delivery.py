@@ -77,6 +77,11 @@ class Delivery(unittest.TestCase):
         st = json.loads(json.dumps(st))
         out, calls, _ = self.run_send(st, [q], {'id': 'never'})
         self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_duplicate', 'archived']))
+        import time   # перечитанный журнал после перезапуска — молча; свежий повтор клиента — итог (m486924)
+        out, calls, _ = self.run_send(st, [{**q, 'ts': time.time() - 86400}], {'id': 'never'})
+        self.assertEqual((calls, out), ([], []))
+        out, calls, _ = self.run_send(st, [{**q, 'ts': time.time()}], {'id': 'never'})
+        self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_duplicate', 'archived']))
         out, calls, _ = self.run_send(st, [{k: v for k, v in q.items() if k != 'archive'}], {'id': 'never'})
         self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_blocked']))
         for receiptless in ({'kind': 'sent', 'id': 'a', 'rid': 'x', 'receipt': None},
