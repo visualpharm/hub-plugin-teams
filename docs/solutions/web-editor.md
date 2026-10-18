@@ -290,3 +290,6 @@ Native Emphasis uses Unicode letter/number boundaries to distinguish standalone 
 
 ### Flat card spacing
 Measure from the previous card's final content to the next header, not only the list's computed gap. A 24px list gap plus two 12px card paddings and an empty action footer's 8px flex gap created 56px of blank space. Make the flat list the sole owner of separation and omit empty footers. Browser acceptance covers phone/tablet/desktop themes and nonempty archive Restore; use unsent archived messages for that fixture because delivered messages intentionally remain in Sent. Grouped media reconciliation handles absent footers through syncChildren.
+
+### Flat search alignment
+The search footer belongs to the same reading column as flat cards. Test its left/right edges and icon start at narrow, tablet and wide widths, then type a query and use Clear to verify filtering and returned focus. Scope the width/inset override to tm-flat so grouped list geometry stays intact. Await synthetic source rows before selecting dynamic source filters; otherwise a missing filter/card is fixture timing rather than a layout failure.
