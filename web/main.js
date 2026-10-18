@@ -15,6 +15,7 @@ import { messageMenus } from "./message-menu.js";
 import { conversationPins } from "./conversation-pins.js";
 import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
+import { workingHours, nextWorkingStart, workingStartLabel } from "./working-hours.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -129,6 +130,7 @@ async function settlePendingReply(m,rid) {
 }
 let inboxProtocol = null;
 let replyReplay = false;
+let sendHours = null;
 const replyRecoveries = new Map();
 let historyAvailable = false;
 const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
@@ -378,7 +380,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
@@ -1022,6 +1024,19 @@ function sharedReply(m, st) {
       st.error="";st.nextSendAt=at;sendMenu.open=false;st.box.node.requestSubmit();
     };
     sendChoices.append(button("Send now","quiet",()=>chooseSend(null)));
+    const working=button("","quiet tm-send-working",()=>{
+      const current=msgs.get(m.id);
+      if(!current || pendingReplyKey(current)!==pendingReplyKey(m))return;
+      const at=nextWorkingStart(sendHours,current.contact);
+      if(!at){st.error="Working hours are unavailable. Choose a send time.";paint();return;}
+      chooseSend(at.toISOString());
+    });
+    st.updateSendHours=()=>{
+      const at=nextWorkingStart(sendHours,msgs.get(m.id)?.contact);
+      working.hidden=!at;if(at)working.textContent=workingStartLabel(at);
+    };
+    sendMenu.addEventListener("toggle",()=>{if(sendMenu.open)st.updateSendHours();});
+    sendChoices.append(working);
     const later=el("details","tm-send-later"),laterToggle=el("summary","btn quiet","Send later…");
     const date=el("input","tm-send-date");date.type="datetime-local";date.setAttribute("aria-label","When to send");date.setAttribute("form","schedule-picker-"+requestId());
     const schedule=()=>{
@@ -1123,6 +1138,7 @@ function sharedReply(m, st) {
       }
     }
   }
+  st.updateSendHours?.();
   st.feedback.textContent = st.error || state?.error || (state?.control ? "Confirming editor…" : "");
   st.feedback.hidden = !st.feedback.textContent;
   return st.root;
