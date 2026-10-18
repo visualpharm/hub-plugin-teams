@@ -1303,7 +1303,8 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({'kind':'config','hours':hours})
         self.assertTrue(self.page({'until':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['until'])
         self.page({'tapSelector':'.tm-send-options > summary'})
-        self.assertIn('Monday',self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'])
+        expected=self.page({'eval':"new Intl.DateTimeFormat('en-GB',{weekday:'long'}).format(new Date('2026-10-19T11:00:00Z'))"})[-1]['eval']
+        self.assertIn(expected,self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'])
         self.feed({'kind':'config','hours':{**hours,'except':[{'contact':'synthetic/telegram'}]}})
         self.assertTrue(self.page({'until':"document.querySelector('.tm-send-working').textContent.includes('tomorrow')"})[-1]['until'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Reply at working start')
@@ -1318,6 +1319,22 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"window.__now=__Date.parse('2026-10-17T12:00:00Z');true"},{'tapSelector':'.tm-send-working'})
         q=self.queued('send')
         self.assertEqual(q['at'],'2026-10-18T11:00:00.000Z');self.assertEqual(q['target'],'synthetic-target-a');self.assertEqual(q['text'],'Reply at working start')
+
+    def test_working_start_revocation_and_rebound_target_keep_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a');self.edit('Retained draft')
+        hours={'from':'08:00','to':'20:00','weekends':False,'tz':'America/Argentina/Buenos_Aires','utc':-180,'except':[]}
+        self.feed({'kind':'config','hours':hours})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['until'])
+        self.feed({'kind':'config'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-send-working')?.hidden"})[-1]['until'])
+        self.feed({'kind':'config','hours':hours})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['until'])
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Changed source target','reply':True,'target':'synthetic-target-b','at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('Changed source target')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-working'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose').innerText.includes('Reopen this editor')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retained draft')
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
 
     def test_external_explicit_retry_reuses_durable_original_request(self):
         self.check_original_reply_recovery(False)

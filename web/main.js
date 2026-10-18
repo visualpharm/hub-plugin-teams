@@ -1017,6 +1017,7 @@ function sharedReply(m, st) {
     const sendChoices=el("div","tm-send-menu");
     const chooseSend=at=>{
       st.nextSendAt=null;
+      if(!msgs.get(m.id) || pendingReplyKey(msgs.get(m.id))!==pendingReplyKey(m)){st.error="Reopen this editor using the current conversation.";paint();return;}
       const current=st.box.draft();
       if(current.uploading || (!current.text.trim() && !current.files?.length)){
         st.error=current.uploading ? "Wait for the files to upload." : "Write a reply or attach a file first.";paint();return;
@@ -1026,7 +1027,7 @@ function sharedReply(m, st) {
     sendChoices.append(button("Send now","quiet",()=>chooseSend(null)));
     const working=button("","quiet tm-send-working",()=>{
       const current=msgs.get(m.id);
-      if(!current || pendingReplyKey(current)!==pendingReplyKey(m))return;
+      if(!current || pendingReplyKey(current)!==pendingReplyKey(m)){st.error="Reopen this editor using the current conversation.";paint();return;}
       const at=nextWorkingStart(sendHours,current.contact);
       if(!at){st.error="Working hours are unavailable. Choose a send time.";paint();return;}
       chooseSend(at.toISOString());
