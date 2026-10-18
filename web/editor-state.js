@@ -41,10 +41,10 @@ export class InboxEditor {
     this.control = { rid, token: this.token, action: "hold", revision: true };
     return q;
   }
-  send(rid, text) {
+  send(rid, text, {at} = {}) {
     this.ready();
     if (!text.trim()) throw Error("Write your reply first.");
-    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text });
+    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}) });
     this.delivery = { rid, token: this.token, text, state: "queued" };
     return q;
   }

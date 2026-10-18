@@ -364,3 +364,20 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 /* Native header backdrops must stay behind interactive menu anchors. */
 .tm-thread > .tm-head > :is(.tm-conversation-options,.tm-editor-options) { z-index: 3; }
+
+.tm-send-leading { display: contents; }
+.tm-send-options { position: relative; grid-area: options; }
+.tm-send-options > summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; list-style: none; }
+.tm-send-options > summary::-webkit-details-marker { display: none; }
+.tm-send-options > summary .icon { width: 18px; height: 18px; }
+.tm-send-options:not([open]) > .tm-send-menu { display: none; }
+.tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
+.tm-send-menu > .btn, .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; }
+.tm-send-date { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 8px; }
+.tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px;
+  grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry actions options" "feedback feedback feedback feedback" "error error error error"; }
+.tm-shared-compose form.composer:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
+  grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "discard entry attach actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
+.tm-shared-compose form.composer:not(.rec) .tm-send-leading > .tm-discard { grid-area: discard; }
+.tm-shared-compose form.composer.has-trailing:not(.rec) > .composer-actions > :nth-last-child(2) { grid-area: actions; }
+.tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .tm-send-options { grid-area: options; }
