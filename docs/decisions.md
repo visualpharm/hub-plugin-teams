@@ -327,3 +327,12 @@ An owner hide event retains the message identity observed at its journal positio
 The native send menu remembers the primary action per Hub. Archive intent and the exact open conversation members are persisted with the original send request before transport. Only a matching collector archive receipt applies, with original version and provider receipt required for guarded Teams. Recheck each member's current target/contact, preserve newer drafts, and never include arrivals after submission. Custom scheduling explicitly omits archive intent. Missing capabilities or oversized selections explain the refusal without sending a partial selection. Plain-provider duplicate confirmation uses the collector's successful command outcome, matching ordinary send confirmation; it does not invent a provider receipt.
 
 The original request token remains authoritative after reload even when a refreshed message lacks its editor token. Another pending reply is excluded from a grouped archive both at selection and at confirmation. Native folder semantics remain: the delivered reply is in Sent; older archived members without a reply are in Archive. Restore remains available, and replayed archive success cannot undo it.
+### 2026-10-18 — Provider-local contact identities
+
+Decided: Use the same source-family/contact tuple for list grouping, selected detail,
+pins, unread state and archive membership. Telegram and WhatsApp may reuse a contact
+identifier without sharing a thread. Teams DM, channel and mention retain one family.
+Why: a hostile review found that raw-contact grouping combined unrelated histories
+while archive and pins already used the provider boundary. Keep the existing serialized
+pin/read keys, with no migration or loss of drafts. Undo: revert the grouping alias;
+stored preferences remain compatible. By: agent.

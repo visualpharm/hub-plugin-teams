@@ -612,9 +612,11 @@ function action(text, name, fn, label) {
 
 // личка — группа по человеку (владелец 09.10: «видел одно сообщение от человека последнее, захочу — в чела, там всё»):
 // items уже отсортированы по времени убыв. (list()) — первое в группе и есть последнее сообщение человека
-const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
+// Contacts are provider-local; Teams DM/mention/channel share one family.
+// Keep the existing persisted pin/read identity while using it for detail grouping too.
+const conversationKey = (m) => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, m.contact || m.box || `${m.src}:${m.id}`]);
 const pins = conversationPins(hubName);
-const pinKey = m => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, conversationKey(m)]);
+const pinKey = conversationKey;
 const reads = localReadState(hubName, m=>JSON.stringify([pinKey(m),m.id]), seen);
 const providerReads = providerReadState(hubName);
 const readingRequests = new Set();
