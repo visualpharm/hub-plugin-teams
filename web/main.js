@@ -405,7 +405,7 @@ async function sync() {
         if(guarded && pending?.q?.rid===d.rid && (pending.q.inbox?.version!==d.submitted_inbox?.version || pending.q.inbox?.edit_version!==d.submitted_inbox?.edit_version))continue;
         const delivery = editorStates.get(d.id)?.delivery;
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
-        const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
+        const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok", deliveredTs:x.deliveredTs ?? p.ts, deliveredSequence:x.deliveredSequence ?? Number(p.id.slice(1)) }); answered.add(d.id); answeredAt.set(d.id, p.id);
         await settlePendingReply(msgs.get(d.id),d.rid);
         acceptDraft(msgs.get(d.id),d.rid);
         if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:"",files:[]}); composing.delete(d.id); }
@@ -413,11 +413,11 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
         if(d.target && d.target!==msgs.get(d.id)?.target)continue;
-        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {...(old?.rid===d.rid ? old : {}),id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
       }
       else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
         const r = reactionSends.get(d.id);
-        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",error:d.error || "Reaction refused"});
+        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"});
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) {
@@ -449,7 +449,8 @@ async function sync() {
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
         const guarded=guardedReply(msgs.get(d.id));
         const confirmed=d.kind==='send_duplicate' && d.state==='sent' && (guarded ? !!d.receipt?.id : sends.get(d.rid)?.kind==='send');
-        sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: confirmed ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
+        const previous=sends.get(d.rid) || {};
+        sends.set(d.rid, { ...previous, id: d.id, state: confirmed ? "ok" : "unresolved", ...(confirmed ? {deliveredTs:previous.deliveredTs ?? p.ts,deliveredSequence:previous.deliveredSequence ?? Number(p.id.slice(1))} : {}), error: d.error || "Delivery needs reconciliation" });
         if(confirmed && (!guarded || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version)) {
           const m=msgs.get(d.id);
           answered.add(d.id);answeredAt.set(d.id,p.id);
@@ -726,7 +727,7 @@ function matchingConversations(items) {
     groups.sort((a,b)=>weight(b[1])-weight(a[1]));
   }
   if (tab === "sent") {
-    const activity = new Map(groups.map(([key,group]) => { const out=folderOutgoing(group); return [key,{at:outgoingTime(out) || secs(group[0].at) || 0,sequence:out?.sequence || 0}]; }));
+    const activity = new Map(groups.map(([key,group]) => { const out=folderOutgoing(group); return [key,{at:outgoingTime(out) || secs(group[0].at) || 0,sequence:outgoingSequence(out)}]; }));
     groups.sort((a,b) => activity.get(b[0]).at-activity.get(a[0]).at || activity.get(b[0]).sequence-activity.get(a[0]).sequence);
   }
   if (tab === "new") groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
@@ -891,9 +892,10 @@ function conversationMark(group) {
 }
 
 function outgoingTime(reply) {
-  const value = reply?.state === "later" ? secs(reply.at) : Number(reply?.ts);
+  const value = reply?.state === "later" ? secs(reply.at) : Number(reply?.state === "ok" ? reply.deliveredTs ?? reply.ts : reply?.ts);
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
+const outgoingSequence = reply => (reply?.state === "ok" ? reply.deliveredSequence ?? reply.sequence : reply?.sequence) || 0;
 
 // The row order and preview share the latest delivery admitted by this folder.
 function folderOutgoing(group) {
@@ -902,7 +904,7 @@ function folderOutgoing(group) {
   const ids = new Set(group.map(m => m.id));
   const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state));
   if (tab === "sent") outgoing.push(...[...reactionSends.values()].filter(r => ids.has(r.id) && r.state === "ok"));
-  return outgoing.reverse().sort((a,b) => outgoingTime(b)-outgoingTime(a) || (b.sequence || 0)-(a.sequence || 0))[0] || null;
+  return outgoing.reverse().sort((a,b) => outgoingTime(b)-outgoingTime(a) || outgoingSequence(b)-outgoingSequence(a))[0] || null;
 }
 
 function folderReplyPreview(group) {

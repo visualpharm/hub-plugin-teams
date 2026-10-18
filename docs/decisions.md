@@ -387,3 +387,7 @@ Unread dots, pin marks and pin-first ordering belong to Inbox, matching both nat
 ## 2026-10-18 · Outgoing chronology
 
 Sent ordering and row previews share one eligible outgoing selection, including confirmed reactions. Scheduled replies use their scheduled time; accepted replies/reactions use their originating request time. Equal timestamps use journal sequence. Replaying the same request does not promote it into new activity. Failed/waiting attempts cannot displace accepted Sent activity. Missing outgoing time falls back to the existing incoming ordering; incoming folders, transport identities and receipt acceptance remain unchanged.
+
+## 2026-10-18 · Confirmed delivery time
+
+Supersedes the accepted-reply time choice above: pinned native Inbox.swift assigns outgoing time from the accepted receipt. Retain that first receipt timestamp and sequence for accepted replies/reactions, including confirmed duplicate recovery; repeated receipt/owner events do not change them. Scheduled items still use their planned time. Request timestamps remain fallback metadata and continue serving the existing delivery timeout logic unchanged.
