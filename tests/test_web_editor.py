@@ -10,6 +10,17 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_inbox_folder_has_tray_and_sort_precedes_compose(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for width in (360,402,768,1024,1240,1440):
+            self.page({'viewport':{'width':width,'height':874}})
+            got=self.page({'eval':"(()=>{const folder=document.querySelector('[data-folder=new]'),sort=document.querySelector('.tm-sort'),compose=document.querySelector('.tm-new-trigger'),icon=folder.querySelector('.tm-icon-inbox');return {tray:!!icon,label:folder.textContent,width:folder.getBoundingClientRect().width,order:!!(sort.compareDocumentPosition(compose)&Node.DOCUMENT_POSITION_FOLLOWING),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertTrue(got['tray'],(width,got));self.assertEqual(got['label'],'Inbox')
+            self.assertGreaterEqual(got['width'],80,(width,got));self.assertTrue(got['order']);self.assertEqual(got['overflow'],0)
+        self.page({'tapSelector':'.tm-options summary'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-options-panel').checkVisibility()"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_blocked_storage_does_not_invent_a_pending_delivery_mark(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Draft retained in this page')
         self.page({'eval':"Storage.prototype.getItem=function(){throw new DOMException('Blocked','SecurityError')};true"},

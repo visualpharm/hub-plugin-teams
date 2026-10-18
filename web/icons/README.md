@@ -11,3 +11,5 @@ metaphor; the existing draft sparkles complete the same SF Regular family.
 The pin is the unchanged native0597a826 icon-pin asset, rendered at16px in
 conversation rows. Phone and desktop light/dark checks confirm a visible,
 muted pin beside the timestamp; the pin toggle keeps a44px menu target.
+
+Inbox tray is the unchanged native0597a826 icon-nav-inbox asset, displayed with its label in the folder control. The accessible label remains when the extra Failed folder requires compact icon-only presentation.
