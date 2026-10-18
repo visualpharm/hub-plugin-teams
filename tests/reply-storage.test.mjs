@@ -13,7 +13,7 @@ const storage={getItem:k=>values.get(k)??null,removeItem:k=>values.delete(k),set
 const ctx=vm.createContext({console,URL,Map,Set,localStorage:storage,...dependencies});
 vm.runInContext(source+'\nglobalThis.test={sendReply,savedDraft,composing,sends,setHub:h=>hub=h,error:()=>error};',ctx);
 ctx.test.setHub({snapshot:()=>({sessions:[]}),postFeed:async text=>{requests.push(JSON.parse(text));return {};}});
-const message={id:'synthetic',src:'telegram',contact:'synthetic-contact',reply:true};
+const message={id:'synthetic',src:'telegram',contact:'synthetic-contact',reply:true,target:'synthetic-target'};
 ctx.test.composing.set(message.id,{text:'Exact unsent reply'});
 await ctx.test.sendReply(message,'Exact unsent reply');
 assert.equal(requests.length,0);
@@ -26,6 +26,7 @@ blocked=false;
 await ctx.test.sendReply(message,'Exact unsent reply');
 assert.equal(requests.length,1);
 assert.equal(requests[0].text,'Exact unsent reply');
+assert.equal(requests[0].target,'synthetic-target');
 assert.equal(ctx.test.savedDraft(message).pendingRid,requests[0].rid);
 assert.equal(JSON.parse([...values.values()][0]).pendingRid,requests[0].rid);
 await ctx.test.sendReply(message,'Do not duplicate');

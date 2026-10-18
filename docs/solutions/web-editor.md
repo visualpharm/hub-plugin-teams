@@ -169,3 +169,8 @@ Check composerTrailing before using the optional right-side slot and place the m
 ### A conditional folder must fit the same toolbar
 
 The unresolved-reply state adds a fourth folder. Live captures revealed that existing 8px gaps plus 52px padded folder icons pushed Inbox options beyond a 360px viewport and over the desktop conversation pane. The shared toolbar now removes redundant gaps, uses 44px folder targets and 8px outer padding. A seven-width test requires every visible toolbar control to remain within its own list pane and be hit-testable; it preserves folder/sort behavior and draft state.
+
+
+### A matching request id is not enough for a delivery receipt
+
+Bind the original target alongside rid and preserve it independently from editable draft text. Reject mismatched or missing target before editorFact can apply a receipt; guarded editor-state also rejects it directly. Owner echo must not overwrite a known original target. On reload, restore that binding from the pending request. Browser regressions cover external and guarded replies, wrong/missing target, trusted completion after reload, and newer-draft preservation. Scheduling and the fallback composer propagate the same target. Legacy targetless receipts remain supported only for targetless original requests.

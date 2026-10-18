@@ -46,4 +46,12 @@ const changed=start();confirm(changed);changed.observe({...message,inbox:{...tok
 assert.throws(()=>changed.send('send','Old reply'),/conversation changed/);
 const scheduled=start();confirm(scheduled);
 assert.equal(scheduled.send('scheduled','Exact future reply',{at:'2099-06-17T15:30:00.000Z'}).at,'2099-06-17T15:30:00.000Z');
+const bound=start();const boundVersion=confirm(bound);
+assert.equal(bound.send('bound','Exact recipient',{target:'recipient-a'}).target,'recipient-a');
+for(const target of [undefined,'recipient-b']) {
+  assert.equal(bound.receive({kind:'send_failed',id:'source',rid:'bound',target,error:'Wrong target'}),false);
+  assert.equal(bound.receive({kind:'sent',id:'source',rid:'bound',target,submitted_inbox:boundVersion,inbox:boundVersion,receipt:{id:'wrong'}}),false);
+}
+assert.equal(bound.delivery.state,'queued');
+assert.equal(bound.receive({kind:'sent',id:'source',rid:'bound',target:'recipient-a',submitted_inbox:boundVersion,inbox:boundVersion,receipt:{id:'right'}}),true);
 console.log('Inbox editor: identity, CAS, stale proposals, explicit Apply and truthful delivery passed');

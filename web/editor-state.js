@@ -41,11 +41,11 @@ export class InboxEditor {
     this.control = { rid, token: this.token, action: "hold", revision: true };
     return q;
   }
-  send(rid, text, {at} = {}) {
+  send(rid, text, {at, target} = {}) {
     this.ready();
     if (!text.trim()) throw Error("Write your reply first.");
-    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}) });
-    this.delivery = { rid, token: this.token, text, state: "queued" };
+    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}), ...(target ? {target} : {}) });
+    this.delivery = { rid, token: this.token, text, target, state: "queued" };
     return q;
   }
   // Called only for collector-authored facts by the feed adapter.
@@ -69,6 +69,7 @@ export class InboxEditor {
       this.proposal = { ...d, revision: this.request.revision }; return true;
     }
     if (this.delivery?.rid !== d.rid) return false;
+    if (this.delivery.target && d.target !== this.delivery.target) return false;
     if (d.kind === "send_duplicate" && d.version === this.delivery.token.version && d.state === "sent" && d.receipt?.id) {
       this.delivery.state = "sent"; this.text = ""; return true;
     }

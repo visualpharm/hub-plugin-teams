@@ -689,11 +689,11 @@ class InboxWebAcceptance(PageInChrome):
         rows=self.page({'eval':"[...document.querySelectorAll('.tm-draft-by')].map(n=>({by:n.textContent,text:n.parentNode.querySelector('.tm-draft-text').textContent}))"})[-1]['eval']
         self.assertEqual([(r['by'].split(' · ')[0],r['text']) for r in rows],[('Хаб','Automatic exact reply'),('Вы','Owner exact reply')])
 
-    def open_external_source(self, source, token=False):
+    def open_external_source(self, source, token=False, target=None):
         self.feed({'kind':'config','v':3,'inbox_protocol':{'version':1,'editor_cas':True}})
         self.feed({'kind':'msg','id':'external-'+source,'contact':'synthetic/'+source,'src':source,'from':'Synthetic '+source,
                    'text':'Please review this source.','reply':True,'at':datetime.now(timezone.utc).isoformat(),
-                   **({'inbox':self.token} if token else {})})
+                   **({'inbox':self.token} if token else {}), **({'target':target} if target else {})})
         self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},
           {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
           {'until':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic {source}'))"},
@@ -1076,20 +1076,49 @@ class InboxWebAcceptance(PageInChrome):
         self.check_reply_storage_admission(False, "pending")
 
     def test_send_later_is_explicit_and_keeps_the_selected_instant(self):
-        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
         self.edit('Schedule this exact reply')
         self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-later > summary'})
         self.page({'eval':"const d=document.querySelector('.tm-send-date');d.value='2000-01-01T12:00';document.querySelector('.tm-schedule-send').click();true"})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
         at=self.page({'eval':"(()=>{const d=document.querySelector('.tm-send-date');d.value='2099-06-17T12:30';d.dispatchEvent(new Event('input',{bubbles:true}));const at=new Date(d.value).toISOString();document.querySelector('.tm-schedule-send').click();return at})()"})[-1]['eval']
         self.page({'sleep':300});q=self.queued('send')
-        self.assertEqual(q['at'],at);self.assertEqual(q['text'],'Schedule this exact reply')
-        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'text':q['text'],'at':q['at']})
+        self.assertEqual(q.get('target'),'synthetic-target-a');self.assertEqual(q['at'],at);self.assertEqual(q['text'],'Schedule this exact reply')
+        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'text':q['text'],'at':q['at'],'target':q['target']})
         self.page({'until':"!!document.querySelector('.tm-unschedule')"})
         self.assertFalse(self.page({'eval':"document.body.innerText.includes('отправлено')"})[-1]['eval'])
 
     def test_unknown_reply_survives_reload_and_newer_edits_without_duplicate_send(self):
         self.check_unknown_reply_reload(False)
+
+    def test_reply_binds_target_and_ignores_receipts_for_another_conversation(self):
+        self.check_reply_target(False)
+
+    def test_guarded_reply_checks_target_before_applying_editor_receipt(self):
+        self.check_reply_target(True)
+
+    def check_reply_target(self, guarded):
+        self.seed_inbox(start_editing=False, target='synthetic-target-a' if guarded else None)
+        if not guarded:self.open_external_source('telegram', target='synthetic-target-a')
+        mid='source-a' if guarded else 'external-telegram'
+        self.edit('Reply to the original conversation')
+        if guarded:self.acknowledge(self.queued('draft_control'))
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"})
+        q=self.queued('send');self.assertEqual(q.get('target'),'synthetic-target-a')
+        self.edit('Keep this newer draft')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},
+          {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Review colleague' if guarded else 'Synthetic telegram')+")).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        receipt={'kind':'sent','id':mid,'rid':q['rid'],'target':'synthetic-target-b'}
+        if guarded:receipt.update({'submitted_inbox':q['inbox'],'inbox':{**q['inbox'],'held':False,'holder':None,'edit_version':q['inbox']['edit_version']+1},'receipt':{'id':'synthetic-delivery'}})
+        for invalid in (receipt,{k:v for k,v in receipt.items() if k!='target'},{'kind':'send_failed','id':mid,'rid':q['rid'],'target':'synthetic-target-b','error':'Wrong conversation'}):self.feed(invalid)
+        self.page({'sleep':400})
+        got=self.page({'eval':"({draft:document.querySelector('.tm-shared-compose textarea').value,pending:Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))})"})[-1]['eval']
+        self.assertEqual(got,{'draft':'Keep this newer draft','pending':True})
+        self.feed({**receipt,'target':'synthetic-target-a'})
+        self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this newer draft')
 
     def test_guarded_unknown_reply_survives_reload_and_newer_edits(self):
         self.check_unknown_reply_reload(True)
@@ -1475,7 +1504,7 @@ class InboxWebAcceptance(PageInChrome):
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 
-    def seed_inbox(self, start_editing=True, open_editor=True):
+    def seed_inbox(self, start_editing=True, open_editor=True, target=None):
         cfg = Path(self.state) / "inbox.json"
         cfg.write_text(json.dumps({"extensions": {"teams": {"path": str(Path(__file__).resolve().parents[1]), "web": "web/main.js"}}}))
         env = mock.patch.dict(os.environ, {"HUB_CONFIG": str(cfg)}); env.start(); self.addCleanup(env.stop)
@@ -1484,7 +1513,7 @@ class InboxWebAcceptance(PageInChrome):
         self.token = {"v": 1, "version": "synthetic-source-A", "edit_version": 0, "held": False, "holder": None}
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}})
         self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
-                   "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token})
+                   "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token, **({"target":target} if target else {})})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
                   {"eval": "document.querySelector('.tm-person').click();true"})
         if open_editor:
