@@ -7,7 +7,7 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const ctx={console,URL,Map,Set,localStorage:{getItem:()=>null,setItem:()=>{}},conversationPins,localReadState,providerReadState,...hoursModule};vm.createContext(ctx);
-vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource,conversationSources,personName,conversationMark,sends,reactionSends,replies,saveDraft}; hub={snapshot:()=>({sessions:[]})};',ctx);
+vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource,conversationSources,personName,conversationMark,sends,reactionSends,deliveredReactions,replies,saveDraft}; hub={snapshot:()=>({sessions:[]})};',ctx);
 const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-a')]).size,1);
@@ -46,11 +46,11 @@ ctx.t.sends.set('retry',{id:'one',ts:Date.now()/1000+1,state:'ok'});assert.equal
 ctx.t.saveDraft(m,'');assert.equal(label(),'Sent');
 ctx.t.sends.clear();
 for (const [state,expected] of [['wait','Sending reaction'],['fail','Reaction failed'],['ok','Reaction sent']]) {
- ctx.t.reactionSends.set('one',{state});assert.equal(label(),expected);
+ ctx.t.reactionSends.set('one',{state});if(state==='ok')ctx.t.deliveredReactions.set('one',{state});assert.equal(label(),expected);
 }
 console.log('Native display-name cleanup and list marks preserve draft and delivery truth');
 
-ctx.t.reactionSends.clear();
+ctx.t.reactionSends.clear();ctx.t.deliveredReactions.clear();
 ctx.localStorage.getItem=()=>{throw new Error('Storage denied')};
 assert.equal(label(),'Suggested reply','No request is implied by a denied storage read');
 ctx.localStorage.getItem=()=>'{invalid';

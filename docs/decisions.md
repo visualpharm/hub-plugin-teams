@@ -391,3 +391,7 @@ Sent ordering and row previews share one eligible outgoing selection, including 
 ## 2026-10-18 · Confirmed delivery time
 
 Supersedes the accepted-reply time choice above: pinned native Inbox.swift assigns outgoing time from the accepted receipt. Retain that first receipt timestamp and sequence for accepted replies/reactions, including confirmed duplicate recovery; repeated receipt/owner events do not change them. Scheduled items still use their planned time. Request timestamps remain fallback metadata and continue serving the existing delivery timeout logic unchanged.
+
+
+## 2026-10-18 · Confirmed reactions survive later attempts
+Decided: retain the latest accepted reaction per exact message separately from the current reaction attempt. Sent membership, preview, sorting and archive exclusion use confirmed history; pending/refused status still describes the current attempt. Clear both on destination rebinding. Why: retrying a reaction must not erase an already delivered reaction, matching native delivered state. No new provider action or receipt acceptance rule. Undo: revert this bounded web projection change. By: agent.
