@@ -411,3 +411,7 @@ Decided: incoming text uses the normal foreground even after a reply/archive mar
 
 ## 2026-10-18 · Sent age measures confirmed delivery
 Decided: successful outgoing status uses the first accepted receipt timestamp, falling back to request time for older records. Pending, scheduled and failed states keep their existing request timestamp. Why: a reply waiting for two hours must not claim it was delivered two hours ago once confirmed; native uses receipt time. Transport deadlines and ordering are unchanged. Undo: revert this display-only selection. By: agent.
+
+
+## 2026-10-18 · Compact successful delivery labels
+Decided: successful owner replies show Sent followed by the confirmed age, matching native. Automatic replies retain Hub attribution before Sent. Pending, scheduled, refused and unresolved labels keep their existing attribution/error details. Why: redundant owner/age/status fragments clutter every accepted reply, but automatic authorship must remain explicit. Apply through shared chat/mail renderer; no payload or transport change. Undo: revert label construction. By: agent.

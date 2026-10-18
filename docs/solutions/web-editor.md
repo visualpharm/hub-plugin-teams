@@ -280,3 +280,7 @@ Do not dim message content when its workflow becomes done. The previous shared t
 
 ### Delayed delivery status
 Sent sorting already used deliveredTs, but sentBlock still rendered request ts. This made delayed confirmations look old. Use the accepted timestamp for successful reply status in the shared chat/mail renderer, preserving request time for unresolved work and legacy fallback. Regression uses distinct request and receipt times, checks pending first, then accepted status and duplicate receipt stability for both sources. Journal timestamps are millisecond-rounded; use integral fixture seconds for exact assertions.
+
+
+### Native successful status copy
+Use one successful-delivery label and one age node. Removing the owner prefix from a confirmed owner reply is safe only when automatic replies still name the Hub. The shared chat/mail renderer preserves all non-success attribution and error text. Browser acceptance covers owner/automatic success, pending and scheduled attribution, first-receipt age and delivery icons. Actual synthetic flat Sent captures verify the same shared label on the served asset.

@@ -10,6 +10,23 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_success_status_is_compact_and_preserves_hub_attribution(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('telegram','email'):
+            self.open_external_source(source);mid='external-'+source
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':'owner-'+source,'text':'Owner exact text'}))
+            self.feed({'kind':'scheduled','id':mid,'rid':'auto-'+source,'text':'Automatic exact text','at':'2030-01-01T12:00:00Z'})
+            for who in ('owner','auto'): self.feed({'kind':'sent','id':mid,'rid':who+'-'+source,'receipt':{'id':who+'-'+source+'-receipt'}})
+            self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'},
+                {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes("+json.dumps('Synthetic '+source)+"))"},
+                {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Synthetic '+source)+")).click();true"},
+                {'until':"document.querySelectorAll('.tm-mine-ok').length===2"})
+            got=self.page({'eval':"[...document.querySelectorAll('.tm-mine-ok')].map(n=>{const by=n.querySelector('.tm-draft-by'),age=by.querySelector('.ago');return {body:n.querySelector('.tm-draft-text').textContent,label:by.textContent.replace(age.textContent,''),ages:by.querySelectorAll('.ago').length}})"})[-1]['eval']
+            self.assertEqual([r['body'] for r in got],['Owner exact text','Automatic exact text'])
+            self.assertIn(got[0]['label'],['Sent ','Отправлено ']);self.assertIn(got[1]['label'],['Hub · Sent ','Хаб · Отправлено '])
+            self.assertEqual([r['ages'] for r in got],[1,1])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_sent_status_time_is_first_confirmed_delivery_not_request_age(self):
         self.seed_inbox(start_editing=False)
         for source in ('telegram','email'):
