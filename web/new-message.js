@@ -1,5 +1,6 @@
 // The collector owns contact lookup and delivery. Closing/reloading never sends.
 import { T } from "/static/js/ui-text.js";
+import { replyText } from "./reply-text.js";
 
 export function newMessage(hub) {
   const el = (...a) => hub.el(...a), states = new Map();
@@ -95,7 +96,7 @@ export function newMessage(hub) {
     if (s.pending) {
       u.pending.append(el("b", "", T("Исходное сообщение: ", "Original message: ") + (s.pendingName || s.pending.to)));
       if (s.pending.subject) u.pending.append(el("p", "", s.pending.subject));
-      u.pending.append(el("p", "", s.pending.text));
+      u.pending.append(replyText(el,s.pending.text,"tm-pending-text","p"));
     }
     u.subjectRow.hidden = s.to?.src !== "email";
     u.send.disabled = !!s.pending && !s.uncertain;

@@ -55,6 +55,34 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
         self.assertEqual(self.queued('unhide')['ids'],['archive-a'])
 
+    def test_outgoing_links_keep_destinations_markup_and_raw_recovery(self):
+        self.seed_inbox(start_editing=False)
+        long='https://example.test/'+('a'*240)
+        raw='snake_case <img src=x onerror=alert(1)> javascript:alert(1) data:text/html,hi\nhttps://example.test/a_b_c https://example.test/_wrapped_/end _See https://example.test/now_ _https://example.test/solo_ (https://example.test/(guide)). help@example.test mailto:other@example.test tel:+5491100000000 https://пример.рф/отчёт https://user:pass@example.test/private (_a@b.test x_) __user@example.test__ _user@example.test HTTPS://EXAMPLE.TEST/upper https://example.test/报告。下一句 '+long
+        expected=['https://example.test/a_b_c','https://example.test/_wrapped_/end','https://example.test/now','https://example.test/solo','https://example.test/(guide)','mailto:help@example.test','mailto:other@example.test','tel:+5491100000000','https://xn--e1afmkfd.xn--p1ai/%D0%BE%D1%82%D1%87%D1%91%D1%82','mailto:a@b.test','mailto:__user@example.test','mailto:_user@example.test','https://example.test/upper','https://example.test/%E6%8A%A5%E5%91%8A',long]
+        for source in ('telegram','email'):
+            self.open_external_source(source);mid='external-'+source;rid='links-'+source
+            self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':rid,'text':raw}))
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-wait')"})[-1]['until'])
+            got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-wait .tm-draft-text');return {links:[...b.querySelectorAll('a')].map(n=>[n.href,n.target,n.rel]),italic:b.querySelector('em a')?.textContent,unsafe:b.querySelectorAll('img,script').length}})()"})[-1]['eval']
+            self.assertEqual(got,{'links':[[u,'_blank','noopener noreferrer'] for u in expected],'italic':'https://example.test/now','unsafe':0})
+            for width,theme in ((360,'light'),(1240,'dark')):
+                self.page({'viewport':{'width':width,'height':874}},{'media':theme})
+                self.assertEqual(self.page({'eval':"document.documentElement.scrollWidth-innerWidth"})[-1]['eval'],0)
+                if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                    out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                    self.page({'shot':str(out/f'outgoing-links-{source}-{theme}-{width}.png'),'width':width,'height':874})
+            self.page({'eval':"window.__linkClicks=[];document.addEventListener('click',e=>{const a=e.target.closest('.tm-mine a');if(a){e.preventDefault();__linkClicks.push(a.href)}});document.querySelector('.tm-mine-wait a').scrollIntoView({block:'center'});true"},
+                {'tapSelector':'.tm-mine-wait a'},{'eval':"document.querySelector('.tm-mine-wait a').focus();true"},{'key':'Enter'})
+            self.assertEqual(self.page({'eval':'__linkClicks'})[-1]['eval'],[expected[0],expected[0]])
+            self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail .tm-acts button')"})[-1]['until'])
+            self.assertEqual(self.page({'eval':"[...document.querySelectorAll('.tm-mine-fail .tm-draft-text a')].map(n=>n.href)"})[-1]['eval'],expected)
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],raw)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_failed_reply_edit_preserves_newer_draft_and_attachment(self):
         self.seed_inbox(start_editing=False)
         for source in ('telegram','email','whatsapp'):
@@ -1278,15 +1306,16 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Already pending exact reply')
         self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Different suggested reply')
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Different suggested reply https://example.test/draft')
         self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'},
           {'until':"!!document.querySelector('.tm-draft button.primary')"})
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-draft button.primary').disabled"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-draft-text a').href"})[-1]['eval'],'https://example.test/draft')
         self.assertEqual(self.non_history_actions(),[])
         self.feed({'kind':'send_failed','id':q['id'],'rid':q['rid'],'error':'Definitive refusal'})
         got=self.page({'until':"!document.querySelector('.tm-draft button.primary').disabled"});self.assertTrue(got[-1]['until'],got)
         self.page({'tapSelector':'.tm-draft button.primary'},{'sleep':100})
-        retry=self.queued('send');self.assertEqual(retry['text'],'Different suggested reply');self.assertEqual(retry['id'],q['id'])
+        retry=self.queued('send');self.assertEqual(retry['text'],'Different suggested reply https://example.test/draft');self.assertEqual(retry['id'],q['id'])
 
     def test_canceled_reply_cannot_follow_a_rebound_source(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Reply only for original contact')
@@ -1342,11 +1371,13 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_new_message_hung_send_recovers_without_changing_original_request(self):
         self.prepare_new_message()
+        self.page({'eval':"const t=document.querySelector('.tm-new-text');t.value+=' https://example.test/new';t.dispatchEvent(new Event('input',{bubbles:true}));true"})
         self.page({'eval':"window.__fetch=window.fetch;window.fetch=(url,opts)=>{if(String(url).endsWith('/api/feed/post')&&JSON.parse(opts?.body||'{}').text?.includes('send_new')){window.__attempt=JSON.parse(JSON.parse(opts.body).text);return new Promise(()=>{})}return __fetch(url,opts)};true"},
           {'tapSelector':'.tm-new-send'},{'sleep':100})
         attempt=self.page({'eval':'__attempt'})[-1]['eval']
         self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-new-trigger')"},{'tapSelector':'.tm-new-trigger'})
         self.assertEqual(self.non_history_actions(),[])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-new-pending a').href"})[-1]['eval'],'https://example.test/new')
         self.assertFalse(self.page({'eval':"document.querySelector('.tm-new-send').disabled"})[-1]['eval'])
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-new-chosen button').disabled"})[-1]['eval'])
         self.page({'eval':"(()=>{const t=document.querySelector('.tm-new-text');t.value='Newer unsent message';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
@@ -2806,10 +2837,11 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(request["instruction"], "Suggest 11 instead.")
         self.acknowledge(request)
         proposal = {"kind": "draft_proposal", "id": "source-a", "post": request["post"], "rid": request["rid"],
-                    "editor": request["editor"], "inbox": self.token, "text": "Could we meet at 11?", "context": "The time changed.",
+                    "editor": request["editor"], "inbox": self.token, "text": "Could we meet at 11? https://example.test/p", "context": "The time changed.",
                     "next_action": "Review the reply.", "requires_apply": True}
         self.feed(proposal)
         self.page({"wait": "Apply draft"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-proposed-text a').href"})[-1]['eval'],'https://example.test/p')
         got = self.page({"shot": str(Path(self.state) / "proposal-fit.png"), "width": 390, "height": 844},
                         {"eval": "(()=>{const b=document.querySelector('.tm-proposal button'),r=b.getBoundingClientRect();return {visible:r.top>=0&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===b,replyBottom:document.querySelector('.tm-shared-compose .composer').getBoundingClientRect().bottom}})()"})
         self.assertTrue(got[-1]["eval"]["visible"], got)
@@ -2825,14 +2857,14 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({**proposal, "rid": request["rid"], "inbox": self.token})
         got = self.page({"until": "document.querySelector('.tm-proposal')?.dataset.rid===" + json.dumps(request["rid"])},
                         {"click": "Apply draft"},
-                        {"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11?'"})
+                        {"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11? https://example.test/p'"})
         self.assertTrue(got[-1]["until"], got)
         self.shot("applied-draft-phone")
         self.page({"eval": "document.querySelector('.tm-shared-compose .composer').requestSubmit();true"})
         send = self.queued("send")
-        self.assertEqual(send["text"], "Could we meet at 11?")
+        self.assertEqual(send["text"], "Could we meet at 11? https://example.test/p")
         self.assertNotIn("instruction", send)
-        self.page({"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11?'"})
+        self.page({"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11? https://example.test/p'"})
         self.feed({"kind": "sent", "id": "source-a", "rid": send["rid"], "submitted_inbox": self.token, "inbox": self.token})
         self.page({"sleep": 400})
         got = self.page({"eval": "!!document.querySelector('.tm-shared-compose .composer textarea')"})

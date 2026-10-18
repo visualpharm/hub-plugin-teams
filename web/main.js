@@ -8,6 +8,7 @@
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
 import { T } from "/static/js/ui-text.js";
+import { replyText } from "./reply-text.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
@@ -1396,7 +1397,7 @@ function sharedReply(m, st) {
       st.proposal.dataset.sig = sig; st.proposal.replaceChildren();
       if (p) {
         const body = el("div", "tm-proposal-body");
-        body.append(el("p", "tm-proposed-text", p.text), el("p", null, p.context), el("p", null, p.next_action));
+        body.append(replyText(el,p.text,"tm-proposed-text","p"), el("p", null, p.context), el("p", null, p.next_action));
         st.proposal.append(body, button("Apply draft", "", () => {
             try { const applied = state.apply(); st.text = applied.text; saveDraft(m,st.text); st.box.set({text:st.text}); st.error = ""; }
             catch (e) { st.error = e.message; }
@@ -1479,7 +1480,7 @@ function draftBlock(m, r) {
   const by = el("div", "tm-draft-by", `Черновик ответа · ${r.by} · `);
   by.append(stamp(r.ts));
   const { text, why } = splitDraft(r.text);
-  d.append(by, el("div", "tm-draft-text", text));
+  d.append(by, replyText(el,text));
   if (why) d.append(el("div", "tm-draft-why", `Почему: ${why}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
@@ -1543,19 +1544,6 @@ async function retryOriginalReply(m,rid) {
   }
 }
 
-// Match native Emphasis: preserve identifiers and unfinished markup. Render only;
-// the exact outgoing text remains available to recovery, editing and the collector.
-function replyText(raw) {
-  const body=el("div","tm-draft-text");
-  let pos=0;
-  for (const match of raw.matchAll(/(?<![\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu)) {
-    body.append(raw.slice(pos,match.index),el("em",null,match[1]));
-    pos=match.index+match[0].length;
-  }
-  body.append(raw.slice(pos));
-  return body;
-}
-
 function hasReplyToResume(m) {
   const draft=savedDraft(m);
   return !!(draft?.text.trim() || draft?.files?.length);
@@ -1588,7 +1576,7 @@ function sentBlock(m, rid, x) {
     : x.mine ? "Вы · " : "Хаб · ");
   by.append(stamp(sent ? x.deliveredTs ?? x.ts : x.ts));
   if (!sent) by.append(` · ${stateText}`);
-  const body=replyText(x.text || "");
+  const body=replyText(el,x.text || "");
   if (chat) {
     const icon=nativeIcon(x.state==="ok" ? "double-tick" : x.state==="fail" ? "warning" : "clock");icon.setAttribute("aria-hidden","true");
     body.append(icon);d.append(body,by);
