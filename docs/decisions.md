@@ -355,3 +355,7 @@ Group conversations name the first incoming bubble from each consecutive speaker
 ### 2026-10-18 — Responsive conversation header and source-aware attribution
 
 Wide Inbox details place the source beside the left-aligned name; narrow details keep it above history. Only one source label is visible, and history stays bottom-aligned. Flat channel cards retain their own header without duplicate bubble authors. Group labels use each message source, including explicit Teams history metadata, and compare normalized display names only for label continuity. Raw identity, drafts and provider targets remain unchanged.
+
+### 2026-10-18 — Flat Inbox source lists use the full content pane
+
+Mention and channel filters have no selected conversation detail, so they use one full-width pane with centered 760px reading cards. Returning to All or direct messages restores the two-pane layout. Source context lists each provider once with its distinct places, preserving complete place strings and original message identity.

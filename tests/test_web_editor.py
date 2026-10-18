@@ -10,18 +10,41 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_flat_source_cards_use_available_width_and_restore_grouped_list(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for source in ('mention','channel'):
+            self.feed({'kind':'msg','id':'flat-'+source,'contact':'synthetic/'+source,'src':source,'from':'Synthetic '+source,
+                       'where':'Synthetic team','text':'A complete message to read without a spare empty detail column.','reply':True,'at':'2099-01-01T12:00:00'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        for source,label in [('mention','Упоминания'),('channel','Каналы')]:
+            self.page({'tapSelector':'.tm-options summary'},
+                      {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes("+json.dumps(label)+")).click();document.querySelector('.tm-options').open=false;true"})
+            self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'],self.page({'eval':"document.querySelector('.tm-list').outerHTML"})[-1]['eval'])
+            for width in (360,402,834,1240,1440):
+                self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+                got=self.page({'eval':"(()=>{const root=document.querySelector('.tm'),pane=document.querySelector('.tm-list-pane'),card=document.querySelector('.tm-list > .tm-thread'),r=n=>n.getBoundingClientRect();return {root:r(root).width,pane:r(pane).width,card:r(card).width,scroll:card.scrollWidth,client:card.clientWidth,overflow:document.documentElement.scrollWidth-innerWidth,detail:document.querySelector('.tm-detail').checkVisibility()}})()"})[-1]['eval']
+                self.assertGreaterEqual(got['pane'],got['root']-1,(source,width,got))
+                self.assertGreaterEqual(got['card'],min(700,got['root']-32)-1,(source,width,got))
+                self.assertLessEqual(got['scroll'],got['client']);self.assertEqual(got['overflow'],0);self.assertFalse(got['detail'])
+        self.page({'tapSelector':'.tm-options summary'},
+                  {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Все')).click();document.querySelector('.tm-options').open=false;true"})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        self.assertLessEqual(self.page({'eval':"document.querySelector('.tm-list-pane').getBoundingClientRect().width"})[-1]['eval'],336)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_mixed_teams_sources_name_only_group_bubbles_and_flat_cards_do_not_repeat(self):
         self.seed_inbox(start_editing=False)
         for id,src,day in [('group-a','mention','01'),('direct-b','dm','02')]:
             self.feed({'kind':'msg','id':id,'contact':'synthetic-account/conversation-a','src':src,'from':'Alex',
-                       'text':'Synthetic '+id,'reply':True,'at':f'2099-01-{day}T12:00:00'})
+                       'where':'Design' if src=='mention' else 'Personal','text':'Synthetic '+id,'reply':True,'at':f'2099-01-{day}T12:00:00'})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-detail .tm-line').length===3"})[-1]['until'])
         names="[...document.querySelectorAll('.tm-detail .tm-message-sender')].map(n=>n.parentElement.dataset.message)"
         self.assertEqual(self.page({'eval':names})[-1]['eval'],['group-a'])
         self.feed({'kind':'msg','id':'group-c','contact':'synthetic-account/conversation-a','src':'channel','from':'Alex',
-                   'text':'Synthetic group-c','reply':True,'at':'2099-01-03T12:00:00'})
+                   'where':'Releases','text':'Synthetic group-c','reply':True,'at':'2099-01-03T12:00:00'})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-detail .tm-line').length===4"})[-1]['until'])
         self.assertEqual(self.page({'eval':names})[-1]['eval'],['group-a','group-c'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-source').textContent"})[-1]['eval'],'Teams · Design · Personal · Releases')
         self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'group-c','part':0,'of':1,'more':False,'items':[
             {'id':'h-direct','src':'dm','from':'History direct','text':'Earlier direct message','at':'2020-01-01T12:00:00'},

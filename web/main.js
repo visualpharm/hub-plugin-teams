@@ -622,9 +622,17 @@ const conversationKey = (m) => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "tea
 const pins = conversationPins(hubName);
 const pinKey = conversationKey;
 function conversationSource(m) {
-  const source = TEAMS_SRCS.includes(m.src) ? "Teams" : SRC[m.src] || m.src;
-  const place = String(m.where || "").trim();
-  return !place || place === source ? source : `${source} · ${place}`;
+  return conversationSources([m]);
+}
+function conversationSources(messages) {
+  const sources = new Map();
+  for (const m of messages) {
+    const source = TEAMS_SRCS.includes(m.src) ? "Teams" : SRC[m.src] || m.src;
+    if (!sources.has(source)) sources.set(source, new Set());
+    const place = String(m.where || "").trim();
+    if (place && place !== source) sources.get(source).add(place);
+  }
+  return [...sources].map(([source,places]) => [source,...places].join(" · ")).join(" · ");
 }
 const reads = localReadState(hubName, m=>JSON.stringify([pinKey(m),m.id]), seen);
 const providerReads = providerReadState(hubName);
@@ -1574,7 +1582,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const open = ms.filter((m) => !done(m));
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
-  const sourceLabel=[...new Set(ms.map(conversationSource))].join(" · ");
+  const sourceLabel=conversationSources(ms);
   const headerSource=el("span","tm-header-source",sourceLabel);headerSource.title=sourceLabel;
   head.append(el("b", "tm-from", personName(last.from) || "—"), headerSource, conversationOptions(last));
   box.append(head);
@@ -1818,6 +1826,7 @@ function paintAll() {
   // группировка по людям — в «Личке» и в «Все» (владелец 09.10: «во вкладке все тоже сделай по людям группировку
   // как и в личке»); в «Упоминания»/«Каналы» — как раньше, по сообщению (там чаще важен порядок/канал, не человек)
   const grouped = src === "dm" || src === "all";
+  ui.wrap.classList.toggle("tm-flat", !grouped);
   if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) dmPerson = null;   // ушёл из пула (сменилась вкладка) — назад к списку людей
 
   ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
