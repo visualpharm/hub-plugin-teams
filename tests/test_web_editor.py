@@ -1097,6 +1097,17 @@ class InboxWebAcceptance(PageInChrome):
     def test_guarded_reply_checks_target_before_applying_editor_receipt(self):
         self.check_reply_target(True)
 
+    def test_unbound_answered_fact_cannot_hide_a_pending_target_bound_reply(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
+        self.edit('Keep this pending reply')
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"})
+        q=self.queued('send')
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid'],'target':'another-conversation'})
+        self.feed({'kind':'answered','id':q['id']})
+        self.page({'sleep':400},{'tapSelector':'.tm-close-conversation'})
+        self.assertTrue(self.page({'eval':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
+
     def check_reply_target(self, guarded):
         self.seed_inbox(start_editing=False, target='synthetic-target-a' if guarded else None)
         if not guarded:self.open_external_source('telegram', target='synthetic-target-a')
@@ -1117,7 +1128,7 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'eval':"({draft:document.querySelector('.tm-shared-compose textarea').value,pending:Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))})"})[-1]['eval']
         self.assertEqual(got,{'draft':'Keep this newer draft','pending':True})
         self.feed({**receipt,'target':'synthetic-target-a'})
-        self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this newer draft')
 
     def test_guarded_unknown_reply_survives_reload_and_newer_edits(self):
