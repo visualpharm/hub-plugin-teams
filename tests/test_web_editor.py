@@ -10,6 +10,44 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_sent_order_and_preview_follow_outgoing_chronology_across_replay(self):
+        self.seed_inbox(start_editing=False)
+        for mid,at in (('older','2020-01-01T12:00:00Z'),('newer','2025-01-01T12:00:00Z'),('scheduled','2019-01-01T12:00:00Z')):
+            self.feed({'kind':'msg','id':mid,'contact':'synthetic/'+mid,'src':'dm','from':mid,'text':'Incoming '+mid,'reply':True,'react':True,'target':'target-'+mid,'at':at})
+        now=time.time()
+        def owner(d,offset):
+            self.j.append('ext.post',None,{'plugin':'teams','channel':'web','owner':True,'text':json.dumps(d)},ts=now+offset)
+        def send(mid,rid,text,offset,state='sent'):
+            owner({'kind':'send','id':mid,'rid':rid,'text':text},offset)
+            self.feed({'kind':state,'id':mid,'rid':rid,'receipt':{'id':'receipt-'+rid},'at':'2099-01-01T12:00:00Z','error':'Synthetic refusal'})
+        send('newer','n1','Earlier outgoing',-30)
+        send('older','o1','Recent outgoing',-20)
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
+        def rows(): return self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>[n.querySelector('.tm-from').textContent,n.querySelector('.tm-preview').textContent])"})[-1]['eval']
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===2"})[-1]['until'])
+        self.assertEqual(rows(),[['older','Recent outgoing'],['newer','Earlier outgoing']])
+        send('newer','n2','Newest reply',-10)
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='Newest reply'"})[-1]['until'])
+        send('older','o2','Rejected later reply',0,'send_failed')
+        owner({'kind':'send','id':'older','rid':'o3','text':'Waiting later reply'},1)
+        self.page({'sleep':150})
+        self.assertEqual(rows(),[['newer','Newest reply'],['older','Recent outgoing']])
+        owner({'kind':'react','id':'older','rid':'r1','emoji':'👍','target':'target-older'},2)
+        self.feed({'kind':'reacted','id':'older','rid':'r1','target':'target-older'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='👍'"})[-1]['until'])
+        # Equal timestamps use the journal order, including across reply/reaction types.
+        send('older','o4','Reply after reaction',2)
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='Reply after reaction'"})[-1]['until'])
+        owner({'kind':'react','id':'older','rid':'r1','emoji':'👍','target':'target-older'},5)
+        send('scheduled','s1','Deferred reply',-40,'scheduled')
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        expected=[['scheduled','Deferred reply'],['older','Reply after reaction'],['newer','Newest reply']]
+        self.assertEqual(rows(),expected)
+        self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('[data-folder=sent]')"},{'tapSelector':'[data-folder=sent]'},
+                  {'until':"document.querySelectorAll('.tm-person').length===3"})
+        self.assertEqual(rows(),expected)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_native_folder_selection_keeps_white_text_and_icons_in_both_themes(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for theme in ('light','dark'):

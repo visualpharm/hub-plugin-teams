@@ -396,7 +396,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) {hidden.delete(id);replyArchived.delete(id);}
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",...(sends.get(d.rid) || {}) });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",sequence:Number(p.id.slice(1)),...(sends.get(d.rid) || {}) });
       else if (p.by === AUTHOR && d?.kind === "archived") acceptArchive(d);
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
@@ -413,7 +413,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
         if(d.target && d.target!==msgs.get(d.id)?.target)continue;
-        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
       }
       else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
         const r = reactionSends.get(d.id);
@@ -725,6 +725,10 @@ function matchingConversations(items) {
     const weight=group=>Math.max(...group.map(m=>ranks.get(m.post)??100));
     groups.sort((a,b)=>weight(b[1])-weight(a[1]));
   }
+  if (tab === "sent") {
+    const activity = new Map(groups.map(([key,group]) => { const out=folderOutgoing(group); return [key,{at:outgoingTime(out) || secs(group[0].at) || 0,sequence:out?.sequence || 0}]; }));
+    groups.sort((a,b) => activity.get(b[0]).at-activity.get(a[0]).at || activity.get(b[0]).sequence-activity.get(a[0]).sequence);
+  }
   if (tab === "new") groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
   return groups;
 }
@@ -886,25 +890,29 @@ function conversationMark(group) {
   return null;
 }
 
-// Folder previews use only the delivery states admitted by that folder, never a newer unsent draft.
-function folderReplyPreview(group) {
+function outgoingTime(reply) {
+  const value = reply?.state === "later" ? secs(reply.at) : Number(reply?.ts);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+// The row order and preview share the latest delivery admitted by this folder.
+function folderOutgoing(group) {
   const states = tab === "sent" ? ["ok","later"] : tab === "failed" ? ["fail","unresolved"] : [];
   if (!states.length) return null;
   const ids = new Set(group.map(m => m.id));
-  const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state))
-    .reverse().sort((a,b) => (b.ts || 0) - (a.ts || 0));
-  const reply = outgoing[0];
+  const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state));
+  if (tab === "sent") outgoing.push(...[...reactionSends.values()].filter(r => ids.has(r.id) && r.state === "ok"));
+  return outgoing.reverse().sort((a,b) => outgoingTime(b)-outgoingTime(a) || (b.sequence || 0)-(a.sequence || 0))[0] || null;
+}
+
+function folderReplyPreview(group) {
+  const reply = folderOutgoing(group);
   if (reply) {
+    if (reply.emoji) return reply.emoji;
     const text = String(reply.text || "").trim();
     const files = (Array.isArray(reply.files) ? reply.files : []).map(f => typeof f === "string" ? f : f?.name || f?.path)
       .filter(f => typeof f === "string").map(f => f.split(/[\\/]/).pop()).filter(Boolean);
     if (text || files.length) return text || files.join(", ");
-  }
-  if (tab === "sent") {
-    for (const m of group) {
-      const reaction = reactionSends.get(m.id);
-      if (reaction?.state === "ok" && reaction.emoji) return reaction.emoji;
-    }
   }
   return null;
 }
