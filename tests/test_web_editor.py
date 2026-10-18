@@ -1643,6 +1643,23 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(link["label"],"Open in Teams",link)
         self.assertEqual(link["actions"],["Скрыть сообщения Review colleague","React to Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
 
+    def test_targeted_reaction_requires_current_collector_capability(self):
+        self.seed_inbox(start_editing=False,target='synthetic-target-a')
+        self.feed({'kind':'config'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-react-trigger').disabled"})[-1]['until'])
+        self.feed({'kind':'config','reaction_target':1})
+        self.assertTrue(self.page({'until':"!document.querySelector('.tm-react-trigger').disabled"})[-1]['until'])
+        self.page({'tapSelector':'.tm-react-trigger'},{'eval':"window.__reaction=document.querySelector('.tm-reactions button');true"})
+        self.feed({'kind':'config'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-reactions button')?.disabled"})[-1]['until'])
+        self.page({'eval':'window.__reaction.click();true'},{'sleep':300})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='react'])
+        self.assertIn('Reactions are unavailable',self.page({'eval':'document.body.innerText'})[-1]['eval'])
+        self.feed({'kind':'config','reaction_target':1})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-reactions button') && !document.querySelector('.tm-reactions button').disabled"})[-1]['until'])
+        self.page({'tapSelector':'.tm-reactions button:first-child'})
+        self.assertEqual(self.queued('react').get('target'),'synthetic-target-a')
+
     def test_reaction_request_binds_current_destination(self):
         self.seed_inbox(start_editing=False,target='synthetic-target-a')
         self.page({'tapSelector':'.tm-react-trigger'},{'tapSelector':'.tm-reactions button:first-child'})
@@ -1771,7 +1788,7 @@ class InboxWebAcceptance(PageInChrome):
         self.ev("session.requested", "hub", session_id="s-hub", cwd="/workspace", kind="hub", channel="cli", owner=True)
         self.ev("session.started", "hub", session_id="s-hub")
         self.token = {"v": 1, "version": "synthetic-source-A", "edit_version": 0, "held": False, "holder": None}
-        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}})
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "reaction_target":1})
         self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
                    "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token, **({"target":target} if target else {})})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},

@@ -49,6 +49,7 @@ const detachedSends = new Set(); // A reused message ID must never adopt its for
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
 const reactionNotices = new Map();
 const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
+const REACTION_UNAVAILABLE_NOTICE="Reactions are unavailable. Refresh Inbox.";
 let reacting = null;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
@@ -132,6 +133,7 @@ async function settlePendingReply(m,rid) {
 }
 let inboxProtocol = null;
 let replyReplay = false;
+let reactionTargetSupported = false;
 let sendHours = null;
 const replyRecoveries = new Map();
 let historyAvailable = false;
@@ -389,7 +391,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; reactionTargetSupported = d.reaction_target===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
@@ -1337,6 +1339,7 @@ async function reactTo(m, emoji) {
     paint();return;
   }
   if (!currentMessage.react || reactionSends.get(m.id)?.state === "wait") return;
+  if(currentMessage.target && !reactionTargetSupported){reactionNotices.set(pendingReplyKey(currentMessage),REACTION_UNAVAILABLE_NOTICE);paint();return;}
   if(error===REACTION_REOPEN_NOTICE)error="";
   reactionNotices.delete(pendingReplyKey(currentMessage));
   const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true};
@@ -1353,7 +1356,10 @@ async function reactTo(m, emoji) {
 
 function reactionRow(m) {
   const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label","Reaction");
-  for (const emoji of QUICK_REACTIONS) row.append(button(emoji,"",()=>reactTo(m,emoji),"React " + emoji));
+  for (const emoji of QUICK_REACTIONS) {
+    const choice=button(emoji,"",()=>reactTo(m,emoji),"React " + emoji);
+    choice.disabled=!!m.target && !reactionTargetSupported;row.append(choice);
+  }
   const close=button("","quiet",()=>{reacting=null;paint();},"Close reactions");close.append(hub.icon("close"));row.append(close);
   return row;
 }
@@ -1465,7 +1471,8 @@ function thread(ms) {   // ms — по возрастанию времени
     }
     acts.append(go);
     const react = action("React", "react", () => { reacting = target.id; paint(); }, "React to " + target.from);
-    react.classList.add("tm-react-trigger"); react.disabled = !target.react || reactionSends.get(target.id)?.state === "wait";
+    react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
+    if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
     acts.prepend(react);
     acts.prepend(action("Скрыть", "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${target.from}`));
   } else if (ms.some((m) => hidden.has(m.id))) {

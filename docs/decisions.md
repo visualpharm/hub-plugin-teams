@@ -310,3 +310,5 @@ The Inbox send menu reads working hours only from trusted collector config. Reso
 
 ## 2026-10-18 — Reactions bind the original destination
 A modern reaction carries the message target through the collector parser, provider preflight and receipt. The web only confirms its exact request/id/target; missing or wrong target receipts cannot paint success. Rebinding a message detaches its old reaction, and a detached button cannot act on a replacement conversation. Preserve local pending ownership across owner echoes and retain legacy targetless replay behavior. Drafts remain independent. This follows the reply identity boundary and does not add automatic replay or provider sends from navigation.
+
+Target-bearing messages require the collector-owned reaction_target:1 capability before reactions are enabled. A missing/revoked capability blocks both the visible trigger and detached controls; receipts for already admitted requests still settle normally. Old targetless collectors retain their legacy behavior. This avoids assuming that a collector emitting message targets also preserves them in reaction requests.
