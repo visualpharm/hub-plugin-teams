@@ -1629,7 +1629,6 @@ async function retryFailedReply(m,rid) {
     let accepted=false;try {accepted=await transport;}catch {}
     if(!accepted && sends.get(q.rid)?.state==="wait") {
       sends.set(q.rid,{...sends.get(q.rid),state:"unresolved",error:UNKNOWN_REPLY_NOTICE});
-      attempt.error=UNKNOWN_REPLY_NOTICE;
     }
   } catch(e) {
     if(q && st?.state.delivery?.rid===q.rid)st.state.delivery=null;

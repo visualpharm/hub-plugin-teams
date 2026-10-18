@@ -106,7 +106,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({'eval':"Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')).map(([,v])=>JSON.parse(v))"})[-1]['eval'],[other])
 
     def test_attachment_only_retry_is_durable_and_unknown_replays_same_request(self):
-        old=self.failed_external_reply(attachment_only=True)
+        old=self.failed_external_reply(attachment_only=True);self.edit('Newer draft after attachment failure')
         self.feed({'kind':'config','v':3,'reply_replay':1})
         self.page({'eval':"window.__requests=[];window.__fetch=fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){__requests.push(q);throw Error('Synthetic lost acknowledgment')}}return __fetch(u,o)};document.querySelector('.tm-retry-failed').click();true"})
         self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-unresolved')"})[-1]['until'])
@@ -119,6 +119,19 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
         self.page({'tapSelector':'.tm-retry-original'})
         self.assertEqual(self.queued('send'),retry)
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Submission is awaiting confirmation')"})[-1]['eval'])
+
+    def test_failed_retry_lost_ack_notice_clears_after_matching_receipt(self):
+        old=self.failed_external_reply();self.edit('Newer draft')
+        self.page({'eval':"window.__requests=[];window.__fetch=fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){__requests.push(q);throw Error('Synthetic lost acknowledgment')}}return __fetch(u,o)};document.querySelector('.tm-retry-failed').click();true"})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-unresolved')"})[-1]['until'])
+        retry=self.page({'eval':"__requests[0]"})[-1]['eval']
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Submission is awaiting confirmation')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer draft')
 
     def test_retry_revalidates_after_web_lock_wait_and_preserves_newer_edit(self):
         old=self.failed_external_reply()
