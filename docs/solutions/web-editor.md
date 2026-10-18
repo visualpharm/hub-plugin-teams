@@ -338,3 +338,6 @@ button: direct Retry precedes it for chat. Reproduce stale selector failures on
 the unchanged baseline before attributing them to an unrelated header change.
 
 The detail menu key follows the exact conversation rather than its newest message ID: a newly arriving message must not collapse a private instruction mid-entry. Flat cards retain message-specific keys because several cards can belong to the same conversation. Their merged draft menu stays at the trailing edge with a readable width; sharing the narrower conversation-only menu sizing regresses the instruction field.
+
+## Compact list timestamps without core interference
+The core updates every `.ago` node to a verbose relative string. Compact Inbox list labels therefore use `.tm-age` and their own 30-second text-only refresh, also refreshed on view rendering. Keep delivery timestamps on the original core path. Calendar yesterday is computed by local date arithmetic, not a fixed 24-hour subtraction, and applies only after six elapsed hours, matching the native client. Tests cover boundaries, DST, invalid/missing dates, old years, exact-date tooltips and focus remaining in the same draft node across the timer tick.
