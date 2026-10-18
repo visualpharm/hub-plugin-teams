@@ -228,3 +228,5 @@ The shared button helper adds btn small; a toolbar font declaration can still lo
 ## Group authors and calendar boundaries
 
 Use one previous-message cursor across loaded history and current messages. Resetting the cursor at that boundary repeats the day and sender; elapsed-hour thresholds miss midnight and repeat the same day after a long gap. Compare local calendar dates for chats and track raw speaker identity for consecutive groups, normalizing only the displayed name. Preserve the original source object when rendering historical rows so contextual actions retain their exact provider target. Check midnight, same-day gaps, outgoing interruptions, history/current continuity and invalid dates with the real renderer.
+
+Mail is a separate boundary: reset the history cursor before the current mail message so its exact time header remains visible even when older mail arrived one minute earlier. Chat continuity must not erase mail metadata.

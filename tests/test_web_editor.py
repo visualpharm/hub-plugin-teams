@@ -10,6 +10,18 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_mail_retains_its_current_message_header_after_history(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('email')
+        self.feed({'kind':'msg','id':'external-email','contact':'synthetic/email','src':'email','from':'Synthetic email',
+                   'text':'Current mail body','reply':True,'at':'2026-01-02T12:01:00'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Current mail body')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'external-email','part':0,'of':1,'more':False,'items':[
+            {'id':'earlier-mail','from':'Synthetic email','text':'Earlier mail body','at':'2026-01-02T12:00:00'}]})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-history-row')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"[...document.querySelectorAll('.tm-divider')].map(n=>n.textContent)"})[-1]['eval'],['2 января, 12:00','2 января, 12:01'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_group_history_names_each_speaker_and_separates_calendar_days(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'mention','from':'Maria',
