@@ -47,6 +47,7 @@ const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(sign
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
+const reactionNotices = new Map();
 const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
 let reacting = null;
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
@@ -301,6 +302,7 @@ async function sync() {
         const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
         const previous=msgs.get(d.id);
         if(previous && pendingReplyKey(previous)!==pendingReplyKey(message)) {
+          reactionNotices.delete(pendingReplyKey(previous));
           const reaction=reactionSends.get(d.id);
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
@@ -920,6 +922,11 @@ function line(m, source=m) {
     if(foot)row.append(el("time","tm-message-time",foot));
   }
   const result = reactionSends.get(m.id);
+  const reactionNotice=reactionNotices.get(pendingReplyKey(m));
+  if(reactionNotice) {
+    const notice=el("p","tm-reaction-status tm-reaction-notice",reactionNotice);
+    notice.setAttribute("role","status");row.append(notice);
+  }
   if (result) {
     const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
     status.setAttribute("role","status"); row.append(status);
@@ -1325,9 +1332,13 @@ function sentBlock(m, rid, x) {
 
 async function reactTo(m, emoji) {
   const currentMessage=msgs.get(m.id);
-  if(!currentMessage || pendingReplyKey(currentMessage)!==pendingReplyKey(m)){error=REACTION_REOPEN_NOTICE;paint();return;}
+  if(!currentMessage || pendingReplyKey(currentMessage)!==pendingReplyKey(m)) {
+    if(currentMessage)reactionNotices.set(pendingReplyKey(currentMessage),REACTION_REOPEN_NOTICE);else error=REACTION_REOPEN_NOTICE;
+    paint();return;
+  }
   if (!currentMessage.react || reactionSends.get(m.id)?.state === "wait") return;
   if(error===REACTION_REOPEN_NOTICE)error="";
+  reactionNotices.delete(pendingReplyKey(currentMessage));
   const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true};
   reactionSends.set(m.id,r); reacting = null; paint();
   let failure = "";
