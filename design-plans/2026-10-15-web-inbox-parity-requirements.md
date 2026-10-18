@@ -24,3 +24,9 @@ management work owns the protocol; this slice changes only its web consumer.
 - Historical Draft uses the native ask protocol: original source post plus trusted thread-post location, provider message id, sender and time. Display row ids are never collector ids.
 - Rebinding, navigation and dismissal cannot apply an old menu to a different message. Copy tests use an isolated fake clipboard.
 - Render phone/tablet/desktop in actual light/dark themes and retain normal scrolling, text selection and keyboard focus.
+
+## Native send options (recovered 2026-10-18)
+- Pinned Mac menu-inbox-send-options and iPhone34 expose five controls: Send now, remembered Send and Archive, next contact working start, custom later, Weekends Too. Reuse native placement and order; whole menu must remain reachable with the keyboard open.
+- Weekends Too reads the trusted collector configuration for this exact contact, not an optimistic local toggle. Changing it requires the current target and correlated collector capability; HTTP acceptance is not confirmation. Persist original id/contact/target/rid/value before sending and use the same request for explicit retry after reload.
+- Wrong receipts, revoked capabilities, stale controls and changed destinations cannot mutate a replacement conversation. Preserve newer reply drafts. Unknown or refused setting changes stay visible.
+- Native Send and Archive and its remembered default remain a separate unfinished requirement.

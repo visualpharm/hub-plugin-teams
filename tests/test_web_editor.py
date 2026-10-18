@@ -10,6 +10,97 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_weekend_change_waits_for_exact_receipt_and_preserves_reply(self):
+        self.seed_inbox(start_editing=False)
+        self.open_external_source('telegram',target='weekend-target')
+        hours={'from':'08:00','to':'20:00','weekends':False,'tz':'UTC','except':[]}
+        self.feed({'kind':'config','v':3,'hours_for_bound':1,'hours':hours})
+        self.edit('Keep my weekend draft')
+        self.page({'tapSelector':'.tm-send-options > summary'}, {'until':"!!document.querySelector('.tm-send-weekends') && !document.querySelector('.tm-send-weekends').hidden"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-send-weekends') && !document.querySelector('.tm-send-weekends').hidden"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-send-weekends input'})
+        q=self.queued('hours_for')
+        self.assertEqual((q['id'],q['contact'],q['target'],q['weekends']),('external-telegram','synthetic/telegram','weekend-target',True))
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-weekends input').checked"})[-1]['eval'],False)
+        for change in ({'target':'wrong'},{'contact':'wrong'},{'rid':'wrong'},{'target':None},{'requested':False}):
+            self.feed({**q,'kind':'hours_set','weekends':True,'requested':True,**change})
+        self.page({'until':"!document.querySelector('.tm-weekend-retry').hidden"},{'eval':"document.querySelector('.tm-weekend-retry').scrollIntoView({block:'nearest'});true"},{'tapSelector':'.tm-weekend-retry'})
+        self.assertEqual(self.queued('hours_for'),q)
+        self.feed({'kind':'config','v':3,'hours_for_bound':1,'hours':{**hours,'except':[{'contact':'synthetic/telegram'}]}})
+        self.feed({**q,'kind':'hours_set','weekends':True,'requested':True})
+        self.page({'until':"document.querySelector('.tm-weekend-retry').hidden"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-weekends input').checked"})[-1]['eval'],True)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep my weekend draft')
+
+    def test_weekend_pending_survives_reload_and_refusal_without_replacing_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='weekend-target')
+        hours={'from':'08:00','to':'20:00','weekends':False,'tz':'UTC','except':[]}
+        self.feed({'kind':'config','v':3,'hours_for_bound':1,'hours':hours});self.edit('Before changing weekends')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'until':"!document.querySelector('.tm-send-weekends').hidden"},{'tapSelector':'.tm-send-weekends input'})
+        q=self.queued('hours_for');self.edit('Newer retained reply')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===2"},
+                  {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"},
+                  {'tapSelector':'.tm-send-options > summary'},{'until':"!document.querySelector('.tm-weekend-retry').hidden"})
+        self.page({'eval':"document.querySelector('.tm-weekend-retry').scrollIntoView({block:'nearest'});true"},{'tapSelector':'.tm-weekend-retry'})
+        self.assertEqual(self.queued('hours_for'),q)
+        self.feed({**q,'kind':'hours_failed','error':'Synthetic refusal'})
+        self.page({'until':"document.querySelector('.tm-weekend-feedback').textContent==='Synthetic refusal'"})
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-send-weekends input').checked"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer retained reply')
+        self.page({'tapSelector':'.tm-send-weekends input'})
+        q2=self.queued('hours_for');self.assertNotEqual(q2['rid'],q['rid'])
+        self.feed({**q2,'kind':'hours_failed','unresolved':True,'error':'Unknown outcome'})
+        self.page({'until':"document.querySelector('.tm-weekend-feedback').textContent==='Unknown outcome'"})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-send-weekends input').disabled && !document.querySelector('.tm-weekend-retry').hidden"})[-1]['eval'])
+        self.feed({**q2,'kind':'hours_set','requested':True,'weekends':True})
+        self.page({'until':"document.querySelector('.tm-weekend-retry').hidden"})
+        self.assertIn('confirmed',self.page({'eval':"document.querySelector('.tm-weekend-feedback').textContent"})[-1]['eval'])
+
+    def test_weekend_control_capability_rebinding_and_phone_geometry(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='weekend-a')
+        hours={'from':'08:00','to':'20:00','weekends':True,'tz':'UTC','except':[]}
+        config={'kind':'config','v':3,'hours':hours}
+        self.feed(config);self.page({'tapSelector':'.tm-send-options > summary'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-send-weekends').hidden"})[-1]['eval'])
+        self.feed({**config,'hours_for_bound':1})
+        self.page({'until':"!document.querySelector('.tm-send-weekends').hidden"})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-send-weekends input').checked"})[-1]['eval'])
+        out=Path(os.environ.get('HUB_INBOX_SCREENSHOTS','/tmp/weekend-web-shots'));out.mkdir(parents=True,exist_ok=True)
+        for width,theme in ((360,'light'),(390,'light'),(768,'dark'),(834,'dark'),(1024,'dark'),(1280,'dark'),(1440,'dark')):
+            palette={'theme':{'name':'Synthetic '+theme,'dark':theme=='dark','colors':{'background':'#1e1e1e' if theme=='dark' else '#ffffff','foreground':'#f5f5f7' if theme=='dark' else '#202124','primary':'#0088ff'}}}
+            self.page({'eval':"localStorage.setItem('hub.theme',"+json.dumps(json.dumps(palette))+");import('/static/js/themes.js').then(m=>m.applySavedTheme())"})
+            steps=[{'viewport':{'width':width,'height':600}},{'media':theme},{'eval':"document.querySelector('.tm-send-options').open=true;true"},
+                   {'eval':"(()=>{const b=document.querySelector('.tm-send-weekends');b.scrollIntoView({block:'nearest'});const r=b.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,hit:b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),overflow:document.documentElement.scrollWidth-innerWidth}})()"}]
+            got=self.page(*steps)[-1]['eval'];self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertGreaterEqual(got['top'],0);self.assertLessEqual(got['bottom'],600);self.assertGreaterEqual(got['height'],44);self.assertTrue(got['hit']);self.assertEqual(got['overflow'],0)
+            if os.environ.get('HUB_INBOX_SCREENSHOTS'):self.page({'shot':str(out/f'weekend-{theme}-{width}.png'),'width':width,'height':600})
+            fonts=self.page({'eval':"[...document.querySelectorAll('.tm-send-menu > .btn,.tm-send-later > summary,.tm-send-weekends')].filter(n=>n.getBoundingClientRect().height>0).map(n=>parseFloat(getComputedStyle(n).fontSize))"})[-1]['eval']
+            self.assertTrue(all(n>=16 for n in fonts),(width,fonts))
+        self.page({'eval':"window.__oldWeekend=document.querySelector('.tm-send-weekends input');true"})
+        self.feed(config);self.page({'until':"document.querySelector('.tm-send-weekends').hidden"},{'eval':"window.__oldWeekend.dispatchEvent(new Event('change',{bubbles:true}));true"})
+        self.assertEqual(self.non_history_actions(),[])
+        self.feed({**config,'hours_for_bound':1})
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Changed destination','reply':True,'target':'weekend-b','at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Changed destination')"},{'eval':"window.__oldWeekend.dispatchEvent(new Event('change',{bubbles:true}));true"})
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertIn('Reopen',self.page({'eval':"document.querySelector('.tm-weekend-feedback').textContent"})[-1]['eval'])
+
+    def test_weekend_original_receipt_settles_after_target_change_without_changing_config(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='weekend-a')
+        hours={'from':'08:00','to':'20:00','weekends':False,'tz':'UTC','except':[]}
+        self.feed({'kind':'config','v':3,'hours_for_bound':1,'hours':hours});self.edit('Retained after target change')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'until':"!document.querySelector('.tm-send-weekends').hidden"},{'tapSelector':'.tm-send-weekends input'})
+        q=self.queued('hours_for')
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram','text':'Changed destination','reply':True,'target':'weekend-b','at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Changed destination')"})
+        self.feed({**q,'kind':'hours_set','weekends':True,'requested':True})
+        self.page({'until':"document.querySelector('.tm-weekend-retry').hidden"})
+        self.assertIn('confirmed',self.page({'eval':"document.querySelector('.tm-weekend-feedback').textContent"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-send-weekends input').checked"})[-1]['eval'],'A receipt must not overwrite a newer config')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retained after target change')
+        self.feed({'kind':'config','v':3,'hours_for_bound':1,'hours':{**hours,'except':[{'contact':'synthetic/telegram'}]}})
+        self.page({'until':"document.querySelector('.tm-send-weekends input').checked"})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-weekend-feedback').hidden"})[-1]['eval'])
+
     def spooled(self, theme=False):
         # Consume only facts observed in this snapshot. A browser request may
         # still be writing its atomic temporary file or arrive after take().
@@ -47,6 +138,8 @@ class InboxWebAcceptance(PageInChrome):
             if os.environ.get('HUB_INBOX_SCREENSHOTS'):
                 out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
                 steps.append({'shot':str(out/f'pin-menu-{theme}-{width}.png'),'width':width,'height':874})
+            # Measure settled geometry after the shared button press transition.
+            steps.append({'until':"document.querySelector('.tm-conversation-options > summary').getBoundingClientRect().height>=44"})
             steps.append({'eval':"(()=>{const b=document.querySelector('[data-action=pin-conversation]'),r=b.getBoundingClientRect(),s=b.closest('details').querySelector('summary').getBoundingClientRect();return {left:r.left,right:r.right,height:r.height,target:s.height,overflow:document.documentElement.scrollWidth-innerWidth,theme:getComputedStyle(document.documentElement).colorScheme}})()"})
             got=self.page(*steps)[-1]['eval'];self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width)
             self.assertGreaterEqual(got['height'],44);self.assertGreaterEqual(got['target'],44);self.assertEqual(got['overflow'],0);self.assertEqual(got['theme'],theme);rows.append(got)
