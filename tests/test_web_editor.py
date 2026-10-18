@@ -70,6 +70,8 @@ class InboxWebAcceptance(PageInChrome):
             check('wait')
             self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
             self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail')"})[-1]['until']);check('fail')
+            self.assertIn(self.page({'eval':"document.querySelector('.tm-mine-fail .tm-acts button').textContent"})[-1]['eval'],['Edit reply','Править ответ'])
+            self.assertTrue(self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-fail .tm-acts button');return b.getAttribute('aria-label').startsWith(b.textContent+': ')})()"})[-1]['eval'])
             self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
             self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],raw)
         self.assertEqual(self.non_history_actions(),[])

@@ -293,3 +293,6 @@ Measure from the previous card's final content to the next header, not only the 
 
 ### Flat search alignment
 The search footer belongs to the same reading column as flat cards. Test its left/right edges and icon start at narrow, tablet and wide widths, then type a query and use Clear to verify filtering and returned focus. Scope the width/inset override to tm-flat so grouped list geometry stays intact. Await synthetic source rows before selecting dynamic source filters; otherwise a missing filter/card is fixture timing rather than a layout failure.
+
+### Failed reply action names
+The shared sentBlock action opens the editor; call it Edit reply in both visible and accessible text. A retry label is reserved for an action that submits the appropriate request. The existing chat/mail raw-text regression now checks the label and no-send outcome; exact original-request recovery tests remain separate. Native direct retry parity is still open and must not reuse unresolved requests as fresh sends.

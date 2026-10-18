@@ -1594,7 +1594,8 @@ function sentBlock(m, rid, x) {
   }
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
     const a = el("div", "tm-acts");
-    a.append(button("Повторить", "", () => openCompose(m, x.text), `Повторить ответ: ${personName(m.from)}`));
+    const editLabel=T("Править ответ", "Edit reply");
+    a.append(button(editLabel, "", () => openCompose(m, x.text), `${editLabel}: ${personName(m.from)}`));
     d.append(a);
   }
   return d;
