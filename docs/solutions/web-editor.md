@@ -174,3 +174,9 @@ The unresolved-reply state adds a fourth folder. Live captures revealed that exi
 ### A matching request id is not enough for a delivery receipt
 
 Bind the original target alongside rid and preserve it independently from editable draft text. Reject mismatched or missing target before editorFact can apply a receipt; guarded editor-state also rejects it directly. Owner echo must not overwrite a known original target. On reload, restore that binding from the pending request. Browser regressions cover external and guarded replies, wrong/missing target, trusted completion after reload, and newer-draft preservation. Scheduling and the fallback composer propagate the same target. Legacy targetless receipts remain supported only for targetless original requests.
+
+
+### Recover the original request, not the current draft
+An explicit replay can first-submit a request lost before collector admission. Label it Retry original reply, require the trusted reply_replay capability and a target-bound durable request, and send the saved object unchanged. Revalidate the current conversation and pending record inside the handler, because a detached button may outlive a source/config/storage change. Coalesce transport attempts, keep unknown outcomes pending, and preserve newer draft text/files. Guarded duplicate receipts must match the original version before either the editor or outgoing bubble changes state; rejecting settlement alone still falsely paints success and hides recovery.
+
+Capability revocation tests must first observe the enabled control before awaiting its disappearance. Awaiting an already absent control can return before the revocation fact arrives and falsely characterize a stale-button click as a runtime failure.

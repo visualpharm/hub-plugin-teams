@@ -207,7 +207,7 @@
 .tm-sent-chat.tm-mine-fail > .tm-draft-by { color: var(--foreground); }
 .tm-sent-chat.tm-mine-wait > .tm-draft-text { opacity: .9; }
 .tm-sent-chat > .tm-draft-by { margin: 0; text-align: right; }
-.tm-sent-chat > .tm-unschedule { color: var(--primary); min-height: 44px; }
+.tm-retry-original, .tm-sent-chat > .tm-unschedule { color: var(--primary); min-height: 44px; }
 .tm-quote { margin: 0 0 4px; padding: 0 0 0 8px; border-left: 3px solid currentColor; opacity: .85; overflow-wrap: anywhere; }
 .tm-quote strong, .tm-quote span { display: block; }
 .tm-quote span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
