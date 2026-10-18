@@ -142,3 +142,9 @@ Empty targets cannot report a saved reminder. Read preferences refuse growth
 beyond 256 Ki characters per Hub, without deleting old reminders, to limit their
 share of origin storage. This is a bounded stop, not a guarantee of free browser
 quota; compaction and stable Hub rename migration remain separate work.
+
+
+### Provider read recovery and menu bounds
+`provider-read.js` owns a separate per-Hub receipt ledger, never the local unread reminder. Reload/replay reuses the original request; a source rebind has another target and cannot consume an old receipt. The 256 Ki-character bound compacts settled success records, reserves room for bounded failure receipts, and refuses growth instead of evicting unresolved IDs or drafts. Web Locks serialize request admission across browser tabs. Refused receipt persistence stays pending for same-rid recovery. Do not infer provider success from HTTP acceptance.
+
+Conversation menus are anchored before two other header controls. A viewport-wide max-width can still place their left edge offscreen. Bound width to the space available before those controls and allow status text to wrap. The provider-read browser scenario checks actual menu edges at seven widths, light and dark when capturing.

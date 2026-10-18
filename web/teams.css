@@ -359,5 +359,5 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 .tm-icon-pin { --tm-icon: url("./icons/pin.svg"); }
 .tm-person .tm-pinned { width: 16px; height: 16px; flex: none; color: var(--foreground); }
-.tm-conversation-options .tm-editor-menu { width: max-content; max-width: calc(100vw - 32px); }
+.tm-conversation-options .tm-editor-menu { width: min(280px,calc(100vw - 160px)); white-space: normal; }
 .tm-conversation-options .tm-editor-menu .btn { display: block; width: 100%; text-align: left; }

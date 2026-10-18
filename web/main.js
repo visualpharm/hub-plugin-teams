@@ -14,6 +14,7 @@ import { newMessage } from "./new-message.js";
 import { messageMenus } from "./message-menu.js";
 import { conversationPins } from "./conversation-pins.js";
 import { localReadState } from "./read-state.js";
+import { providerReadState } from "./provider-read.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -244,8 +245,15 @@ async function sync() {
         editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
       } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
-      else if (p.by === AUTHOR && d?.kind === "read") {
-        for (const id of d.ids || [d.id]) { const m = msgs.get(id); if (m) m.unread = false; }
+      else if (p.by === AUTHOR && ["read","read_failed"].includes(d?.kind)) {
+        const accepted=typeof navigator!=='undefined' && navigator.locks
+          ? await navigator.locks.request('hub.inbox.provider-read:'+hubName(),()=>providerReads.accept(d)) : providerReads.accept(d);
+        if(accepted===true && error==="Could not save read confirmation. Check read status to recover.")error="";
+        if(accepted==='storage')error="Could not save read confirmation. Check read status to recover.";
+        if(d.kind==="read")for(const id of d.ids || [d.id]) {
+          const m=msgs.get(id);
+          if(m && (d.target ? accepted===true && m.target===d.target : true))m.unread=false;
+        }
       }
       else if (p.by === AUTHOR && d?.kind === "reopened") {
         const m = msgs.get(d.id);
@@ -465,6 +473,10 @@ const conversationKey = (m) => m.contact || m.box || `${m.src}:${m.id}`;
 const pins = conversationPins(hubName);
 const pinKey = m => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, conversationKey(m)]);
 const reads = localReadState(hubName, m=>JSON.stringify([pinKey(m),m.id]), seen);
+const providerReads = providerReadState(hubName);
+const readingRequests = new Set();
+const readTransportErrors = new Map();
+const readRequestKey = m => JSON.stringify([hubName(),m.id,m.target]);
 function conversationOptions(m) {
   const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
@@ -491,7 +503,43 @@ function conversationOptions(m) {
     if(row)row.focus();else focusMenu();
   });
   unread.dataset.action="mark-unread";
-  body.append(toggle,unread); menu.append(summary, body);
+  body.append(toggle,unread);
+  if(providerReads.supported(m)) {
+    const state=providerReads.get(m),name={telegram:'Telegram',whatsapp:'WhatsApp',email:'Mail'}[m.src];
+    const label=state?.state==='read' ? `Read in ${name}` : state?.state==='pending' ? 'Check read status' : state?.state==='failed' ? 'Could not mark read' : state?.state==='unknown' ? 'Read status unknown' : state?.state==='blocked' ? 'Read history unavailable' : `Mark read in ${name}`;
+    const read=button(label,'quiet',async()=>{
+      const current=msgs.get(m.id);
+      if(!current || current.target!==m.target)return;
+      let q;
+      try {
+        if(!navigator.locks)throw Error('This browser cannot safely queue a read request.');
+        q=await navigator.locks.request('hub.inbox.provider-read:'+hubName(),()=> {
+          const latest=msgs.get(m.id);
+          return latest?.target===m.target ? providerReads.begin(latest,requestId()) : null;
+        });
+      }
+      catch(e){error=e.message;paint();return;}
+      if(!q || readingRequests.has(q.rid))return;
+      if(error==="Could not save the read request. No request was sent.")error="";
+      const key=readRequestKey(current);readTransportErrors.delete(key);
+      readingRequests.add(q.rid);paint();let timer;
+      const feedback=text=>{if(providerReads.get(current)?.state==='pending')readTransportErrors.set(key,String(text).slice(0,240));};
+      try {
+        const result=await Promise.race([hub.postFeed(JSON.stringify(q)),new Promise(resolve=>{timer=setTimeout(()=>resolve({error:'No confirmation yet. Check read status.'}),10000);})]);
+        if(result?.error)feedback(result.error);
+      }
+      catch { feedback('Could not confirm the request. Check read status.'); }
+      finally { clearTimeout(timer);readingRequests.delete(q.rid);paint(); }
+    });
+    read.dataset.action='provider-read';
+    read.disabled=['read','failed','unknown','blocked'].includes(state?.state) || readingRequests.has(state?.rid);
+    body.append(read);
+    if(state?.state==='pending' || state?.error && state.state!=='read') {
+      const status=el('p','tm-editor-feedback',state.state==='pending' ? readTransportErrors.get(readRequestKey(m)) || 'Awaiting confirmation from the source.' : state.error);
+      status.setAttribute('role','status');body.append(status);
+    }
+  }
+  menu.append(summary, body);
   menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
   menu.addEventListener('focusout',e=>{if(e.relatedTarget && !menu.contains(e.relatedTarget))menu.open=false;});
   return menu;
@@ -1267,7 +1315,7 @@ function paint() {
     const state = optionStates.find(s=>s.key===options.dataset.optionKey);
     if (!state) continue;
     options.open = state.open;
-    if (state.focus) options.querySelector(state.focus === 'summary' ? 'summary' : `[data-action="${CSS.escape(state.focus)}"]`)?.focus();
+    if (state.focus) { const target=options.querySelector(state.focus === 'summary' ? 'summary' : `[data-action="${CSS.escape(state.focus)}"]`); (target && !target.disabled ? target : options.querySelector('summary'))?.focus(); }
   }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
     const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
