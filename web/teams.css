@@ -433,5 +433,18 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
 .tm-folders:has([data-folder="failed"]) .tm-folder-label { display: none; }
 
+/* Native 32px capsules sit inside the web's 44px touch targets. */
+.tm .tm-bar :is(.tm-folder, .tm-new-trigger), .tm .tm-bar > details > summary {
+  position: relative; isolation: isolate; background: transparent;
+}
+.tm .tm-bar :is(.tm-folder, .tm-new-trigger)::before, .tm .tm-bar > details > summary::before {
+  content: ""; position: absolute; inset: 6px 2px; border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  z-index: -1; pointer-events: none;
+}
+.tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--primary); }
+.tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
+.tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 16px; height: 16px; }
+
 .tm-rich-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-rich-text a { color: inherit; text-decoration: underline; }
