@@ -59,4 +59,11 @@ for(const target of [undefined,'recipient-b']) {
 }
 assert.equal(bound.delivery.state,'queued');
 assert.equal(bound.receive({kind:'sent',id:'source',rid:'bound',target:'recipient-a',submitted_inbox:boundVersion,inbox:boundVersion,receipt:{id:'right'}}),true);
+for (const kind of ['sent','send_duplicate']) {
+  const recovered=start(),v=confirm(recovered);recovered.send('recover','Exact reply');
+  recovered.receive({kind:'send_uncertain',id:'source',rid:'recover'});
+  assert.match(recovered.error,/awaiting confirmation/);
+  assert.equal(recovered.receive({kind,id:'source',rid:'recover',submitted_inbox:v,inbox:v,version:v.version,state:'sent',receipt:{id:'confirmed'}}),true);
+  assert.equal(recovered.error,'');
+}
 console.log('Inbox editor: identity, CAS, stale proposals, explicit Apply and truthful delivery passed');

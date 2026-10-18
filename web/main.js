@@ -79,6 +79,12 @@ const hasOwnerDraft=m=>!!(savedDraft(m)?.text.trim() || savedDraft(m)?.files?.le
 // Delivery admission is separate from the editable draft: typing must never
 // erase an uncertain request, and reload must not turn it into a new send.
 const pendingReplyKey=m=>"hub.inbox.pending.v1:"+JSON.stringify([hubName(),m.src,m.contact||m.chat||m.link||"",m.id,m.target||""]);
+const PENDING_REPLY_NOTICE="A reply is awaiting confirmation. Your draft is retained.";
+const UNKNOWN_REPLY_NOTICE="Submission is awaiting confirmation. Your draft is retained.";
+const isReplyNotice=text=>[PENDING_REPLY_NOTICE,UNKNOWN_REPLY_NOTICE].includes(text);
+function replyNotice(st,text) {
+  if(!st.error || isReplyNotice(st.error))st.error=text;
+}
 function pendingReply(m) {
   if(!m)return null;
   try {
@@ -105,8 +111,18 @@ function restorePendingReply(m) {
 async function settlePendingReply(m,rid) {
   if(!m)return;
   const settle=()=>{
-    if(pendingReply(m)?.q?.rid!==rid)return;
-    try { localStorage.removeItem(pendingReplyKey(m)); }
+    const pending=pendingReply(m);
+    if(pending && pending.q?.rid!==rid)return;
+    try {
+      if(pending)localStorage.removeItem(pendingReplyKey(m));
+      // Owner echoes from another client have no local pending record.
+      // Clear only our notice, and only once no other reply is pending.
+      if(!deliveryPending(m)) {
+        const st=composing.get(m.id);
+        if(st && isReplyNotice(st.error))st.error="";
+        if(isReplyNotice(error))error="";
+      }
+    }
     catch { error="Could not save delivery confirmation. Keep this page open."; }
   };
   if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),settle);else settle();
@@ -1011,7 +1027,7 @@ function sharedReply(m, st) {
     const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
-      sentLabel: "Queued. Waiting for delivery confirmation.",
+      sentLabel: "Reply retained.",
       onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!(text.trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
       onFilesChange({files,text,uploading}) {
         st.files=files;st.uploading=uploading;st.text=text;st.suggested=false;
@@ -1023,8 +1039,11 @@ function sharedReply(m, st) {
         if(sendAt && (!Number.isFinite(Date.parse(sendAt)) || Date.parse(sendAt)<=Date.now()))return {error:"Choose a future time before scheduling this reply."};
         if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
         if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
-        if (deliveryPending(m))
-          return { error: "A reply is awaiting confirmation. Your draft is retained." };
+        if (deliveryPending(m)) {
+          // Pending delivery belongs to this plugin. Keep it out of the shared
+          // composer's persistent transport error so a receipt can settle it.
+          replyNotice(st,PENDING_REPLY_NOTICE);paint();return {};
+        }
         const revision=st.state?.revision;
         beginEditing(m, st);
         let q;
@@ -1054,7 +1073,8 @@ function sharedReply(m, st) {
         let accepted=false;try {accepted=await mark(q.kind,q);}catch { /* The original request may already have arrived. */ }
         if (!accepted && !["ok","later"].includes(sends.get(q.rid)?.state)) {
           if(sends.get(q.rid)?.state==="wait")sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
-          return { error: "Submission is awaiting confirmation. Your draft is retained." };
+          replyNotice(st,UNKNOWN_REPLY_NOTICE);
+          paint();return {};
         }
         paint(); return {};
       },

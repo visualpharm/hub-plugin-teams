@@ -291,3 +291,9 @@ Pending replies now have a separate persisted record containing the exact reques
 ## 2026-10-17 — Bind reply requests and receipts to the observed conversation
 
 Modern message facts carry the collector target fingerprint. Shared, guarded and legacy reply composers now return that exact target, persist it with the original request, and retain it in restored delivery state. A trusted delivery fact with the right rid but a missing or different target must not mutate the editor, clear pending storage, or acknowledge success. Filtering occurs before editor reconciliation. Legacy targetless requests remain compatible. This consumes the independently verified installed collector target contract; it does not automatically replay uncertain requests or alter the collector.
+
+
+## 2026-10-17 — Keep delivery confirmation feedback in Inbox
+The shared composer retains transport errors until its next submission. Pending delivery and lost acknowledgement are instead represented by Inbox-owned feedback, so the matching receipt can clear them without destroying the active editor or upload. The original durable request still blocks replacement sends. The shared completion callback restores the latest draft and files, and its short acknowledgement says only that the reply is retained. Successful guarded receipts also clear obsolete editor errors. No new core API is needed; frozen composers use the same behavior.
+
+Owner send echoes from another client may have no browser pending record. Their matching terminal receipt clears only Inbox-owned feedback once no reply remains pending. A draft-save warning takes precedence over a pending-delivery notice and survives receipt reconciliation. Idle editors ignore rid-less history/media facts before dereferencing delivery state.
