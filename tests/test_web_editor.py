@@ -1260,6 +1260,36 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'until':"!document.querySelector('.tm-retry-original')"},{'eval':'__oldRetry.click();true'})
         self.assertEqual(self.page({'eval':'__sendCount'})[-1]['eval'],1)
 
+    def test_replayed_success_clears_unchanged_external_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
+        self.edit('Original delivered text')
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;throw Error('Synthetic lost acknowledgement')}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+                  {'until':"!!window.__original && !!document.querySelector('.tm-mine-unresolved')"})
+        q=self.page({'eval':'__original'})[-1]['eval']
+        self.feed({'kind':'send_duplicate','state':'sent','receipt':{'id':'synthetic-delivery'},'id':q['id'],'rid':q['rid'],'target':q['target']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        got=self.page({'eval':"({text:document.querySelector('.tm-shared-compose textarea')?.value||'',stale:Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.')).some(k=>JSON.parse(localStorage.getItem(k))?.pendingRid===window.__original.rid)})"})[-1]['eval']
+        self.assertEqual(got,{'text':'','stale':False})
+
+    def test_replayed_guarded_success_clears_draft_without_open_editor(self):
+        self.seed_inbox(start_editing=False,target='synthetic-target-a');self.edit('Original guarded text');self.acknowledge(self.queued('draft_control'))
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;throw Error('Synthetic lost acknowledgement')}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+                  {'until':"!!window.__original && !!document.querySelector('.tm-mine-unresolved')"})
+        q=self.page({'eval':'__original'})[-1]['eval']
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose textarea')"})[-1]['eval'])
+        self.feed({'kind':'send_duplicate','state':'sent','receipt':{'id':'synthetic-delivery'},'id':q['id'],'rid':q['rid'],'target':q['target'],'version':q['inbox']['version']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.')).some(k=>JSON.parse(localStorage.getItem(k))?.pendingRid==="+json.dumps(q['rid'])+")"})[-1]['eval'])
+
+    def test_targetless_legacy_reply_cannot_be_replayed(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.feed({'kind':'config','reply_replay':1});self.edit('Legacy unknown reply')
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post') && JSON.parse(JSON.parse(o.body).text).kind==='send')throw Error('Synthetic offline');return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+                  {'until':"!!document.querySelector('.tm-mine-unresolved')"})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
+
     def test_external_explicit_retry_reuses_durable_original_request(self):
         self.check_original_reply_recovery(False)
 
