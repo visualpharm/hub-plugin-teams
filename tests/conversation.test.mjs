@@ -12,6 +12,9 @@ const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-a')]).size,1);
 assert.equal(ctx.t.byPerson([message('a',null),message('b',null)]).size,2,'Missing identities must not merge histories');
+assert.equal(ctx.t.byPerson([message('a','shared','telegram'),message('b','shared','whatsapp')]).size,2,'Contact identifiers belong to their source family');
+assert.equal(ctx.t.byPerson([message('a','shared','dm'),message('b','shared','mention'),message('c','shared','channel')]).size,1,'Teams surfaces share one conversation');
+assert.equal(ctx.t.pinKey(message('a','shared','telegram')),JSON.stringify(['telegram','shared']),'Existing saved pin/read identity must remain stable');
 console.log('Inbox grouping preserves exact conversations despite repeated display names');
 
 assert.equal(ctx.t.pinKey({src:'channel',contact:'teams/thread',id:'1'}),ctx.t.pinKey({src:'mention',contact:'teams/thread',id:'2'}));

@@ -207,3 +207,9 @@ For browser reload coverage navigate through about:blank: repeating the same has
 ## Archive identity on replay
 
 Message IDs can be reused with a changed recipient target. Clear the old hidden membership at the same exact-identity transition that detaches reactions and pending reply state. Do not emit an unhide operation: journal replay must reconstruct the same result, while same-identity updates keep their archive state. Regression covers archived original, unchanged identity, replacement target, reload and empty Archive for the replacement.
+## Provider-local contact collision
+Raw contact IDs merged Telegram and WhatsApp histories while their pins and archive
+selection stayed separate. Use the existing source-family/contact pin identity as the
+conversation key too; keep Teams categories together. The serialized preference key
+must remain unchanged. Reproduce with identical contacts in two providers, then verify
+separate history, drafts after reload, unread/pin state and exact archive membership.

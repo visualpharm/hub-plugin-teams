@@ -10,6 +10,38 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_same_contact_in_different_sources_keeps_threads_drafts_and_archive_separate(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.feed({'kind':'config','v':3,'send_archive':1,'archive_selection':1,'reply_replay':1})
+        for src in ('telegram','whatsapp'):
+            self.feed({'kind':'msg','id':'collision-'+src,'contact':'same-contact','src':src,'from':'Example '+src,
+                       'text':'Only '+src+' history','reply':True,'unread':False,'target':'target-'+src,'at':'2099-01-01T12:00:00Z'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
+        def open_source(src):
+            self.page({'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Example '+src)+")).click();true"},
+                      {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+            detail=self.page({'eval':"document.querySelector('.tm-history').textContent"})[-1]['eval']
+            self.assertIn('Only '+src+' history',detail)
+            self.assertNotIn('Only '+('whatsapp' if src=='telegram' else 'telegram')+' history',detail)
+        open_source('telegram');self.edit('Telegram draft stays')
+        self.page({'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=pin-conversation]'},
+                  {'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'[data-action=mark-unread]'})
+        rows=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>({text:n.innerText,pin:!!n.querySelector('.tm-pinned'),unread:!!n.querySelector('.tm-unread')}))"})[-1]['eval']
+        self.assertIn('Example telegram',rows[0]['text']);self.assertTrue(rows[0]['pin']);self.assertTrue(rows[0]['unread'])
+        wa=next(r for r in rows if 'Example whatsapp' in r['text']);self.assertFalse(wa['pin']);self.assertFalse(wa['unread'])
+        open_source('whatsapp');self.edit('WhatsApp draft stays')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},
+                  {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===3"})
+        open_source('whatsapp')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'WhatsApp draft stays')
+        self.page({'tapSelector':'.tm-close-conversation'});open_source('telegram')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Telegram draft stays')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-archive'})
+        q=self.queued('send')
+        self.assertEqual(q['id'],'collision-telegram');self.assertEqual(q['target'],'target-telegram')
+        self.assertEqual(q['archive_ids'],[{'id':'collision-telegram','target':'target-telegram','contact':'same-contact'}])
+
     def archive_setup(self):
         self.seed_inbox(start_editing=False)
         self.open_external_source('telegram',target='archive-target')
