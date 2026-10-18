@@ -893,6 +893,20 @@ class InboxWebAcceptance(PageInChrome):
                 got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.composer-actions > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
                 self.assertLessEqual(got['height'],50,(width,text,got));self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
 
+    def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'send_failed','id':'source-a','rid':'synthetic-unresolved','unresolved':True,'error':'Delivery needs reconciliation'})
+        self.page({'until':"!!document.querySelector('[aria-label=\"Failed replies\"]')"},{'tapSelector':'.tm-close-conversation'})
+        for width in (360,390,768,834,1024,1280,1440):
+            got=self.page({'viewport':{'width':width,'height':874}},{'sleep':100},
+              {'eval':"(()=>{const pane=document.querySelector('.tm-list-pane').getBoundingClientRect();return [...document.querySelectorAll('.tm-bar button,.tm-bar > details > summary')].filter(n=>n.getBoundingClientRect().width).map(n=>{const r=n.getBoundingClientRect();return {label:n.getAttribute('aria-label'),left:r.left,right:r.right,paneLeft:pane.left,paneRight:pane.right,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}})})()"})[-1]['eval']
+            self.assertEqual(len(got),7,got)
+            for control in got:
+                self.assertGreaterEqual(control['left'],control['paneLeft'],(width,control))
+                self.assertLessEqual(control['right'],control['paneRight'],(width,control))
+                self.assertGreaterEqual(control['width'],44,(width,control));self.assertGreaterEqual(control['height'],44,(width,control))
+                self.assertTrue(control['hit'],(width,control))
+
     def test_link_preview_keeps_exact_destination_and_treats_metadata_as_text(self):
         self.seed_inbox(start_editing=False)
         with mock.patch.object(self.web.previews,'get',return_value={'url':'https://wrong.example/','title':'Lighting <img src=x onerror=alert(1)>','site':'Design studio','image':'javascript:alert(1)'}) as preview:

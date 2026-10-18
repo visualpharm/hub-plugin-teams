@@ -164,3 +164,8 @@ Check composerTrailing before using the optional right-side slot and place the m
 ### Await the actual request in synthetic acceptance
 
 `requestSubmit()` returns before Web Locks and fetch complete. A single spool snapshot falsely failed three existing delivery cases after durable admission added an asynchronous lock. `queued(kind)` now waits up to five seconds for the actual matching queue event while consuming only completed spool files. A deterministic delayed-event regression covers this; delivery, receipt and newer-draft assertions remain unchanged.
+
+
+### A conditional folder must fit the same toolbar
+
+The unresolved-reply state adds a fourth folder. Live captures revealed that existing 8px gaps plus 52px padded folder icons pushed Inbox options beyond a 360px viewport and over the desktop conversation pane. The shared toolbar now removes redundant gaps, uses 44px folder targets and 8px outer padding. A seven-width test requires every visible toolbar control to remain within its own list pane and be hit-testable; it preserves folder/sort behavior and draft state.
