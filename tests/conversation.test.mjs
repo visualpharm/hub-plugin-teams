@@ -7,7 +7,7 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const ctx={console,URL,Map,Set,conversationPins,localReadState,providerReadState,...hoursModule};vm.createContext(ctx);
-vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey};',ctx);
+vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource};',ctx);
 const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-a')]).size,1);
@@ -19,3 +19,8 @@ console.log('Inbox grouping preserves exact conversations despite repeated displ
 
 assert.equal(ctx.t.pinKey({src:'channel',contact:'teams/thread',id:'1'}),ctx.t.pinKey({src:'mention',contact:'teams/thread',id:'2'}));
 assert.notEqual(ctx.t.pinKey({src:'telegram',contact:'same',id:'1'}),ctx.t.pinKey({src:'email',contact:'same',id:'2'}));
+for (const [src,where,expected] of [
+  ['dm','Личка','Teams · Личка'],['mention','Команда › Релиз','Teams · Команда › Релиз'],
+  ['channel','','Teams'],['telegram','Telegram','Telegram'],['whatsapp','Mint','WhatsApp · Mint'],
+  ['email','Почта','Почта'],['telegram','   ','Telegram'],
+]) assert.equal(ctx.t.conversationSource({src,where}),expected,'Source context must not repeat the provider or add an extra category');

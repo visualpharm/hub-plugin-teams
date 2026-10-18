@@ -617,6 +617,11 @@ function action(text, name, fn, label) {
 const conversationKey = (m) => JSON.stringify([TEAMS_SRCS.includes(m.src) ? "teams" : m.src, m.contact || m.box || `${m.src}:${m.id}`]);
 const pins = conversationPins(hubName);
 const pinKey = conversationKey;
+function conversationSource(m) {
+  const source = TEAMS_SRCS.includes(m.src) ? "Teams" : SRC[m.src] || m.src;
+  const place = String(m.where || "").trim();
+  return !place || place === source ? source : `${source} · ${place}`;
+}
 const reads = localReadState(hubName, m=>JSON.stringify([pinKey(m),m.id]), seen);
 const providerReads = providerReadState(hubName);
 const readingRequests = new Set();
@@ -1524,7 +1529,7 @@ function thread(ms) {   // ms — по возрастанию времени
   head.append(el("b", "tm-from", last.from || "—"), conversationOptions(last));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
-  history.append(el("div","tm-conversation-source", [...new Set(ms.map(m=>[(TEAMS_SRCS.includes(m.src) ? "Teams · " : "")+(SRC[m.src] || m.src),m.where].filter(Boolean).join(" · ")))].join(" · ")));
+  history.append(el("div","tm-conversation-source", [...new Set(ms.map(conversationSource))].join(" · ")));
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
     const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {

@@ -10,6 +10,18 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_conversation_source_context_does_not_repeat_category_or_provider(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
+                   'where':'Личка','text':'Updated source context','reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Updated source context')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-source').textContent"})[-1]['eval'],'Teams · Личка')
+        self.open_external_source('telegram')
+        self.feed({'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Synthetic telegram',
+                   'where':'Telegram','text':'Updated Telegram context','reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'until':"document.querySelector('.tm-history').textContent.includes('Updated Telegram context')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-source').textContent"})[-1]['eval'],'Telegram')
+
     def test_same_contact_in_different_sources_keeps_threads_drafts_and_archive_separate(self):
         self.seed_inbox(start_editing=False)
         self.page({'tapSelector':'.tm-close-conversation'})
@@ -1884,12 +1896,15 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_actions_and_source_link_stay_above_reply_at_every_width(self):
         self.seed_inbox(start_editing=False)
-        for width,theme in ((390,"light"),(834,"light"),(1240,"light"),(390,"dark"),(1240,"dark")):
+        for width,theme in ((360,"light"),(390,"light"),(768,"light"),(834,"light"),(1024,"light"),(1240,"light"),(1280,"light"),(1440,"light"),(390,"dark"),(1240,"dark"),(1440,"dark")):
             got=self.page({"media":theme},{"viewport":{"width":width,"height":844}}, {"eval":"(()=>{const a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect(),c=document.querySelector('.tm-shared-compose .composer').getBoundingClientRect();return {scheme:getComputedStyle(document.documentElement).colorScheme,actions:a.bottom,composer:c.top,footer:c.bottom,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
             self.assertEqual(got["scheme"],theme,got)
             self.assertLessEqual(got["actions"],got["composer"],got)
             self.assertLessEqual(got["footer"],844,got)
             self.assertEqual(got["overflow"],0,got)
+            icons=self.page({'eval':"[...document.querySelectorAll('.tm-acts .tm-action > .icon,.tm-acts .tm-action > .tm-native-icon')].map(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height}))"})[-1]['eval']
+            self.assertEqual(len(icons),4,icons)
+            self.assertEqual(len({(i['width'],i['height']) for i in icons}),1,{'width':width,'icons':icons})
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):
                 out=Path(os.environ["HUB_INBOX_SCREENSHOTS"]);out.mkdir(parents=True,exist_ok=True)
                 self.page({"media":theme},{"shot":str(out/f"actions-{theme}-{width}.png"),"width":width,"height":844})
