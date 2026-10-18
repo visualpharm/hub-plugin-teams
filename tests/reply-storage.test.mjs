@@ -32,3 +32,10 @@ assert.equal(JSON.parse([...values.values()][0]).pendingRid,requests[0].rid);
 await ctx.test.sendReply(message,'Do not duplicate');
 assert.equal(requests.length,1);
 console.log('Fallback reply admission refuses unsaved requests, retains text and retries once after storage recovery.');
+
+ctx.test.setHub({snapshot:()=>({sessions:[]}),postFeed:async()=>({error:'Hub unavailable.'})});
+const offline={...message,id:'offline',target:'offline-target'};
+await ctx.test.sendReply(offline,'Keep uncertain reply');
+assert.equal(ctx.test.error(),'');
+assert.equal([...ctx.test.sends.values()].find(s=>s.id==='offline').state,'unresolved');
+assert.ok(ctx.test.savedDraft(offline).pendingRid);

@@ -463,7 +463,9 @@ export function suspicious(text) {
 
 async function mark(kind, data) {
   const r = await hub.postFeed(JSON.stringify({ kind, ...data }));
-  if (r.error) { error = r.error; paint(); return false; }
+  // Reply callers retain their own pending status; a global transport alert
+  // would survive the matching delivery receipt and falsely report failure.
+  if (r.error) { if(kind!=="send")error = r.error; paint(); return false; }
   return true;
 }
 

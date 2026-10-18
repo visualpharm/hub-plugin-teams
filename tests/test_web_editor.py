@@ -1270,6 +1270,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
         got=self.page({'eval':"({text:document.querySelector('.tm-shared-compose textarea')?.value||'',stale:Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.')).some(k=>JSON.parse(localStorage.getItem(k))?.pendingRid===window.__original.rid)})"})[-1]['eval']
         self.assertEqual(got,{'text':'','stale':False})
+        self.assertFalse(self.page({'eval':"[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('Hub unavailable'))"})[-1]['eval'])
 
     def test_replayed_guarded_success_clears_draft_without_open_editor(self):
         self.seed_inbox(start_editing=False,target='synthetic-target-a');self.edit('Original guarded text');self.acknowledge(self.queued('draft_control'))
