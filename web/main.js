@@ -76,6 +76,41 @@ function acceptDraft(m,rid) {
   editorDrafts.set(key,undefined);return true;
 }
 const hasOwnerDraft=m=>!!(savedDraft(m)?.text.trim() || savedDraft(m)?.files?.length || composing.get(m?.id)?.uploading) && !savedDraft(m)?.pendingRid;
+// Delivery admission is separate from the editable draft: typing must never
+// erase an uncertain request, and reload must not turn it into a new send.
+const pendingReplyKey=m=>"hub.inbox.pending.v1:"+JSON.stringify([hubName(),m.src,m.contact||m.chat||m.link||"",m.id,m.target||""]);
+function pendingReply(m) {
+  if(!m)return null;
+  try {
+    const raw=localStorage.getItem(pendingReplyKey(m));if(!raw)return null;
+    const row=JSON.parse(raw);
+    if(row?.q?.kind!=="send" || row.q.id!==m.id || typeof row.q.rid!=="string" || typeof row.q.text!=="string" || !Number.isFinite(row.ts))throw Error("Invalid pending reply");
+    return row;
+  } catch { return {blocked:true}; }
+}
+async function retainReply(m,q) {
+  const persist=()=>{
+    if(pendingReply(m))throw Error("A reply is awaiting confirmation. Your draft is retained.");
+    try { localStorage.setItem(pendingReplyKey(m),JSON.stringify({q,ts:Date.now()/1000})); }
+    catch { throw Error("Could not save this reply before sending. Keep this page open and try again."); }
+    sends.set(q.rid,{id:m.id,text:q.text,files:q.files,ts:Date.now()/1000,mine:true,state:"wait"});
+  };
+  if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),persist);
+  else persist();
+}
+function restorePendingReply(m) {
+  const row=pendingReply(m);
+  if(row?.q && !sends.has(row.q.rid))sends.set(row.q.rid,{id:m.id,text:row.q.text,files:row.q.files,ts:row.ts,mine:true,state:"unresolved"});
+}
+async function settlePendingReply(m,rid) {
+  if(!m)return;
+  const settle=()=>{
+    if(pendingReply(m)?.q?.rid!==rid)return;
+    try { localStorage.removeItem(pendingReplyKey(m)); }
+    catch { error="Could not save delivery confirmation. Keep this page open."; }
+  };
+  if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),settle);else settle();
+}
 let inboxProtocol = null;
 let historyAvailable = false;
 const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
@@ -202,7 +237,7 @@ const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
 const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
-const deliveryPending = m => outgoing(m,["wait","later","unresolved"]);
+const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pendingReply(m);
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
   if (folder === "archive") return hidden.has(m.id) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
@@ -242,6 +277,7 @@ async function sync() {
           }
         }
         msgs.set(d.id, message);
+        restorePendingReply(message);
         editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
       } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
@@ -281,9 +317,12 @@ async function sync() {
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
+        const pending=pendingReply(msgs.get(d.id));
+        if(guarded && pending?.q?.rid===d.rid && (pending.q.inbox?.version!==d.submitted_inbox?.version || pending.q.inbox?.edit_version!==d.submitted_inbox?.edit_version))continue;
         const delivery = editorStates.get(d.id)?.delivery;
         if (guarded && delivery?.rid === d.rid && delivery.state !== "sent") continue;
         const x = sends.get(d.rid) || {}; sends.set(d.rid, { ...x, id: d.id, state: "ok" }); answered.add(d.id); answeredAt.set(d.id, p.id);
+        await settlePendingReply(msgs.get(d.id),d.rid);
         acceptDraft(msgs.get(d.id),d.rid);
         if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:"",files:[]}); composing.delete(d.id); }
       }
@@ -300,6 +339,7 @@ async function sync() {
         const x=sends.get(d.rid), m=x && msgs.get(x.id);
         if (!x || x.id!==d.id || x.state!=="later") continue;
         clearTimeout(x.cancelTimer);sends.delete(d.rid);
+        await settlePendingReply(m,d.rid);
         if (m && (x.canceling || savedDraft(m)?.pendingRid===d.rid)) {
           const st=composing.get(m.id), saved=savedDraft(m);
           // The canceled payload may be older than edits made while it waited.
@@ -313,10 +353,12 @@ async function sync() {
       }
       else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
-      else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });
-      else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });
-      else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid)
+      else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
+      else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
+      else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
         sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.state === "sent" && d.receipt?.id ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
+        if(d.kind==="send_duplicate" && d.state==="sent" && d.receipt?.id && (!guardedReply(msgs.get(d.id)) || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version))await settlePendingReply(msgs.get(d.id),d.rid);
+      }
       else if (p.reply_to && p.by !== AUTHOR && p.by !== "owner") {
         if (["revision_result", "draft_proposal"].includes(d?.kind)) continue;
         replies.set(p.reply_to, [...(replies.get(p.reply_to) || []), { by: p.by, text: p.text, ts: p.ts }]);
@@ -861,6 +903,8 @@ function openCompose(m, text, why = "", focus = true) {
     }
   }
   const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
+  const pending=pendingReply(m);
+  if(state && pending?.q?.inbox)state.delivery={rid:pending.q.rid,token:pending.q.inbox,text:pending.q.text,state:"unresolved"};
   if (state) editorStates.set(m.id, state);
   const st = { text, why, state, suggested, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
   composing.set(m.id, st);
@@ -931,9 +975,37 @@ function sharedReply(m, st) {
       st.proposal = el("div", "tm-proposal");
       details.append(summary, directive, revise); optionsBody.append(details); wrap.append(st.proposal);
     }
+    const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
+    sendToggle.setAttribute("aria-label","Send options");sendToggle.append(hub.icon("chevron-down"));
+    const sendChoices=el("div","tm-send-menu");
+    const chooseSend=at=>{
+      st.nextSendAt=null;
+      const current=st.box.draft();
+      if(current.uploading || (!current.text.trim() && !current.files?.length)){
+        st.error=current.uploading ? "Wait for the files to upload." : "Write a reply or attach a file first.";paint();return;
+      }
+      st.error="";st.nextSendAt=at;sendMenu.open=false;st.box.node.requestSubmit();
+    };
+    sendChoices.append(button("Send now","quiet",()=>chooseSend(null)));
+    const later=el("details","tm-send-later"),laterToggle=el("summary","btn quiet","Send later…");
+    const date=el("input","tm-send-date");date.type="datetime-local";date.setAttribute("aria-label","When to send");date.setAttribute("form","schedule-picker-"+requestId());
+    const schedule=()=>{
+      const at=new Date(date.value).getTime();
+      if(!Number.isFinite(at) || at<=Date.now()){date.setCustomValidity("Choose a future time.");date.reportValidity();return;}
+      date.setCustomValidity("");chooseSend(new Date(at).toISOString());
+    };
+    date.addEventListener("input",()=>date.setCustomValidity(""));
+    date.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();schedule();}});
+    later.append(laterToggle,date,button("Schedule send","quiet tm-schedule-send",schedule));sendChoices.append(later);
+    sendMenu.append(sendToggle,sendChoices);
+    sendMenu.addEventListener("keydown",e=>{if(e.key==="Escape"){sendMenu.open=false;sendToggle.focus();e.preventDefault();e.stopPropagation();}});
+    sendMenu.addEventListener("focusout",e=>{if(e.relatedTarget && !sendMenu.contains(e.relatedTarget))sendMenu.open=false;});
+    // The installed plugin also serves frozen core pages without a trailing slot.
+    const trailing=hub.capabilities?.composerTrailing===1;
+    const leading=el("div","tm-send-leading");if(hub.capabilities?.composerActions)leading.append(discard);if(!trailing)leading.append(sendMenu);
     const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: m.from || "recipient", text: st.text,
       label: "Reply to " + (m.from || "recipient"), placeholder: "Reply…", attachments: acceptsFiles(m), maxLength: 1500,
-      leading: hub.capabilities?.composerActions ? ()=>discard : undefined,
+      leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Queued. Waiting for delivery confirmation.",
       onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!(text.trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
       onFilesChange({files,text,uploading}) {
@@ -942,6 +1014,8 @@ function sharedReply(m, st) {
         if (!saveDraft(m,text,null,files)) st.error="This browser could not save the draft. Keep this page open.";
       },
       async send({ text, attachments }) {
+        const sendAt=st.nextSendAt;st.nextSendAt=null;
+        if(sendAt && (!Number.isFinite(Date.parse(sendAt)) || Date.parse(sendAt)<=Date.now()))return {error:"Choose a future time before scheduling this reply."};
         if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
         if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
         if (deliveryPending(m))
@@ -952,15 +1026,18 @@ function sharedReply(m, st) {
         if (guardedReply(msgs.get(m.id)) && !st.state) return { error: "Reopen this editor using the current conversation." };
         try {
           await waitForEditor(m,st,revision);
-          q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
+          if(sendAt && Date.parse(sendAt)<=Date.now())throw Error("Choose a future time before scheduling this reply.");
+          q = st.state ? st.state.send(requestId(), text, {at:sendAt}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
           if (!saveDraft(m,text,q.rid,attachments || [])) {
             // No transport has run: release only this unsent local claim, so
             // restoring storage can retry without a phantom pending delivery.
             if (st.state?.delivery?.rid===q.rid) st.state.delivery=null;
             throw Error("Could not save this reply before sending. Keep this page open and try again.");
           }
+          await retainReply(m,q);
         }
         catch (e) {
+          if(q && st.state?.delivery?.rid===q.rid)st.state.delivery=null;
           // The shared composer restores the attempted reply before any text typed while waiting.
           // Persist that same recovery, so a reload cannot lose either unsent edit.
           st.text=text+(st.state?.revision!==revision && st.text ? "\n"+st.text : "");
@@ -969,9 +1046,9 @@ function sharedReply(m, st) {
         }
         st.text = text; st.files=attachments || [];
         if (st.error==="This browser could not save the draft. Keep this page open.") st.error="";
-        sends.set(q.rid, { id: m.id, text, files: q.files, ts: Date.now() / 1000, mine: true, state: "wait" });
-        if (!(await mark(q.kind, q))) {
-          sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
+        let accepted=false;try {accepted=await mark(q.kind,q);}catch { /* The original request may already have arrived. */ }
+        if (!accepted && !["ok","later"].includes(sends.get(q.rid)?.state)) {
+          if(sends.get(q.rid)?.state==="wait")sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
           return { error: "Submission is awaiting confirmation. Your draft is retained." };
         }
         paint(); return {};
@@ -1023,11 +1100,13 @@ async function sendReply(m, text) {
     error="Could not save this reply before sending. Keep this page open and try again.";
     paint();return;
   }
-  sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, mine: true, state: "wait" });
+  const q={kind:"send",id:m.id,rid,text};
+  try {await retainReply(m,q);}catch(e){saveDraft(m,text);error=e.message;paint();return;}
   composing.delete(m.id);
   error = "";
   paint();
-  if (!(await mark("send", { id: m.id, rid, text })) && sends.get(rid)?.state === "wait")
+  let accepted=false;try {accepted=await mark("send",q);}catch { /* Keep the uncertain original request. */ }
+  if (!accepted && sends.get(rid)?.state === "wait")
     sends.set(rid, { ...sends.get(rid), state: "unresolved", error: "Submission is awaiting confirmation. Your draft is retained." });
   paint();
 }
@@ -1316,6 +1395,7 @@ function seg(items, value, set, label) {
 
 function paint() {
   if (!ui) return;
+  const sendFocus=ui.root.contains(document.activeElement) && document.activeElement.closest('.tm-send-options') ? document.activeElement : null;
   const optionStates = [...ui.root.querySelectorAll('.tm-conversation-options')].filter(menu=>menu.checkVisibility()).map(menu=>({key:menu.dataset.optionKey,open:menu.open,
     focus:menu.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null}));
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
@@ -1341,6 +1421,7 @@ function paint() {
     if (at && !focusId) ta.setSelectionRange(at[0], at[1]);
     else ta.setSelectionRange(ta.value.length, ta.value.length);
   }
+  if (!focusId && sendFocus?.isConnected && ui.root.contains(sendFocus))sendFocus.focus({preventScroll:true});
   focusId = null;
 }
 
@@ -1650,7 +1731,7 @@ export default function register(h) {
   newComposer = newMessage(h);
   window.addEventListener('storage',e=>{if(e.key===null || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
-  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
+  document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
   registerView();

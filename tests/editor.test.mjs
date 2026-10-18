@@ -44,4 +44,6 @@ assert.equal(done.receive({kind:'sent',id:'source',rid:'send',submitted_inbox:ve
 assert.equal(done.delivery.state,'sent');
 const changed=start();confirm(changed);changed.observe({...message,inbox:{...token,version:'new-facts'}});
 assert.throws(()=>changed.send('send','Old reply'),/conversation changed/);
+const scheduled=start();confirm(scheduled);
+assert.equal(scheduled.send('scheduled','Exact future reply',{at:'2099-06-17T15:30:00.000Z'}).at,'2099-06-17T15:30:00.000Z');
 console.log('Inbox editor: identity, CAS, stale proposals, explicit Apply and truthful delivery passed');

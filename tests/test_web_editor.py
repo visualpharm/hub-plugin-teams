@@ -1030,7 +1030,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'wait':'This browser could not save the draft.'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep this page text')
 
-    def check_reply_storage_admission(self, guarded):
+    def check_reply_storage_admission(self, guarded, store="draft"):
         self.seed_inbox(start_editing=False)
         if not guarded:
             self.open_external_source('telegram')
@@ -1038,7 +1038,7 @@ class InboxWebAcceptance(PageInChrome):
         self.edit('Keep this unsent reply')
         if guarded:
             self.acknowledge(self.queued('draft_control'))
-        self.page({'eval':"window.__draftSave=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.draft.'))throw new DOMException('Blocked','QuotaExceededError');return __draftSave.call(this,k,v)};document.querySelector('.tm-shared-compose form').requestSubmit();true"}, {'sleep':500})
+        self.page({'eval':"window.__draftSave=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith("+json.dumps('hub.inbox.'+store+'.')+"))throw new DOMException('Blocked','QuotaExceededError');return __draftSave.call(this,k,v)};document.querySelector('.tm-shared-compose form').requestSubmit();true"}, {'sleep':500})
         requests=[json.loads(e['data']['text']) for e in self.non_history_actions() if e['type']=='ext.post']
         self.assertFalse([q for q in requests if q.get('kind')=='send'], 'A send escaped without a durable pending request')
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this unsent reply')
@@ -1056,6 +1056,84 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_guarded_reply_requires_durable_pending_request(self):
         self.check_reply_storage_admission(True)
+
+    def test_pending_reply_record_refusal_preserves_files_and_allows_recovery(self):
+        self.check_reply_storage_admission(False, "pending")
+
+    def test_send_later_is_explicit_and_keeps_the_selected_instant(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.edit('Schedule this exact reply')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'tapSelector':'.tm-send-later > summary'})
+        self.page({'eval':"const d=document.querySelector('.tm-send-date');d.value='2000-01-01T12:00';document.querySelector('.tm-schedule-send').click();true"})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        at=self.page({'eval':"(()=>{const d=document.querySelector('.tm-send-date');d.value='2099-06-17T12:30';d.dispatchEvent(new Event('input',{bubbles:true}));const at=new Date(d.value).toISOString();document.querySelector('.tm-schedule-send').click();return at})()"})[-1]['eval']
+        self.page({'sleep':300});q=self.queued('send')
+        self.assertEqual(q['at'],at);self.assertEqual(q['text'],'Schedule this exact reply')
+        self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'text':q['text'],'at':q['at']})
+        self.page({'until':"!!document.querySelector('.tm-unschedule')"})
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('отправлено')"})[-1]['eval'])
+
+    def test_unknown_reply_survives_reload_and_newer_edits_without_duplicate_send(self):
+        self.check_unknown_reply_reload(False)
+
+    def test_guarded_unknown_reply_survives_reload_and_newer_edits(self):
+        self.check_unknown_reply_reload(True)
+
+    def check_unknown_reply_reload(self, guarded):
+        self.seed_inbox(start_editing=False)
+        if not guarded:self.open_external_source('telegram')
+        self.edit('Original uncertain reply')
+        if guarded:self.acknowledge(self.queued('draft_control'))
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;throw Error('Synthetic lost acknowledgement')}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+          {'until':"!!window.__original"})
+        original=self.page({'eval':'__original'})[-1]['eval']
+        self.edit('Newer unsent reply')
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},
+          {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Review colleague' if guarded else 'Synthetic telegram')+")).click();true"},
+          {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':300})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'],'Reload must not replace the uncertain original request with a new rid')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer unsent reply')
+        receipt={'kind':'sent','id':original['id'],'rid':original['rid']}
+        if guarded:receipt.update({'submitted_inbox':original['inbox'],'inbox':{**original['inbox'],'held':False,'holder':None,'edit_version':original['inbox']['edit_version']+1},'receipt':{'id':'synthetic-delivery'}})
+        self.feed(receipt)
+        self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':300})
+        if guarded:
+            control=self.queued('draft_control');self.token=receipt['inbox'];self.acknowledge(control);self.page({'sleep':300})
+        next_send=self.queued('send');self.assertNotEqual(next_send['rid'],original['rid']);self.assertEqual(next_send['text'],'Newer unsent reply')
+
+    def test_send_menu_widths_focus_and_ordinary_send_after_invalid_date(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.edit('Ordinary reply stays immediate')
+        for width in (360,390,768,834,1024,1280,1440):
+            for theme in ('light','dark'):
+                self.page({'viewport':{'width':width,'height':874}},{'media':theme},{'tapSelector':'.tm-send-options > summary'},
+                  {'eval':"document.querySelector('.tm-send-later').open=true;document.querySelector('.tm-send-date').focus();true"})
+                self.feed({'kind':'status','source':'telegram','ok':True})
+                self.assertTrue(self.page({'eval':"document.activeElement===document.querySelector('.tm-send-date')"})[-1]['eval'])
+                steps=[{'media':theme},{'sleep':150}]
+                if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                    out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                    steps.append({'shot':str(out/f'send-menu-{theme}-{width}.png'),'width':width,'height':874})
+                steps.append({'eval':"(()=>{const m=document.querySelector('.tm-send-menu').getBoundingClientRect(),s=document.querySelector('.tm-send-options > summary').getBoundingClientRect();return {left:m.left,right:m.right,top:m.top,bottom:m.bottom,target:s.height,overflow:document.documentElement.scrollWidth-innerWidth,theme:getComputedStyle(document.documentElement).colorScheme}})()"})
+                got=self.page(*steps)[-1]['eval'];self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width)
+                self.assertGreaterEqual(got['top'],0);self.assertLessEqual(got['bottom'],874);self.assertEqual(got['overflow'],0);self.assertGreaterEqual(got['target'],44)
+                self.assertEqual(got['theme'],theme)
+                self.page({'key':'Escape'})
+                self.assertEqual(self.page({'eval':"({open:document.querySelector('.tm-send-options').open,tag:document.activeElement.tagName,cls:document.activeElement.className,focused:document.activeElement===document.querySelector('.tm-send-options > summary')})"})[-1]['eval'],{'open':False,'tag':'SUMMARY','cls':'btn quiet','focused':True},(width,theme))
+        self.page({'tapSelector':'.tm-send-options > summary'}, {'eval':"document.querySelector('.tm-send-date').value='2000-01-01T12:00';document.querySelector('.tm-schedule-send').click();true"}, {'key':'Escape'},
+          {'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':300})
+        q=self.queued('send');self.assertNotIn('at',q);self.assertEqual(q['text'],'Ordinary reply stays immediate')
+
+    def test_empty_schedule_cannot_arm_the_next_ordinary_reply(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.page({'tapSelector':'.tm-send-options > summary'},{'eval':"document.querySelector('.tm-send-later').open=true;document.querySelector('.tm-send-date').value='2099-06-17T12:30';document.querySelector('.tm-schedule-send').click();true"})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
+        self.edit('Immediate reply')
+        self.page({'eval':"document.querySelector('.tm-send-options').open=false;document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':300})
+        self.assertNotIn('at',self.queued('send'))
 
     def test_narrow_conversation_has_one_header_and_keeps_draft_when_returning(self):
         self.seed_inbox(start_editing=False)
