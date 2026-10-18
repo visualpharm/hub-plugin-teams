@@ -42,3 +42,10 @@ management work owns the protocol; this slice changes only its web consumer.
 - Pinned0597a826 Letter.origin renders provider plus distinct supplied place once. Teams DM must not read “Teams · Личка · Личка”; Telegram must not repeat its own name.
 - Shared row actions use one icon size at each layout width: existing22px labelled and28px compact. Keep44px targets. Verify360–1440 including tablet single-pane widths.
 - Pinned native reset feed at402×874 and1240×780 is the content baseline. Preserve mock photo bytes through a same-origin blob URL when capturing actual live static UI with intercepted APIs. Compare both themes; fixture parity alone is not pixel parity.
+
+## Direct retry acceptance (2026-10-18)
+- Definitively failed chat replies have a separate Retry action; mail retains editing recovery. Retry the exact failed text and attachments with a fresh request ID and current destination, without inheriting scheduling or archive intent.
+- Guarded retries require fresh hold confirmation; intervening edits, navigation or changed conversation identity cancel submission. Recheck admission inside the pending-record Web Lock.
+- Preserve newer local/cross-tab drafts and failed history. Transfer only an untouched old pending tombstone; clear it only on the matching accepted receipt. Refused storage causes no transport.
+- A lost retry acknowledgment persists the new request; reload never sends automatically and explicit reconciliation reuses that exact request. Existing uncertain outcomes never become fresh Retry requests.
+- Compare the pinned native failed-bubble controls, with at least 44px hit targets on phone/tablet/desktop. Functional acceptance does not imply exact screen parity.

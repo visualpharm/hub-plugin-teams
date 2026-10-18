@@ -10,6 +10,150 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_failed_chat_retry_sends_original_files_and_preserves_newer_draft(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='retry-telegram')
+        self.attach_synthetic_file('original.txt');self.edit('Original _exact_ reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        old=self.queued('send');old.update({'at':'2099-01-01T12:00:00Z','archive':True,'archive_ids':[old['id']]})
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(old))
+        self.feed({'kind':'send_failed','id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Definitive synthetic refusal'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail')"})[-1]['until'])
+        self.edit('Newer unsent draft');self.attach_synthetic_file('newer.txt')
+        saved=self.page({'eval':"Object.fromEntries(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.v1:')))"})[-1]['eval']
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-failed')"})[-1]['until'])
+        self.page({'eval':"localStorage.setItem('hub.inbox.send-action.v1:hub','archive');const b=document.querySelector('.tm-retry-failed');b.click();b.click();true"})
+        retry=self.queued('send')
+        self.assertNotEqual(retry['rid'],old['rid'])
+        self.assertEqual({k:retry[k] for k in ('id','target','text','files')},{k:old[k] for k in ('id','target','text','files')})
+        self.assertFalse(any(k in retry for k in ('at','archive','archive_ids')))
+        self.assertEqual(self.page({'eval':"Object.fromEntries(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.v1:')))"})[-1]['eval'],saved)
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(retry))
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer unsent draft')
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Newer unsent draft'"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-mine-fail').length"})[-1]['eval'],1)
+        self.assertEqual(self.page({'eval':"Object.fromEntries(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.v1:')))"})[-1]['eval'],saved)
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_failed_guarded_chat_retry_confirms_original_without_replacing_newer_text(self):
+        self.seed_inbox(target='retry-guarded');self.acknowledge(self.queued('draft_control'))
+        self.edit('Original guarded reply');self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        old=self.queued('send');self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(old))
+        self.edit('Newer guarded draft')
+        self.feed({'kind':'send_blocked','id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Definitive synthetic refusal'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-failed')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-retry-failed'})
+        hold=self.queued('draft_control');self.assertEqual(hold['inbox'],self.token)
+        self.assertEqual(self.non_history_actions(),[])
+        self.acknowledge(hold)
+        retry=self.queued('send')
+        self.assertEqual(retry['text'],old['text']);self.assertNotEqual(retry['rid'],old['rid']);self.assertEqual(retry['inbox'],self.token)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer guarded draft')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(retry))
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target'],'submitted_inbox':self.token,'inbox':self.token,'receipt':{'id':'retried-receipt'}})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer guarded draft')
+        self.assertEqual(self.non_history_actions(),[])
+
+    def failed_external_reply(self, attachment_only=False):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='retry-telegram')
+        if attachment_only:self.attach_synthetic_file('original-only.txt')
+        else:self.edit('Original failed reply')
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        old=self.queued('send');self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(old))
+        self.feed({'kind':'send_failed','id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Definitive refusal'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-failed') && !Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        return old
+
+    def test_failed_retry_storage_admission_and_untouched_draft_acceptance(self):
+        old=self.failed_external_reply()
+        for store in ('pending','draft'):
+            self.page({'eval':"window.__save=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith("+json.dumps('hub.inbox.'+store+'.')+") )throw Error('Synthetic storage refusal');return __save.call(this,k,v)};document.querySelector('.tm-retry-failed').click();true"})
+            self.assertTrue(self.page({'until':"document.querySelector('.tm-retry-error')?.textContent.includes('Could not save') && !document.querySelector('.tm-retry-failed').disabled"})[-1]['until'])
+            self.assertEqual(self.non_history_actions(),[])
+            self.assertEqual(self.page({'eval':"JSON.parse(Object.entries(localStorage).find(([k])=>k.startsWith('hub.inbox.draft.'))[1]).pendingRid"})[-1]['eval'],old['rid'])
+            self.page({'eval':"Storage.prototype.setItem=__save;true"})
+        self.page({'tapSelector':'.tm-retry-failed'})
+        retry=self.queued('send')
+        self.assertNotEqual(retry['rid'],old['rid'])
+        self.assertEqual(self.page({'eval':"JSON.parse(Object.entries(localStorage).find(([k])=>k.startsWith('hub.inbox.draft.'))[1]).pendingRid"})[-1]['eval'],retry['rid'])
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.')) && !Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.draft.'))"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea')?.value || ''"})[-1]['eval'],'')
+
+    def test_failed_retry_is_reachable_at_phone_tablet_and_desktop_widths(self):
+        self.failed_external_reply()
+        for width in (360,402,834,1240,1440):
+            for theme in ('light','dark'):
+                self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+                got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-retry-failed');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height,hit:b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertGreaterEqual(got['height'],44,(width,theme,got));self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertTrue(got['hit']);self.assertEqual(got['overflow'],0)
+                if os.environ.get('HUB_INBOX_SCREENSHOTS') and width in (402,1240):
+                    out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+                    self.page({'shot':str(out/f'direct-retry-{theme}-{width}.png'),'width':width,'height':874})
+
+    def test_retry_receipt_does_not_delete_a_draft_saved_by_another_tab(self):
+        self.failed_external_reply();self.page({'tapSelector':'.tm-retry-failed'})
+        retry=self.queued('send')
+        other={'text':'Newer draft in another tab','pendingRid':None,'files':[{'path':'/synthetic/newer.txt','name':'newer.txt'}]}
+        self.page({'eval':"const key=Object.keys(localStorage).find(k=>k.startsWith('hub.inbox.draft.'));localStorage.setItem(key,"+json.dumps(json.dumps(other))+ ");true"})
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')).map(([,v])=>JSON.parse(v))"})[-1]['eval'],[other])
+
+    def test_attachment_only_retry_is_durable_and_unknown_replays_same_request(self):
+        old=self.failed_external_reply(attachment_only=True)
+        self.feed({'kind':'config','v':3,'reply_replay':1})
+        self.page({'eval':"window.__requests=[];window.__fetch=fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){__requests.push(q);throw Error('Synthetic lost acknowledgment')}}return __fetch(u,o)};document.querySelector('.tm-retry-failed').click();true"})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-unresolved')"})[-1]['until'])
+        retry=self.page({'eval':"__requests[0]"})[-1]['eval']
+        self.assertEqual(retry['text'],'');self.assertEqual(retry['files'],old['files']);self.assertNotEqual(retry['rid'],old['rid'])
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-original')"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.page({'tapSelector':'.tm-retry-original'})
+        self.assertEqual(self.queued('send'),retry)
+
+    def test_retry_revalidates_after_web_lock_wait_and_preserves_newer_edit(self):
+        old=self.failed_external_reply()
+        self.page({'eval':"window.__lock=navigator.locks.request.bind(navigator.locks);navigator.locks.request=(name,fn)=>new Promise((resolve,reject)=>window.__admit=()=>Promise.resolve().then(fn).then(resolve,reject));document.querySelector('.tm-retry-failed').click();true"})
+        self.assertTrue(self.page({'until':"typeof window.__admit==='function'"})[-1]['until'])
+        self.edit('Newer text while awaiting the lock')
+        self.feed({'kind':'msg','id':old['id'],'contact':'synthetic-telegram','src':'telegram','from':'Synthetic telegram','text':'Rebound conversation','reply':True,'target':'different-target'})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('Rebound conversation')"})[-1]['until'])
+        self.page({'eval':"navigator.locks.request=__lock;__admit();true"},{'sleep':100})
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertTrue(self.page({'eval':"Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')).some(([,v])=>JSON.parse(v).text==='Newer text while awaiting the lock')"})[-1]['eval'])
+
+    def test_retry_waiting_for_admission_stops_if_original_delivery_is_confirmed(self):
+        old=self.failed_external_reply();self.edit('A newer unsent reply')
+        self.page({'eval':"window.__lock=navigator.locks.request.bind(navigator.locks);navigator.locks.request=(name,fn)=>{navigator.locks.request=__lock;return new Promise((resolve,reject)=>window.__admit=()=>Promise.resolve().then(fn).then(resolve,reject))};document.querySelector('.tm-retry-failed').click();true"})
+        self.assertTrue(self.page({'until':"typeof window.__admit==='function'"})[-1]['until'])
+        self.feed({'kind':'sent','id':old['id'],'rid':old['rid'],'target':old['target']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.page({'eval':"__admit();true"},{'sleep':100})
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertFalse(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'A newer unsent reply')
+
+    def test_guarded_retry_cancels_when_owner_edits_during_confirmation(self):
+        self.seed_inbox(target='retry-guarded');self.acknowledge(self.queued('draft_control'))
+        self.edit('Original guarded reply');self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        old=self.queued('send');self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(old))
+        self.feed({'kind':'send_blocked','id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Definitive refusal'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-failed')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-retry-failed'});hold=self.queued('draft_control')
+        self.edit('Changed during retry confirmation');self.acknowledge(hold)
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-retry-error')?.textContent.includes('changed')"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Changed during retry confirmation')
+
     def test_receipt_first_success_survives_confirming_duplicate(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='exact-telegram')
         self.edit('Keep this local draft')
