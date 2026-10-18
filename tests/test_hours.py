@@ -195,7 +195,7 @@ class Gate(unittest.TestCase):
         self.assertNotIn("config", [p["kind"] for p in self.out])
 
     def test_bound_hours_for_requires_explicit_weekends_contact_and_target(self):
-        for i, kw in enumerate(({"weekends": ...}, {"weekends": "yes"}, {"contact": ...}, {"target": ...})):
+        for i, kw in enumerate(({"weekends": ...}, {"weekends": "yes"}, {"weekends": 1}, {"weekends": 0}, {"contact": ...}, {"target": ...})):
             self.assertEqual(self.bound(rid=f"bad{i}", **kw)["kind"], "hours_failed", kw)
         self.assertEqual(self.excepted(), {})
         self.assertEqual(self.bound(rid="null", weekends=None)["kind"], "hours_set")   # null — явное «как у всех»

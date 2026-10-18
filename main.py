@@ -740,7 +740,7 @@ def hours_for_one(st, q, put=post):
     fail = lambda why: finish({"kind": "hours_failed", "id": q["hours_for"], "rid": q["rid"], **pin, "error": why})
     who = (st.get("who") or {}).get(q["hours_for"])
     ref = (st.get("refs") or {}).get(q["hours_for"])
-    if not q.get("has_weekends") or q.get("weekends") not in (True, False, None):
+    if not q.get("has_weekends") or not (q.get("weekends") is None or isinstance(q["weekends"], bool)):   # 1 == True
         return fail("weekends must be true, false or null")
     if not q.get("contact") or not q.get("target"):
         return fail("contact and target are required")
