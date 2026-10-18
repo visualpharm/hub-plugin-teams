@@ -14,15 +14,18 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Keep this exact unsent reply')
         before=self.non_history_actions()
         self.page({'tapSelector':'.tm-close-conversation'})
+        # Resolved native themes can use the same accent and list-pane surface.
+        self.page({'eval':"document.querySelector('.tm').style.setProperty('--accent','var(--muted)');true"})
         query='<not-a-tag> Missing synthetic conversation'
         for width,theme in ((320,'light'),(402,'dark'),(834,'light'),(1240,'dark')):
             self.page({'viewport':{'width':width,'height':874}},{'media':theme},
                       {'eval':"(()=>{const s=document.querySelector('.tm-conversation-search input');s.value="+json.dumps(query)+";s.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
-            got=self.page({'eval':"(()=>{const e=document.querySelector('.tm-search-empty');if(!e)return null;const h=e.querySelector('h2'),b=e.querySelector('button'),r=e.getBoundingClientRect(),p=e.parentElement.getBoundingClientRect(),c=b.getBoundingClientRect();return {title:h.textContent,icon:!!e.querySelector('.icon'),size:parseFloat(getComputedStyle(h).fontSize),buttonSize:parseFloat(getComputedStyle(b).fontSize),height:c.height,center:Math.abs((r.top+r.bottom-p.top-p.bottom)/2),hit:b.contains(document.elementFromPoint(c.x+c.width/2,c.y+c.height/2)),overflow:document.documentElement.scrollWidth-innerWidth,markup:!!e.querySelector('not-a-tag')}})()"})[-1]['eval']
+            got=self.page({'eval':"(()=>{const e=document.querySelector('.tm-search-empty');if(!e)return null;const h=e.querySelector('h2'),b=e.querySelector('button'),r=e.getBoundingClientRect(),p=e.parentElement.getBoundingClientRect(),c=b.getBoundingClientRect();return {title:h.textContent,icon:!!e.querySelector('.icon'),size:parseFloat(getComputedStyle(h).fontSize),buttonSize:parseFloat(getComputedStyle(b).fontSize),height:c.height,center:Math.abs((r.top+r.bottom-p.top-p.bottom)/2),hit:b.contains(document.elementFromPoint(c.x+c.width/2,c.y+c.height/2)),overflow:document.documentElement.scrollWidth-innerWidth,markup:!!e.querySelector('not-a-tag'),surfaceDifference:(()=>{const c=document.createElement('canvas').getContext('2d');c.fillStyle=getComputedStyle(e.closest('.tm-list-pane')).backgroundColor;c.fillRect(0,0,1,1);const before=c.getImageData(0,0,1,1).data;c.fillStyle=getComputedStyle(b).backgroundColor;c.fillRect(0,0,1,1);const after=c.getImageData(0,0,1,1).data;return Math.max(...[0,1,2].map(i=>Math.abs(before[i]-after[i])))})()}})()"})[-1]['eval']
             self.assertIsNotNone(got, 'Missing native no-match state')
             self.assertEqual(got['title'],'No results for “'+query+'”');self.assertFalse(got['markup']);self.assertTrue(got['icon'])
             self.assertGreaterEqual(got['size'],20);self.assertGreaterEqual(got['buttonSize'],16);self.assertGreaterEqual(got['height'],44)
             self.assertLessEqual(got['center'],2,(width,got));self.assertTrue(got['hit']);self.assertEqual(got['overflow'],0)
+            self.assertGreaterEqual(got['surfaceDifference'],12,(width,got))
             self.page({'tapSelector':'.tm-search-empty button'})
             self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
             self.assertEqual(self.page({'eval':"document.activeElement.getAttribute('aria-label')"})[-1]['eval'],'Search conversations')
