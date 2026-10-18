@@ -383,3 +383,7 @@ Sent previews use the latest accepted or scheduled reply from the exact grouped 
 ## 2026-10-18 · Native folder reminders
 
 Unread dots, pin marks and pin-first ordering belong to Inbox, matching both native clients. Sent, Archive and Failed retain their normal order without those Inbox reminders. Switching folders never clears saved pin/read state; it becomes visible again when the item returns to Inbox. The native selected folder uses white text/icons in both themes rather than the core theme's dark primary foreground.
+
+## 2026-10-18 · Outgoing chronology
+
+Sent ordering and row previews share one eligible outgoing selection, including confirmed reactions. Scheduled replies use their scheduled time; accepted replies/reactions use their originating request time. Equal timestamps use journal sequence. Replaying the same request does not promote it into new activity. Failed/waiting attempts cannot displace accepted Sent activity. Missing outgoing time falls back to the existing incoming ordering; incoming folders, transport identities and receipt acceptance remain unchanged.
