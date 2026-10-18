@@ -426,8 +426,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 .tm-person .tm-row-status { width: 15px; height: 15px; flex: none; align-self: center; color: var(--foreground); line-height: 16px; font-size: 16px; }
 
-/* Native Inbox label fills the available folder space; extra web options stay reachable. */
+/* The selected native folder fills available space; extra web options stay reachable. */
 .tm-icon-inbox { --tm-icon: url("./icons/inbox.svg"); }
-.tm .tm-folder[data-folder="new"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
-.tm-folder[data-folder="new"] .tm-native-icon { width: 20px; height: 20px; }
+.tm .tm-folder[aria-pressed="true"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
+.tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
 .tm-folders:has([data-folder="failed"]) .tm-folder-label { display: none; }
