@@ -639,6 +639,9 @@ def backfill_refs(st, reader, now, put=post):
     return len(keys)
 
 
+CONFIG_CAPS = 1   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
+
+
 def config(st, put=post):
     """Действующие настройки — постом: их читают вкладка и приложения (подпись черновиков, «черновик сразу»)."""
     cfg = st.get("cfg") or {}
@@ -669,6 +672,7 @@ def config(st, put=post):
     for n,text in enumerate(parts):
         put({'kind':'triage_prompt','guidance_id':ident,'part':n,'of':len(parts),'text':text})
     st["config_at"] = time.time()
+    st["config_caps"] = CONFIG_CAPS
 
 
 def hours_config(st):
@@ -722,7 +726,8 @@ def settings(st, choice, put=post):
         st["hours"], fresh = {**new, **({"except": keep} if keep else {})}, True
     if fresh:
         config(st, put)
-    elif time.time() - (st.get("config_at") or 0) >= DIR_EVERY:   # канал хранит 500 постов — напоминаем
+    elif time.time() - (st.get("config_at") or 0) >= DIR_EVERY or st.get("config_caps") != CONFIG_CAPS:   # канал хранит
+        # 500 постов — напоминаем; новый флаг протокола (reply_replay) клиенты должны увидеть сразу
         config(st, put)
 
 
