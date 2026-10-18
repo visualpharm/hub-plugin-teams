@@ -725,7 +725,7 @@ function matchingConversations(items) {
     const weight=group=>Math.max(...group.map(m=>ranks.get(m.post)??100));
     groups.sort((a,b)=>weight(b[1])-weight(a[1]));
   }
-  groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
+  if (tab === "new") groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
   return groups;
 }
 
@@ -917,7 +917,7 @@ function personRow(key, group) {
   row.dataset.conversation=key;
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
-  if (pins.has(pinKey(latest))) {
+  if (tab === "new" && pins.has(pinKey(latest))) {
     const pin = nativeIcon("pin"); pin.classList.add("tm-pinned");
     pin.removeAttribute("aria-hidden"); pin.setAttribute("role", "img"); pin.setAttribute("aria-label", "Pinned"); head.append(pin);
   }
@@ -929,7 +929,7 @@ function personRow(key, group) {
     head.append(icon);
   }
   head.append(stamp(secs(latest.at)));
-  if (reads.isUnread(latest)) {
+  if (tab === "new" && reads.isUnread(latest)) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
   }
   row.append(head);

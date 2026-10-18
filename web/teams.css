@@ -121,7 +121,7 @@
 .tm-top { position: relative; }
 .tm-folders { display: flex; gap: 0; flex: 1; }
 .tm-folder { min-width: 44px; min-height: 44px; border: 0; border-radius: 22px; padding: 8px; background: transparent; color: var(--foreground); }
-.tm-folder[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); }
+.tm-folder[aria-pressed="true"] { background: var(--primary); color: #fff; }
 .tm-folder .icon, .tm-folder .tm-native-icon, .tm-options > summary .icon { width: 28px; height: 28px; }
 .tm-options > summary { display: flex; list-style: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 22px; }
 .tm-options > summary::-webkit-details-marker { display: none; }
