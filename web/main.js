@@ -307,6 +307,9 @@ async function sync() {
         const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
         const previous=msgs.get(d.id);
         if(previous && pendingReplyKey(previous)!==pendingReplyKey(message)) {
+          // An owner archive belongs to the destination observed at that journal
+          // position. Reusing an id must not archive its replacement on replay.
+          hidden.delete(d.id);
           reactionNotices.delete(pendingReplyKey(previous));
           const reaction=reactionSends.get(d.id);
           if(reaction)detachedSends.add(reaction.rid);

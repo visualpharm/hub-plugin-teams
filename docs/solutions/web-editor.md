@@ -202,3 +202,8 @@ The deployed collector and the web staging branch have different integration his
 ## Recipient weekend option
 The send menu shares working-hours parsing with scheduling. Its weekend checkmark derives from base weekends XOR the exact contact exception. The additive hours_for_bound contract admits a persisted original request, not a naked optimistic toggle. Pending settings have an explicit retry using the original payload/rid; unknown outcomes block replacement requests while allowing the same original request to recover its receipt. Correlated hours_set/hours_failed facts are accepted only from the collector and never write configuration themselves. A later config remains authoritative.
 For browser reload coverage navigate through about:blank: repeating the same hash URL can preserve the open menu, so blindly tapping its summary closes it. For palette captures use the app theme API; setting color-scheme alone leaves explicit theme colors unchanged and is not dark-theme evidence.
+
+
+## Archive identity on replay
+
+Message IDs can be reused with a changed recipient target. Clear the old hidden membership at the same exact-identity transition that detaches reactions and pending reply state. Do not emit an unhide operation: journal replay must reconstruct the same result, while same-identity updates keep their archive state. Regression covers archived original, unchanged identity, replacement target, reload and empty Archive for the replacement.

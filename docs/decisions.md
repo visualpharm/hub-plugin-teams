@@ -316,3 +316,8 @@ Target-bearing messages require the collector-owned reaction_target:1 capability
 ## 2026-10-18 · Recipient weekend settings
 Decided: Expose the native weekend option only with trusted hours_for_bound:1, valid Hub working hours, and an exact message/contact/target. The checkmark follows collector config. Retain the original setting request in Hub/contact-scoped storage with the immutable original message and target before transport; explicit retry reuses it and a matching collector receipt alone settles it. Receipts never overwrite newer configuration. Refused requests can start a fresh action; unresolved/tombstoned outcomes allow only explicit original-request replay, never a replacement action.
 Why: Queue acceptance cannot prove a setting changed, and a reused inbound id cannot authorize changing another destination. No automatic settings replay and no reply draft mutation. Undo: remove the control while preserving pending request storage. By: agent, within Ivan's native parity audit.
+
+
+## 2026-10-18 · Archive state follows the observed destination
+
+An owner hide event retains the message identity observed at its journal position. When a trusted replacement changes source, contact or target for the same id, discard its prior local hidden membership. Same-identity updates remain archived; replay derives the same result without writing an unhide event. This fixes historical archive leakage without guessing identity for a late legacy id-only hide. Send and Archive remains a separate receipt-bound collector contract.

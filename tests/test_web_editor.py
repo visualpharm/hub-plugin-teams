@@ -1632,6 +1632,25 @@ class InboxWebAcceptance(PageInChrome):
         self.assertLessEqual(order['guide'],order['actions'],order);self.assertEqual(order['count'],1)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
+    def test_archive_is_scoped_to_original_target_and_survives_replay(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='archive-a')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['external-telegram']}))
+        self.page({'tapSelector':'.tm-close-conversation'})
+        original={'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Archived colleague','text':'Same destination','reply':True,'target':'archive-a','at':'2026-10-18T04:47:00Z'}
+        self.feed(original)
+        self.page({'tapSelector':"[aria-label='Archived conversations']"},{'until':"document.querySelector('.tm-person')?.textContent.includes('Archived colleague')"})
+        self.assertIn('Archived colleague',self.page({'eval':"document.querySelector('.tm-person').textContent"})[-1]['eval'])
+        self.feed({**original,'from':'Replacement destination','text':'New target must stay visible','target':'archive-b'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===0"})[-1]['until'])
+        self.page({'tapSelector':"[aria-label='Inbox conversations'] button[data-folder='new']"})
+        names=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>n.textContent)"})[-1]['eval']
+        self.assertTrue(any('Replacement destination' in n for n in names),names)
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===2"})
+        names=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>n.textContent)"})[-1]['eval']
+        self.assertTrue(any('Replacement destination' in n for n in names),names)
+        self.page({'tapSelector':"[aria-label='Archived conversations']"})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+
     def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
         self.seed_inbox(); self.acknowledge(self.queued("draft_control")); self.edit("Keep this Inbox reply")
         for mid,name in (("sent-one","Sent colleague"),("archived-one","Archived colleague"),("failed-one","Failed colleague"),("later-one","Scheduled colleague")):
