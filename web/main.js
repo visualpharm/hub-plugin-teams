@@ -345,8 +345,8 @@ async function sync() {
         const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
         const previous=msgs.get(d.id);
         if(previous && pendingReplyKey(previous)!==pendingReplyKey(message)) {
-          // An owner archive belongs to the destination observed at that journal
-          // position. Reusing an id must not archive its replacement on replay.
+          // Archive and delivery facts belong to the exact destination at that
+          // journal position. A reused id must not inherit the former outcome.
           hidden.delete(d.id);
           replyArchived.delete(d.id);
           reactionNotices.delete(pendingReplyKey(previous));
@@ -354,12 +354,13 @@ async function sync() {
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
           deliveredReactions.delete(d.id);
-        }
-        if (previous && draftKey(previous)!==draftKey(message)) {
-          composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
+          answered.delete(d.id);answeredAt.delete(d.id);
           for (const [rid,send] of sends) if (send.id===d.id) {
             clearTimeout(send.cancelTimer);detachedSends.add(rid);sends.delete(rid);
           }
+        }
+        if (previous && draftKey(previous)!==draftKey(message)) {
+          composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
         }
         msgs.set(d.id, message);
         restorePendingReply(message);

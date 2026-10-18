@@ -10,6 +10,32 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_sent_reply_does_not_follow_target_only_rebinding(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        msg={'kind':'msg','id':'reused-reply','contact':'same-contact','src':'telegram','from':'Rebound colleague','text':'Original destination','reply':True,'target':'target-old','at':'2099-01-01T12:00:00Z'}
+        self.feed(msg)
+        def owner(rid,target,text): self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':msg['id'],'rid':rid,'target':target,'text':text}))
+        def receipt(rid,target): self.feed({'kind':'sent','id':msg['id'],'rid':rid,'target':target,'receipt':{'id':rid+'-receipt'}})
+        owner('old-reply','target-old','Only original destination');receipt('old-reply','target-old')
+        self.page({'tapSelector':'[data-folder=sent]'},{'until':"document.querySelectorAll('.tm-person').length===1"})
+        msg.update(target='target-new',text='Replacement destination');self.feed(msg)
+        receipt('old-reply','target-old')
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===0"})[-1]['until'])
+        self.page({'tapSelector':'[data-folder=new]'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-list').textContent.includes('Replacement destination')"})[-1]['until'])
+        self.page({'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Rebound colleague')).click();true"})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')"})[-1]['until'])
+        self.assertNotIn('Only original destination',self.page({'eval':"document.querySelector('.tm-detail').textContent"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-close-conversation'})
+        owner('new-reply','target-new','Only replacement destination');receipt('new-reply','target-old')
+        self.page({'tapSelector':'[data-folder=sent]'},{'sleep':150})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
+        receipt('new-reply','target-new')
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview')?.textContent==='Only replacement destination'"})[-1]['until'])
+        self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('[data-folder=sent]')"},{'tapSelector':'[data-folder=sent]'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-preview')?.textContent==='Only replacement destination'"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_flat_sent_cards_follow_each_message_delivery_across_conversations(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         now=time.time()
