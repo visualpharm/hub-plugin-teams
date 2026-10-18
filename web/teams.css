@@ -432,3 +432,6 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm .tm-folder[aria-pressed="true"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
 .tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
 .tm-folders:has([data-folder="failed"]) .tm-folder-label { display: none; }
+
+.tm-rich-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tm-rich-text a { color: inherit; text-decoration: underline; }

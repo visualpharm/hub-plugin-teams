@@ -299,3 +299,8 @@ The shared sentBlock action opens the editor; call it Edit reply in both visible
 
 ### Recovering an old failure beside a newer draft
 Do not call openCompose with an old attempt text while inheriting files from the current saved draft. Resume current text and files together. A pendingRid is not permission to replace that draft: the separate pending record still owns exact delivery identity. Browser regression covers chat text plus attachment, attachment-only email, a newer pending WhatsApp request, reload and no additional sends. Preserve failed history and reject stale conversation callbacks.
+
+### Outgoing links and emphasis
+Detect link spans against raw text before applying display-only underscore emphasis. Exclude URL-internal delimiter candidates, while retaining emphasis that encloses a link. Construct text nodes, anchors and em elements only; never parse HTML. Trim sentence punctuation and unbalanced closing brackets without altering balanced URL paths. Keep href and visible Unicode text separate through URL parsing. Reuse the renderer for all four outgoing/draft surfaces, with raw payloads held outside the DOM. Browser acceptance covers text safety, URL destinations, wrapping and recovery; pending/proposal/draft tests verify the other call sites.
+
+Strip a leading email underscore only when it is the opener of a recognized emphasis run; otherwise it can be part of the address. End automatic URL candidates at common CJK/Arabic sentence punctuation so adjacent prose cannot become a destination. Keep Unicode path letters and percent-encoded punctuation. Unspaced em-dash prose is ambiguous and remains literal URL input.
