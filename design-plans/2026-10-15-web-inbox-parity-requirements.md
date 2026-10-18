@@ -34,6 +34,7 @@ management work owns the protocol; this slice changes only its web consumer.
 ## Refused and uncertain replies (2026-10-18)
 - A definitive guarded failure must allow the owner to edit and resend from the still-open composer after fresh collector confirmation. The old held token alone is not sufficient admission.
 - Keep older failed history, newer drafts, exact destination and current revision. A delayed old failure must not affect a newer delivery.
+- A reply already confirmed as Sent stays confirmed when delayed refusal, scheduling or reconciliation facts arrive for that same request. Keep this result through journal replay and do not erase a newer draft.
 - An uncertain outcome keeps its original request identity and explicit reconciliation path; editing a newer draft must never turn it into a fresh duplicate send.
 - Native chat's separate direct Retry remains a distinct feature from editing and submitting again.
 

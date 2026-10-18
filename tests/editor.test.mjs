@@ -47,6 +47,17 @@ const done=start();const version=confirm(done);done.send('send','Owner reply');
 assert.equal(done.receive({kind:'sent',id:'source',rid:'send',submitted_inbox:{...version,version:'other'},receipt:{id:'id'}}),false);
 assert.equal(done.receive({kind:'sent',id:'source',rid:'send',submitted_inbox:version,inbox:{...version,held:false},receipt:{id:'real-id'}}),true);
 assert.equal(done.delivery.state,'sent');
+done.edit('A newer owner draft');
+for (const kind of ['send_failed','send_blocked','send_uncertain','scheduled','canceled','send_duplicate']) {
+  assert.equal(done.receive({kind,id:'source',rid:'send',state:'pending',error:'Late obsolete delivery update'}),false);
+  assert.equal(done.delivery?.state,'sent');
+  assert.equal(done.error,'');
+  assert.equal(done.text,'A newer owner draft');
+}
+for (const kind of ['sent','send_duplicate']) {
+  assert.equal(done.receive({kind,id:'source',rid:'send',submitted_inbox:version,inbox:version,version:version.version,state:'sent',receipt:{id:'real-id'}}),false);
+  assert.equal(done.text,'A newer owner draft');
+}
 const changed=start();confirm(changed);changed.observe({...message,inbox:{...token,version:'new-facts'}});
 assert.throws(()=>changed.send('send','Old reply'),/conversation changed/);
 const scheduled=start();confirm(scheduled);

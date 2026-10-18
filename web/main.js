@@ -327,6 +327,9 @@ async function sync() {
         const pending=pendingReply(msgs.get(d.id));
         const target=sends.get(d.rid)?.target || (pending?.q?.rid===d.rid ? pending.q.target : null);
         if(target && d.target!==target)continue;
+        // An accepted delivery is terminal for this request. Delayed refusal,
+        // schedule or reconciliation facts must not offer to send it again.
+        if(sends.get(d.rid)?.state==='ok' && d.kind!=='sent' && !(d.kind==='send_duplicate' && d.state==='sent'))continue;
         if(d.kind==="send_duplicate" && d.state==="sent" && guardedReply(msgs.get(d.id))) {
           const token=pending?.q?.inbox || editorStates.get(d.id)?.delivery?.token || msgs.get(d.id)?.inbox;
           if(!token?.version || d.version!==token.version || !d.receipt?.id)continue;
@@ -457,8 +460,8 @@ async function sync() {
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
         const guarded=guardedReply(msgs.get(d.id));
-        const confirmed=d.kind==='send_duplicate' && d.state==='sent' && (guarded ? !!d.receipt?.id : sends.get(d.rid)?.kind==='send');
         const previous=sends.get(d.rid) || {};
+        const confirmed=d.kind==='send_duplicate' && d.state==='sent' && (guarded ? !!d.receipt?.id : previous.kind==='send' || previous.state==='ok');
         sends.set(d.rid, { ...previous, id: d.id, state: confirmed ? "ok" : "unresolved", ...(confirmed ? {deliveredTs:previous.deliveredTs ?? p.ts,deliveredSequence:previous.deliveredSequence ?? Number(p.id.slice(1))} : {}), error: d.error || "Delivery needs reconciliation" });
         if(confirmed && (!guarded || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version)) {
           const m=msgs.get(d.id);

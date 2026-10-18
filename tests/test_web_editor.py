@@ -10,6 +10,56 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_receipt_first_success_survives_confirming_duplicate(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='exact-telegram')
+        self.edit('Keep this local draft')
+        # Another client's accepted receipt can precede its request echo.
+        receipt={'id':'external-telegram','rid':'foreign-delivery','target':'exact-telegram'}
+        self.feed({'kind':'sent',**receipt})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.feed({'kind':'send_duplicate',**receipt,'state':'sent'})
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'external-telegram','rid':'ordered-barrier','text':'Following journal fact'}))
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history')?.textContent.includes('Following journal fact')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"({ok:document.querySelectorAll('.tm-mine-ok').length,unknown:document.querySelectorAll('.tm-mine-unresolved').length,draft:document.querySelector('.tm-shared-compose textarea').value})"})[-1]['eval'],{'ok':1,'unknown':0,'draft':'Keep this local draft'})
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_confirmed_reply_cannot_be_downgraded_by_late_delivery_updates(self):
+        self.seed_inbox(start_editing=False)
+        for guarded in (False,True):
+            with self.subTest(guarded=guarded):
+                source='whatsapp' if guarded else 'telegram'
+                self.open_external_source(source,token=guarded,target='exact-'+source)
+                self.edit('Confirmed owner reply')
+                if guarded:
+                    hold=self.queued('draft_control')
+                    self.token={**self.token,'edit_version':self.token['edit_version']+1,'held':True,'holder':hold['editor']}
+                    self.feed({'kind':'draft_state','id':hold['id'],'rid':hold['rid'],'inbox':self.token})
+                    self.assertTrue(self.page({'until':"document.querySelector('.tm-editor-feedback').hidden"})[-1]['until'])
+                self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+                q=self.queued('send')
+                self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(q))
+                self.edit('Newer unsent owner draft')
+                receipt={'kind':'sent','id':q['id'],'rid':q['rid'],'target':q['target'],
+                         **({'submitted_inbox':self.token,'inbox':self.token,'receipt':{'id':'confirmed-'+source}} if guarded else {})}
+                self.feed(receipt)
+                self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+                # Observe the following owner echo as a barrier: the older fact
+                # must have passed through the same ordered feed reducer first.
+                for index,kind in enumerate(('send_failed','send_blocked','send_uncertain','scheduled','canceled','send_duplicate')):
+                    self.feed({'kind':kind,'id':q['id'],'rid':q['rid'],'target':q['target'],
+                               'state':'pending','at':'2030-01-01T12:00:00Z','error':'Late obsolete delivery update'})
+                    marker='Delivery barrier '+str(index)
+                    self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':q['id'],'rid':'barrier-'+source+str(index),'text':marker}))
+                    self.assertTrue(self.page({'until':"document.querySelector('.tm-history')?.textContent.includes("+json.dumps(marker)+")"})[-1]['until'])
+                    got=self.page({'eval':"({ok:document.querySelectorAll('.tm-mine-ok').length,failed:document.querySelectorAll('.tm-mine-fail').length,late:document.querySelectorAll('.tm-mine-later,.tm-mine-unresolved').length,text:document.querySelector('.tm-shared-compose textarea').value})"})[-1]['eval']
+                    self.assertEqual(got,{'ok':1,'failed':0,'late':0,'text':'Newer unsent owner draft'},(guarded,kind,got))
+                self.assertEqual(self.non_history_actions(),[])
+                self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+                    {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic "+source+"'))"},
+                    {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic "+source+"')).click();true"})
+                self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Newer unsent owner draft'"})[-1]['until'])
+                self.assertEqual(self.page({'eval':"({ok:document.querySelectorAll('.tm-mine-ok').length,failed:document.querySelectorAll('.tm-mine-fail,.tm-mine-later,.tm-mine-unresolved').length})"})[-1]['eval'],{'ok':1,'failed':0})
+
     def test_flat_search_aligns_with_cards_and_keeps_filter_clear_working(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for mid in ('alignment-one','alignment-two'):
