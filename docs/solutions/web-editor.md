@@ -182,3 +182,5 @@ An explicit replay can first-submit a request lost before collector admission. L
 Capability revocation tests must first observe the enabled control before awaiting its disappearance. Awaiting an already absent control can return before the revocation fact arrives and falsely characterize a stale-button click as a runtime failure.
 
 A replay success can arrive without a live guarded editor to perform cleanup. Mirror fresh-success cleanup in the feed reducer: settle original request, accept only its matching draft tombstone, record answered state, and clear an unguarded composer only if no newer owner draft exists. Regressions cover unchanged external drafts and guarded success after reload with the editor closed.
+
+Live synthetic rendering caught a separate stale global transport alert after confirmed delivery. Reply callers already own unresolved status; mark(send) must not also create a global Hub-unavailable banner that survives the receipt. Shared and fallback paths retain their pending reply and recoverable feedback; unrelated action/storage errors keep their own handling.
