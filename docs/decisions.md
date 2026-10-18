@@ -340,3 +340,7 @@ stored preferences remain compatible. By: agent.
 
 ### 2026-10-18 — Native conversation context and action glyphs
 Use the provider plus its distinct place once, matching pinned native Letter.origin. Do not synthesize a second Teams category before the supplied place. Deduplicate identical source context across conversation members. All action-row icons use22px in the labelled layout and28px in the existing compact layout; the shared React SVG previously inherited16px. Keep44px targets and existing reaction/draft semantics. Bounded native alignment, not a new layout.
+
+
+### 2026-10-18 — Native Inbox list state and display names
+Display native-style draft, suggested reaction and delivery marks beside each conversation name. Unconfirmed delivery stays distinct from Sent; pending or failed work remains visible alongside a retained draft, and a successful retry supersedes its old failure. Suggested emoji is content, never a delivered reaction. Strip only bracketed UTC/GMT hour metadata from rendered person names, retaining the original value for provider identity, requests and persisted drafts. Reuse existing native icon assets and the shared edit icon.
