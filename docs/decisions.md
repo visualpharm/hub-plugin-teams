@@ -351,3 +351,7 @@ Reuse the pinned native tray asset beside Inbox and let this control occupy the 
 ### 2026-10-18 — Native group-message attribution and days
 
 Group conversations name the first incoming bubble from each consecutive speaker, including loaded history. Direct messages and outgoing bubbles do not repeat names. Chat separators follow local calendar days across the history/current boundary, while source context stays above the conversation. Missing dates produce no empty separator. Mail retains its existing dated headers. This is presentation only: source identities, provider actions and drafts remain unchanged.
+
+### 2026-10-18 — Responsive conversation header and source-aware attribution
+
+Wide Inbox details place the source beside the left-aligned name; narrow details keep it above history. Only one source label is visible, and history stays bottom-aligned. Flat channel cards retain their own header without duplicate bubble authors. Group labels use each message source, including explicit Teams history metadata, and compare normalized display names only for label continuity. Raw identity, drafts and provider targets remain unchanged.

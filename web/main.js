@@ -1569,21 +1569,23 @@ function quickSend() {
   if(!quick.dialog.open)quick.dialog.showModal();quick.box.focus();
 }
 
-function thread(ms) {   // ms — по возрастанию времени
+function thread(ms, detail=true) {   // ms — по возрастанию времени
   const last = ms[ms.length - 1];
   const open = ms.filter((m) => !done(m));
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
-  head.append(el("b", "tm-from", personName(last.from) || "—"), conversationOptions(last));
+  const sourceLabel=[...new Set(ms.map(conversationSource))].join(" · ");
+  const headerSource=el("span","tm-header-source",sourceLabel);headerSource.title=sourceLabel;
+  head.append(el("b", "tm-from", personName(last.from) || "—"), headerSource, conversationOptions(last));
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
-  history.append(el("div","tm-conversation-source", [...new Set(ms.map(conversationSource))].join(" · ")));
+  history.append(el("div","tm-conversation-source",sourceLabel));
   let previous=null;
   const appendMessage=(m,source=m,historical=false)=>{
     const day=calendarDay(m.at),prior=calendarDay(previous?.at);
     const split=m.src==="email" ? !previous || Date.parse(m.at)-Date.parse(previous.at)>=GAP || !historical && (m.where || "")!==(previous.where || "") : day!==prior;
     if(day && (!previous || split))history.append(divider(m));
-    const named=["mention","channel"].includes(last.src) && !m.me && !!m.from && (!previous || previous.me || previous.from!==m.from);
+    const named=detail && ["mention","channel"].includes(m.src) && !m.me && !!m.from && (!previous || previous.me || !["mention","channel"].includes(previous.src) || personName(previous.from)!==personName(m.from));
     const row=line(m,source,named);
     if(historical)row.classList.add("tm-history-row");
     if(m.me)row.classList.add("tm-own");
@@ -1607,7 +1609,8 @@ function thread(ms) {   // ms — по возрастанию времени
     const current=ms.map(m=>flat(m.text)).join(" ");
     const older=h.items.filter(t=>t.me || !flat(t.text) || !current.includes(flat(t.text).slice(0,80).replace(/…$/, "")));
     for (const [index,t] of older.entries()) {
-      appendMessage({...t,providerId:t.id,id:`history:${last.id}:${t.id || index}`,src:last.src,text:String(t.text || "")},last,true);
+      const source=TEAMS_SRCS.includes(last.src) && TEAMS_SRCS.includes(t.src) ? t.src : last.src;
+      appendMessage({...t,providerId:t.id,id:`history:${last.id}:${t.id || index}`,src:source,text:String(t.text || "")},last,true);
     }
   }
   if (ms.some((m) => suspicious(m.text).length)) box.classList.add("tm-card-sus");
@@ -1839,7 +1842,7 @@ function paintAll() {
     ui.list.replaceChildren(...rows());
   } else {
     const visible = matching.flatMap(([, group]) => group);
-    ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m])) : [el("p", "tm-empty", "No matching conversations")]));
+    ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [el("p", "tm-empty", "No matching conversations")]));
   }
 }
 
