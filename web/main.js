@@ -384,7 +384,13 @@ async function sync() {
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
         sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.state === "sent" && d.receipt?.id ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
-        if(d.kind==="send_duplicate" && d.state==="sent" && d.receipt?.id && (!guardedReply(msgs.get(d.id)) || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version))await settlePendingReply(msgs.get(d.id),d.rid);
+        if(d.kind==="send_duplicate" && d.state==="sent" && d.receipt?.id && (!guardedReply(msgs.get(d.id)) || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version)) {
+          const m=msgs.get(d.id);
+          answered.add(d.id);answeredAt.set(d.id,p.id);
+          await settlePendingReply(m,d.rid);
+          acceptDraft(m,d.rid);
+          if(!guardedReply(m) && !hasOwnerDraft(m)) { composing.get(d.id)?.box?.set({text:"",files:[]});composing.delete(d.id); }
+        }
       }
       else if (p.reply_to && p.by !== AUTHOR && p.by !== "owner") {
         if (["revision_result", "draft_proposal"].includes(d?.kind)) continue;
