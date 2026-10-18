@@ -198,6 +198,7 @@
 .tm-sent-chat { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 48px; padding: 0; background: transparent; }
 .tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: 18px; background: #1f7f3b; color: #fff; overflow-wrap: anywhere; }
 .tm-sent-chat > .tm-draft-text .tm-native-icon { width: 16px; height: 16px; margin-left: 5px; vertical-align: text-bottom; opacity: .8; }
+.tm-icon-send-now { --tm-icon: url("./icons/send-now.svg"); }
 .tm-icon-clock { --tm-icon: url("./icons/clock.svg"); }
 .tm-icon-warning { --tm-icon: url("./icons/warning.svg"); }
 .tm-icon-double-tick { --tm-icon: url("./icons/double-tick.svg"); }
@@ -390,3 +391,5 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-shared-compose form.composer:not(.rec) .tm-send-leading > .tm-discard { grid-area: discard; }
 .tm-shared-compose form.composer.has-trailing:not(.rec) > .composer-actions > :nth-last-child(2) { grid-area: actions; }
 .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .tm-send-options { grid-area: options; }
+
+.tm-person .tm-row-status { width: 15px; height: 15px; flex: none; align-self: center; color: var(--foreground); line-height: 16px; font-size: 16px; }

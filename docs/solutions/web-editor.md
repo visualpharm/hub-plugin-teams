@@ -217,3 +217,7 @@ separate history, drafts after reload, unread/pin state and exact archive member
 
 ## Context and icon drift
 The supplied where field already carries the Teams category or provider context. Build the display from provider plus a distinct place, matching native Letter.origin, rather than adding category twice. Test DM, mention, channel, Telegram, WhatsApp and Mail. Shared core SVG icons inherit a different default size than plugin masks; set both explicitly on the action row and test wide tablet as well as desktop. Compact container rules still override both together.
+
+
+## Native list metadata
+Keep name normalization at the display boundary. Stripping bracketed UTC/GMT hour metadata from the stored message would change history/request identity; normalize only visible names and accessible labels. A list needs state marks even while its detail is closed. Derive them from existing authoritative send/reaction state and retained drafts, never from proposal content as if it were a receipt. Preserve uncertainty over success, let a successful retry supersede its own old failure, and keep a newer draft visible. Exercise the actual row renderer as well as pure state helpers; capture native fixture names and proposals in both themes.

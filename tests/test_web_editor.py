@@ -10,6 +10,34 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_list_marks_drafts_reactions_and_cleans_display_names_only(self):
+        self.seed_inbox(start_editing=False)
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.feed({'kind':'msg','id':'native-tg','contact':'raw-contact','src':'telegram','from':'Oleg Nov [UTC-03:00]',
+                   'where':'Telegram','text':'Name marker example','reply':True,'react':True,'target':'raw-target','at':'2099-01-01T00:00:00Z'})
+        self.page({'until':"document.body.innerText.includes('Name marker example')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-person .tm-from').textContent"})[-1]['eval'],'Oleg Nov')
+        posts=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>n.dataset.conversation)"})[-1]['eval']
+        self.assertIn('["telegram","raw-contact"]',posts)
+        self.page({'tapSelector':'.tm-person'},{'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-thread > .tm-head .tm-from').textContent"})[-1]['eval'],'Oleg Nov')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').getAttribute('aria-label')"})[-1]['eval'],'Reply to Oleg Nov')
+        self.edit('Retained exact draft')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-person .tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Draft')
+        stored=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.v1:'))"})[-1]['eval']
+        self.assertTrue(any('raw-contact' in k and 'native-tg' in k for k in stored))
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+                  {'until':"!!document.querySelector('.tm-person .tm-row-status')"},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Retained exact draft')
+        self.page({'tapSelector':'.tm-close-conversation'})
+        # Hub-generated proposal remains a suggestion, never a delivered reaction.
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍',reply_to=post)
+        self.page({'until':"!!document.querySelector('[aria-label=\"Suggested reaction: 👍\"]')"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('[aria-label=\"Suggested reaction: 👍\"]')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
@@ -844,8 +872,11 @@ class InboxWebAcceptance(PageInChrome):
                 self.open_external_source(source);self.edit('Exact outgoing reply')
                 self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
                 self.assertTrue(self.page({'eval':"document.querySelector('.tm-mine .tm-draft-by').textContent.startsWith('Вы · ')"})[-1]['eval'])
+                self.assertEqual(self.page({'eval':"document.querySelector('.tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Sending')
+                self.assertIn('send-now.svg',self.page({'eval':"getComputedStyle(document.querySelector('.tm-row-status')).maskImage"})[-1]['eval'])
                 self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
                 self.page({'until':"!!document.querySelector('.tm-unschedule')"})
+                self.assertEqual(self.page({'eval':"document.querySelector('.tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Scheduled')
                 got=self.page({'eval':"(()=>{const n=document.querySelector('.tm-mine'),b=n.querySelector('.tm-draft-text'),s=n.querySelector('.tm-draft-by');return {chat:n.classList.contains('tm-sent-chat'),color:getComputedStyle(b).backgroundColor,bodyBottom:b.getBoundingClientRect().bottom,statusTop:s.getBoundingClientRect().top}})()"})[-1]['eval']
                 self.assertEqual(got['chat'],source!='email')
                 if source!='email':
@@ -1824,6 +1855,9 @@ class InboxWebAcceptance(PageInChrome):
             self.page({"tapSelector":f"[aria-label='{label}']"})
             got=self.page({"eval":"[...document.querySelectorAll('.tm-person .tm-from')].map(n=>n.textContent)"})[-1]["eval"]
             self.assertEqual(set(got),set(names),(label,got))
+            marks=self.page({"eval":"Object.fromEntries([...document.querySelectorAll('.tm-person')].map(n=>[n.querySelector('.tm-from').textContent,n.querySelector('.tm-row-status')?.getAttribute('aria-label') ?? null]))"})[-1]['eval']
+            expected={"Sent colleague":"Sent","Scheduled colleague":"Scheduled","Failed colleague":"Send failed"}
+            self.assertEqual(marks,{name:expected.get(name) for name in names})
         self.page({"tapSelector":"[aria-label='Inbox conversations'] button[data-folder='new']"})
         self.page({"eval":"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Review colleague')).click();true"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep this Inbox reply")
