@@ -344,3 +344,7 @@ Use the provider plus its distinct place once, matching pinned native Letter.ori
 
 ### 2026-10-18 — Native Inbox list state and display names
 Display native-style draft, suggested reaction and delivery marks beside each conversation name. Unconfirmed delivery stays distinct from Sent; pending or failed work remains visible alongside a retained draft, and a successful retry supersedes its old failure. Suggested emoji is content, never a delivered reaction. Strip only bracketed UTC/GMT hour metadata from rendered person names, retaining the original value for provider identity, requests and persisted drafts. Reuse existing native icon assets and the shared edit icon.
+
+
+### 2026-10-18 — Native Inbox folder affordance
+Reuse the pinned native tray asset beside Inbox and let this control occupy the remaining folder space. Put Sort before Compose, matching native reading order. Keep web-only Inbox options reachable; do not remove functional controls for a screenshot match. When Failed appears, keep Inbox accessible by its label and compact its visible text so every target still fits the pane. Remaining toolbar surfaces and extra options placement need a separate native comparison.
