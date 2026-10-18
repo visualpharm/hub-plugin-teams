@@ -198,7 +198,8 @@ def claim(st,q):
     key,row=check(st,q)
     submitted = context(st,q['id'])
     store(st)['claims'][key] = {'rid':q['rid'], 'id':q['id'], 'state':'claimed',
-                   'thread':row['thread'], 'submitted_inbox':submitted, 'payload':payload(q)}
+                   'thread':row['thread'], 'submitted_inbox':submitted, 'payload':payload(q),
+                   **({'target':q['target']} if q.get('target') else {})}  # adress the client saw (codex m479400)
     edit = editor_state(st,row)
     if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
         edit['holders']=[]
@@ -252,7 +253,10 @@ def previous(st,q):
         return None
     if not same:
         return None
-    return {'kind':'send_duplicate','id':q['id'],'rid':q['rid'],'original_rid':claim['rid'],
+    pinned = {'target':claim['target']} if claim.get('target') else {}
+    if claim.get('target') != q.get('target'):  # same rid, other conversation: never inherit the original outcome
+        return {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Request ID reused with different input',**pinned}
+    return {**pinned,'kind':'send_duplicate','id':q['id'],'rid':q['rid'],'original_rid':claim['rid'],
             'version':token['version'],'state':'uncertain' if claim['state']=='claimed' else claim['state'],
             'inbox':context(st,q['id']),
             **({'submitted_inbox':claim['submitted_inbox']} if claim.get('submitted_inbox') else {}),

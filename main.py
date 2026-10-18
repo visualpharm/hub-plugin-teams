@@ -1409,13 +1409,14 @@ def send_one(st, reader, q, put=post, now=None):
 def send_guarded(st, reader, q, put=post, now=None):
     """The one serialized manual/auto boundary; durable claim before transport."""
     rejected=st.setdefault('inbox_rejections',{})
-    fingerprint=inbox_delivery.digest({k:q[k] for k in ('id','inbox','text','editor','automatic','files','reply_to','quote') if k in q})
+    fingerprint=inbox_delivery.digest({k:q[k] for k in ('id','inbox','text','editor','automatic','files','reply_to','quote','target') if k in q})
     if q['rid'] in rejected:
         old=rejected[q['rid']]
         put((inbox_delivery.previous(st,q) or old['result']) if old['fingerprint']==fingerprint else
             {'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Request ID reused with different input'})
         return
     def reject(event):
+        event={**event,**({'target':q['target']} if q.get('target') else {})}
         rejected[q['rid']]={'fingerprint':fingerprint,'result':event}
         save(st)  # a rejected request cannot silently become a send after restart
         put(event)

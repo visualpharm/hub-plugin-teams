@@ -473,6 +473,23 @@ class Delivery(unittest.TestCase):
         st=json.loads(json.dumps(st)); q['rid']='second'
         self.assertEqual(self.run_send(st,[q],{'id':'x'})[1],[])
 
+    def test_guarded_replay_keeps_the_original_target_and_refuses_a_changed_one(self):
+        # 17.10 (codex m479400): повтор исходного rid на защищённом пути отдавал итог без target (веб его отбрасывал), а
+        # тот же rid с другим target получал прежний успех. Теперь target — часть заявки: повтор несёт исходный,
+        # другой target — отказ; повторной отправки нет ни в одном случае
+        st=state(); target=main.target_of(st['refs']['a'])
+        q={**self.request(st),'editor':'client','target':target}
+        out,calls,_=self.run_send(st,[q],{'id':'receipt-1'})
+        self.assertEqual((len(calls),out[0]['kind'],out[0].get('target')),(1,'sent',target))
+        st=json.loads(json.dumps(st))
+        same,c1,_=self.run_send(st,[q],{'id':'never'})
+        moved,c2,_=self.run_send(st,[{**q,'target':'other'}],{'id':'never'})
+        legacy,c3,_=self.run_send(st,[{k:v for k,v in q.items() if k!='target'}],{'id':'never'})
+        self.assertEqual(c1+c2+c3,[])
+        self.assertEqual((same[0]['kind'],same[0].get('target')),('send_duplicate',target))
+        self.assertEqual((moved[0]['kind'],moved[0].get('target')),('send_blocked',target))
+        self.assertEqual(legacy[0]['kind'],'send_blocked')
+
     def test_legacy_client_cannot_enable_auto_send_and_outside_teams_sends_once_plainly(self):
         st=state(); st['cfg']['inbox_guard']=False
         self.assertEqual(self.run_send(st,[self.request(st,'auto',True)],{'id':'x'})[1],[])
