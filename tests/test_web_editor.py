@@ -10,6 +10,35 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_group_history_names_each_speaker_and_separates_calendar_days(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'mention','from':'Maria',
+                   'where':'Design team','text':'Latest group message','reply':True,'inbox':self.token,'at':'2026-01-02T12:02:00Z'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Latest group message')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
+            {'id':'a','from':'Alex [UTC-03:00]','text':'Before midnight','at':'2026-01-01T23:59:00'},
+            {'id':'b','from':'Maria','text':'After midnight','at':'2026-01-02T00:01:00'},
+            {'id':'c','from':'Maria','text':'Same day hours later','at':'2026-01-02T08:01:00'},
+            {'id':'d','me':True,'from':'Owner','text':'Owner response','at':'2026-01-02T09:01:00'},
+            {'id':'e','from':'Maria','text':'After owner response','at':'2026-01-02T10:01:00'},
+        ]})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-history-row').length===5"})[-1]['until'])
+        got=self.page({'eval':"({names:[...document.querySelectorAll('.tm-message-sender')].map(n=>n.textContent),days:[...document.querySelectorAll('.tm-divider')].map(n=>n.textContent),own:!!document.querySelector('.tm-own .tm-message-sender'),latest:!!document.querySelector('[data-message=source-a] .tm-message-sender')})"})[-1]['eval']
+        self.assertEqual(got['names'],['Alex','Maria','Maria'],got)
+        self.assertEqual(got['days'],['1 января','2 января'],got)
+        self.assertFalse(got['own']);self.assertFalse(got['latest'])
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_direct_messages_do_not_repeat_sender_and_invalid_dates_stay_hidden(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
+                   'text':'Undated direct message','reply':True,'inbox':self.token,'at':'invalid'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Undated direct message')"})[-1]['until'])
+        got=self.page({'eval':"({names:document.querySelectorAll('.tm-message-sender').length,days:[...document.querySelectorAll('.tm-divider')].map(n=>n.textContent),text:document.querySelector('.tm-history').textContent})"})[-1]['eval']
+        self.assertEqual(got['names'],0);self.assertEqual(got['days'],[])
+        self.assertNotIn('Invalid Date',got['text']);self.assertEqual(self.non_history_actions(),[])
+
     def test_native_inbox_folder_has_tray_and_sort_precedes_compose(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for width in (360,402,768,1024,1240,1440):

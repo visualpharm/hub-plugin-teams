@@ -221,6 +221,7 @@
 .tm-detail .tm-divider { justify-content: center; }
 .tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
 .tm-message-time { padding-inline: 8px; color: var(--muted-foreground); font-size: var(--text-base); }
+.tm-message-sender { padding: 4px 12px 0; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .tm-history-error { margin: 0; color: var(--foreground); }
 .tm-detail .tm-history { flex: 1; }
 .tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
