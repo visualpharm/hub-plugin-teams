@@ -77,6 +77,7 @@ export class InboxEditor {
     }
     if (!this.delivery || this.delivery.rid !== d.rid) return false;
     if (this.delivery.target && d.target !== this.delivery.target) return false;
+    if (this.delivery.state === "sent") return false;
     if (d.kind === "send_duplicate" && d.version === this.delivery.token.version && d.state === "sent" && d.receipt?.id) {
       this.delivery.state = "sent"; this.text = ""; this.error = ""; return true;
     }
