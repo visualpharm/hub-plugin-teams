@@ -71,10 +71,18 @@ class InboxWebAcceptance(PageInChrome):
                   {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
         self.page({'eval':"const s=document.querySelector('.tm-conversation-search input');s.value='Absent query';s.dispatchEvent(new Event('input',{bubbles:true}));true"})
         self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-flat .tm-search-empty button')"})[-1]['eval'])
+        for theme in ('light','dark'):
+            self.page({'media':theme},{'eval':"document.querySelector('.tm').style.setProperty('--muted','var(--background)');true"})
+            difference=self.page({'eval':"(()=>{const b=document.querySelector('.tm-search-empty button'),c=document.createElement('canvas').getContext('2d');c.fillStyle=getComputedStyle(b.closest('.tm-list-pane')).backgroundColor;c.fillRect(0,0,1,1);const before=c.getImageData(0,0,1,1).data;c.fillStyle=getComputedStyle(b).backgroundColor;c.fillRect(0,0,1,1);const after=c.getImageData(0,0,1,1).data;return Math.max(...[0,1,2].map(i=>Math.abs(before[i]-after[i])))})()"})[-1]['eval']
+            self.assertGreaterEqual(difference,12,theme)
         self.page({'tapSelector':'.tm-search-empty button'})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-flat .tm-list > .tm-thread').length===1"})[-1]['until'])
-        self.page({'tapSelector':'[data-folder=sent]'})
+        self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='Retained search';q.dispatchEvent(new Event('input',{bubbles:true}));true"},
+                  {'tapSelector':'[data-folder=sent]'})
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-search-empty')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-search input').value"})[-1]['eval'],'Retained search')
+        self.page({'tapSelector':'[aria-label="Clear conversation search"]'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-search input').value"})[-1]['eval'],'')
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-empty').textContent"})[-1]['eval'],'No sent or scheduled replies.')
         self.assertEqual(self.non_history_actions(),[])
 
@@ -2185,6 +2193,10 @@ class InboxWebAcceptance(PageInChrome):
         search("no possible match")
         self.page({"wait":"No results for “no possible match”"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Unsent exact reply")
+        self.page({"tapSelector":".tm-search-empty button"},{"until":"document.querySelectorAll('.tm-person').length===2"})
+        self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose textarea').value"})[-1]["eval"],"Unsent exact reply")
+        self.assertTrue(self.page({"eval":"document.querySelector('.tm-detail').checkVisibility()"})[-1]["eval"])
+        search("no possible match")
         self.page({"tapSelector":"[aria-label='Clear conversation search']"},{"until":"document.querySelectorAll('.tm-person').length===2"})
         self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Search conversations")
         self.page({"tapSelector":".tm-close-conversation"})
