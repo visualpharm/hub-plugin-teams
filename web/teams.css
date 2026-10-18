@@ -361,3 +361,6 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-person .tm-pinned { width: 16px; height: 16px; flex: none; color: var(--foreground); }
 .tm-conversation-options .tm-editor-menu { width: min(280px,calc(100vw - 160px)); white-space: normal; }
 .tm-conversation-options .tm-editor-menu .btn { display: block; width: 100%; text-align: left; }
+
+/* Native header backdrops must stay behind interactive menu anchors. */
+.tm-thread > .tm-head > :is(.tm-conversation-options,.tm-editor-options) { z-index: 3; }
