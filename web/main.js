@@ -1113,6 +1113,26 @@ async function waitForEditor(m, st, revision) {
   throw Error("Editor confirmation is still pending. Your draft is retained; try again when it arrives.");
 }
 
+function replyLayout(st) {
+  if (st.layoutFrame) return;
+  st.layoutFrame=requestAnimationFrame(()=>{
+    st.layoutFrame=null;
+    const form=st.box?.node, field=form?.querySelector('textarea');
+    if (!field?.checkVisibility() || !form.clientWidth) return;
+    const style=getComputedStyle(field), frame=getComputedStyle(form);
+    const measure=(st.measure ||= document.createElement('canvas').getContext('2d'));
+    if (!measure) return;
+    measure.font=`${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    // Measure against the compact row, independent of the expanded entry width.
+    // This keeps wrapping stable when expanding gives the text more room.
+    const controls=[form.querySelector('.tm-discard'),form.querySelector(':scope > .attach'),form.querySelector('.tm-send-options > summary')];
+    const reserved=44+controls.reduce((n,b)=>n+(b?.checkVisibility()?b.getBoundingClientRect().width:0),0);
+    const available=form.clientWidth-parseFloat(frame.paddingLeft)-parseFloat(frame.paddingRight)-reserved;
+    const expanded=!!field.value && (field.value.includes('\n') || measure.measureText(field.value).width>available);
+    form.classList.toggle('tm-expanded-reply',expanded);
+  });
+}
+
 function sharedReply(m, st) {
   if (!st.root) {
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
@@ -1299,9 +1319,9 @@ function sharedReply(m, st) {
     });
     if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
     // The shared composer refreshes its send/microphone action independently.
-    // Observe only that action; do not overwrite the microphone's accessible name.
-    const actionObserver=new MutationObserver(()=>st.updateSendAction());
-    actionObserver.observe(box.node,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label']});
+    // Keep its accessible name and reply layout in sync without replacing the field.
+    const actionObserver=new MutationObserver(()=>{st.updateSendAction();replyLayout(st);});
+    actionObserver.observe(box.node,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label','style']});
     st.updateSendAction();
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
@@ -1313,6 +1333,7 @@ function sharedReply(m, st) {
     wrap.append(box.node, feedback);
   }
   st.box.set({});
+  replyLayout(st);
   const state = st.state, p = state?.proposal;
   st.discard.hidden=!(st.text.trim() || st.files?.length || st.uploading);st.discard.disabled=!!(state?.control || state?.delivery);
   if (st.proposal) {
@@ -1928,7 +1949,10 @@ function build(root) {
   messageMenu=messageMenus(root,id=>messageTargets.get(id),problem=>{error=problem;paint();});
   ui?.resize?.disconnect();
   root.classList.add("tm-container");
-  const resize = new ResizeObserver(entries=>root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900));
+  const resize = new ResizeObserver(entries=>{
+    root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900);
+    for (const st of composing.values()) replyLayout(st);
+  });
   resize.observe(root);
   const wrap = el("div", "tm");
   const head = el("header", "tm-top");

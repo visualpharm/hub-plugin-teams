@@ -359,3 +359,7 @@ Wide Inbox details place the source beside the left-aligned name; narrow details
 ### 2026-10-18 — Flat Inbox source lists use the full content pane
 
 Mention and channel filters have no selected conversation detail, so they use one full-width pane with centered 760px reading cards. Returning to All or direct messages restores the two-pane layout. Source context lists each provider once with its distinct places, preserving complete place strings and original message identity.
+
+### 2026-10-18 — Give wrapped replies a full-width entry row
+
+Replies that would wrap in the compact row place the original textarea above the action controls. Measure against compact available width so expansion does not oscillate when the field becomes wider; explicit line breaks also expand. Short replies return to the compact row. Preserve the actual field, selection, signature text, drafts and transport payloads. Recording retains the shared composer layout.
