@@ -268,3 +268,7 @@ The latest reaction attempt is not delivery history. Keep a separate confirmed s
 
 ### Sent ordering after flattening
 Sorting conversations before flattening is insufficient for flat source-filtered cards. Compute activity per message after search selects matching conversations, then sort that visible list. Share the receipt/schedule fallback with grouped views. The synthetic regression deliberately interleaves delivery order across two messages from one conversation and a third from another, checks search recovery and a later schedule.
+
+
+### Target-only rebinding
+Draft identity is intentionally looser than delivery identity. Clearing sends only when draftKey changed left accepted replies attached to a replaced target. Detach sends and answered markers under pendingReplyKey changes alongside reaction/archive state, leaving draft storage intact. Synthetic acceptance covers stale receipt replay, replacement Inbox eligibility, fresh exact-target receipt, reload, canceled original request and retained edited draft.

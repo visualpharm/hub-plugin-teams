@@ -399,3 +399,7 @@ Decided: retain the latest accepted reaction per exact message separately from t
 
 ## 2026-10-18 · Filtered Sent uses per-message chronology
 Decided: flat source-filtered Sent cards sort by each message's accepted receipt or planned send time, with journal sequence as tie-breaker. Grouped views still use conversation activity and search retains complete matching conversations. Why: flattening sorted conversation groups kept siblings together and put older deliveries above newer ones, unlike native Sent. Undo: revert the flat ordering branch. By: agent.
+
+
+## 2026-10-18 · Reply outcomes belong to exact destination
+Decided: detach reply requests and accepted/answered projection when pendingReplyKey changes, including a target-only change. Keep editable drafts under the existing draft key; never erase durable pending records. Why: reused source ids must not show the former destination as answered or sent. Existing rid/target guards still control receipt acceptance. Undo: revert this bounded projection change. By: agent.
