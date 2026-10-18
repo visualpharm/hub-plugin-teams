@@ -188,6 +188,8 @@ class Choice:
                     q['inbox'] = body['inbox']
                 if isinstance(body.get('editor'),str):
                     q['editor']=body['editor']
+                if isinstance(body.get("target"), str) and body["target"]:
+                    q["target"] = body["target"]   # отпечаток адреса, который видел клиент (target_of): сменился — отказ
                 if files:
                     q["files"] = files
                 for k in ("reply_to", "quote"):   # ответ на конкретное сообщение: его id и текст (для цитаты в источниках без reply)
@@ -1058,7 +1060,7 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
             elif time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # старая просьба из перечитанного журнала — молча
-                put(reply_outcome(st, q))
+                put({**reply_outcome(st, q), **({"target": q["target"]} if q.get("target") else {})})
             continue
         if q["rid"] in later:
             if time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # потерян пост scheduled: повтор получает его снова
@@ -1070,8 +1072,10 @@ def send_replies(st, reader, queue, put=post, now=None):
                     {"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input"})
             continue
         if q.get("at") and not due(q["at"], now):
-            later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q}
-            put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": q["at"], **auto_text(q)})
+            later[q["rid"]] = {k: q[k] for k in ("id", "text", "at", "files", "reply_to", "quote", "inbox", "automatic", "editor",
+                                                 "target") if k in q}
+            put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": q["at"], **auto_text(q),
+                 **({"target": q["target"]} if q.get("target") else {})})
             save(st)
             continue
         send_one(st, reader, q, put, now)
@@ -1090,7 +1094,8 @@ def hold(st, q, why, put=post, now=None):
     who = (st.get("who") or {}).get(q["id"]) or {}
     at = hours.defer_to(hours.rule(st.get("hours"), who.get("contact")), hours.local(now), why)
     at = iso(at.astimezone(timezone.utc))
-    st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "inbox", "automatic", "editor") if k in q},
+    st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "inbox", "automatic", "editor",
+                                                                 "target") if k in q},
                                             "at": at, "tries": tries}
     done = st.setdefault("sent_rids", [])
     if q["rid"] in done:
@@ -1326,6 +1331,18 @@ def reply_outcome(st, q):
 
 def send_one(st, reader, q, put=post, now=None):
     ref = (st.get("refs") or {}).get(q["id"]) or {}
+    if q.get("target"):   # квитанции этого rid несут target просьбы; адрес пункта сменился — отказ до отправки (codex m477541)
+        echo = put
+        put = lambda e: echo({**e, "target": q["target"]} if e.get("rid") == q["rid"] else e)
+        if q["target"] != target_of(ref):
+            failed = {"kind": "react_failed" if q.get("react") else "send_failed", "id": q["id"], "rid": q["rid"],
+                      "error": "Conversation changed; refresh before sending."}
+            st.setdefault("sent_rids", []).append(q["rid"])
+            tomb(st, q["rid"])
+            st.setdefault("reply_out", {})[q["rid"]] = {"state": "done", "id": q["id"], "event": failed}
+            save(st)
+            put(failed)
+            return
     outside = any(ref.get(k) for k in ("wa", "tg", "mail"))   # защищённый протокол (CAS, квитанция Graph) — только Teams
     if not q.get('react') and not outside and (q.get('automatic') or q.get('inbox') is not None or (st.get('cfg') or {}).get('inbox_guard')):
         return send_guarded(st,reader,q,put,now)
@@ -1342,7 +1359,7 @@ def send_one(st, reader, q, put=post, now=None):
         local = hours.local(now)
         permitted = hours.next_allowed(hours.rule(st.get("hours"), who.get("contact")), local)
         if permitted > local:   # рабочие часы собеседника — как у защищённого пути
-            st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "automatic", "files", "reply_to", "quote")
+            st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "automatic", "files", "reply_to", "quote", "target")
                                                        if k in q}, "at": iso(permitted.astimezone(timezone.utc))}
             save(st)
             put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": st["later"][q["rid"]]["at"], "held": "hours",

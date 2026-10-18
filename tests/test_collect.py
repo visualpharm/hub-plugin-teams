@@ -640,6 +640,34 @@ class Later(unittest.TestCase):
         self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
                          [("send_failed", "r0", True), ("canceled", "l1", None)])
 
+    def test_reply_keeps_its_target_and_every_receipt_echoes_it(self):
+        # 17.10 (codex m477541): ответ с target уходит только в ту переписку, которую видел клиент; сменился адрес
+        # пункта — отказ без отправки; квитанции (и повтор, и «неизвестен», и «отложено») несут target просьбы
+        import sources
+        import time
+        ran, real = [], (sources.run, main.save)
+        sources.run = lambda cmd, timeout=0: ran.append(cmd) or ""
+        main.save = lambda st: None
+        try:
+            now = time.time()
+            st = {"refs": {"w": {"wa": "whatsapp", "to": "1@c.us", "send": "/bin/send"}}, "sent_rids": ["r9"]}
+            a = main.target_of(st["refs"]["w"])
+            q = {"id": "w", "rid": "r1", "text": "Да", "ts": now, "target": a}
+            main.send_replies(st, self.R(), [q, q, {**q, "rid": "r9"},
+                                             {**q, "rid": "l1", "at": "2999-01-01T00:00:00Z"}], self.out.append)
+            st["refs"]["w"] = {"wa": "whatsapp", "to": "2@c.us", "send": "/bin/send"}   # пункт сменил собеседника
+            main.send_replies(st, self.R(), [{**q, "rid": "r2"}, {**q, "rid": "r2"}], self.out.append)
+            mine = list(self.out)
+            main.send_replies(st, self.R(), [{"id": "w", "rid": "r3", "text": "Да", "ts": now}], self.out.append)   # без target
+        finally:
+            sources.run, main.save = real
+        self.assertEqual([c[c.index("--to") + 1] for c in ran], ["1@c.us", "2@c.us"])   # r1 и r3 без target
+        self.assertEqual([(p["kind"], p.get("rid"), p.get("unresolved")) for p in mine],
+                         [("sent", "r1", None), ("answered", None, None), ("sent", "r1", None), ("send_failed", "r9", True),
+                          ("scheduled", "l1", None), ("send_failed", "r2", None), ("send_failed", "r2", None)])
+        self.assertEqual({p.get("target") for p in mine if p.get("rid")}, {a})
+        self.assertIn("Conversation changed", mine[-1]["error"])
+
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
         # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
         # повтор отмены не находил отложенного и молчал. Теперь повтор получает тот же итог; чужой пункт или редактор — нет
