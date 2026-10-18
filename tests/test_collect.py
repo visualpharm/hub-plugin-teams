@@ -874,7 +874,8 @@ class Later(unittest.TestCase):
         self.assertEqual((hours["from"], hours["to"], hours["weekends"], hours["except"]), ("08:00", "20:00", False, []))
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
                                   'inbox_guard':True,'inbox_protocol':{'version':1,'private_proposal':True,
-                                  'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True}}])
+                                  'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True},
+                                  'reply_replay':1}])   # повтор rid сверяет исходную просьбу и target (m479566)
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
     def test_the_old_signature_becomes_the_approved_one(self):

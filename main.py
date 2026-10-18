@@ -646,6 +646,9 @@ def config(st, put=post):
          'inbox_guard':cfg.get('inbox_guard') is True,
          'inbox_protocol':{'version':1,'private_proposal':True,'editor_cas':True,'shared_claim':True,
                            'receipt_sources':['teams'],'requires_all_clients':True},
+         # повтор rid ответа (Teams и вне) подтверждает итог только той же просьбе с тем же target, иначе отказ, без
+         # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет (m479566)
+         'reply_replay':1,
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
