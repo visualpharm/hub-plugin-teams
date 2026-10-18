@@ -159,3 +159,8 @@ The draft's pendingRid alone does not prevent duplicate sends after reload: typi
 
 ### Send options on different composer versions
 Check composerTrailing before using the optional right-side slot and place the menu in leading when absent. Both routes use the same DOM control and grid placement. Keep the date picker outside the parent form's validation association, handle its Enter explicitly, and consume the scheduling intent only for a valid nonempty submission. Otherwise a rejected empty scheduling attempt can silently schedule the next ordinary reply. Preserve focused menu nodes through feed repaint, and check actual popup bounds, Escape and focus at phone/tablet/desktop widths. More-specific existing last-child grid rules can place the trailing menu over Send despite correct DOM order.
+
+
+### Await the actual request in synthetic acceptance
+
+`requestSubmit()` returns before Web Locks and fetch complete. A single spool snapshot falsely failed three existing delivery cases after durable admission added an asynchronous lock. `queued(kind)` now waits up to five seconds for the actual matching queue event while consuming only completed spool files. A deterministic delayed-event regression covers this; delivery, receipt and newer-draft assertions remain unchanged.

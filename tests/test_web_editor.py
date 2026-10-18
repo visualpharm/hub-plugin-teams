@@ -1,6 +1,7 @@
 """Real web renderer + isolated journal. No collector/account/provider send."""
 import json
 import os
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 import unittest
@@ -1500,8 +1501,14 @@ class InboxWebAcceptance(PageInChrome):
             ready=self.page({'until':"document.querySelector('[data-action=provider-read]')?.textContent==='Check read status' && !document.querySelector('[data-action=provider-read]').disabled"},
               {'eval':"document.body.innerText"})
             self.assertTrue(ready[-2]['until'],ready[-1]['eval'])
-        posts = [json.loads(e["data"]["text"]) for e in self.spooled() if e["type"] == "ext.post"]
-        found = [p for p in posts if p.get("kind") == kind]
+        # requestSubmit returns before Web Locks and fetch finish. Observe the
+        # actual queue event, rather than assuming one synchronous snapshot.
+        posts=[];deadline=time.monotonic()+5
+        while True:
+            posts.extend(json.loads(e["data"]["text"]) for e in self.spooled() if e["type"] == "ext.post")
+            found=[p for p in posts if p.get("kind")==kind]
+            if found or time.monotonic()>=deadline:break
+            time.sleep(.01)
         self.assertEqual(len(found), 1, posts)
         return found[0]
 
@@ -1574,6 +1581,12 @@ def load_tests(loader, suite, pattern):
 
 
 class SpoolFixtureAcceptance(unittest.TestCase):
+    def test_queued_waits_for_the_asynchronous_request(self):
+        fixture=InboxWebAcceptance('test_only_the_matching_receipt_closes_the_editor_and_retrieves_sent_detail')
+        event={'type':'ext.post','data':{'text':json.dumps({'kind':'send','rid':'synthetic-delayed'})}}
+        with mock.patch.object(fixture,'spooled',side_effect=[[],[event]]):
+            self.assertEqual(fixture.queued('send')['rid'],'synthetic-delayed')
+
     def test_consuming_a_snapshot_preserves_inflight_and_new_facts(self):
         import tempfile
         from types import SimpleNamespace
