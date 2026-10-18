@@ -191,6 +191,8 @@ class Choice:
                     q['editor']=body['editor']
                 if isinstance(body.get("target"), str) and body["target"]:
                     q["target"] = body["target"]   # отпечаток адреса, который видел клиент (target_of): сменился — отказ
+                if body.get("archive") is True:
+                    q["archive"] = True   # «Отправить и убрать»: archived после подтверждённого sent (archive_intent)
                 if files:
                     q["files"] = files
                 for k in ("reply_to", "quote"):   # ответ на конкретное сообщение: его id и текст (для цитаты в источниках без reply)
@@ -648,7 +650,7 @@ def backfill_refs(st, reader, now, put=post):
     return len(keys)
 
 
-CONFIG_CAPS = 3   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
+CONFIG_CAPS = 4   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
 
 
 def config(st, put=post):
@@ -662,7 +664,8 @@ def config(st, put=post):
          # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет (m479566)
          'reply_replay':1,
          'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
-         'reaction_target':1,   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
+         'reaction_target':1,
+         'send_archive':1,   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
@@ -706,6 +709,45 @@ def hours_for(st, key, weekends, put=post):
     else:
         (h.get("except") or {}).pop(who["contact"], None)
     config(st, put)
+
+
+def archive_mismatch(st, q, later, put=None):
+    """«Отправить и убрать» помним по rid до отправки (st["archive_rids"]: id, target). Повтор rid с другим намерением
+    (было с архивом — пришло без, или наоборот) — отказ с исходным target, без новой отправки и без архива (18.10,
+    codex m485958). Новый rid с архивом — записать намерение; дальше обычный путь."""
+    intents = st.setdefault("archive_rids", {})
+    if not isinstance(q.get("rid"), str) or not isinstance(q.get("id"), str) or "text" not in q or q.get("react"):
+        return False
+    known = q["rid"] in intents or q["rid"] in (st.get("sent_rids") or ()) or q["rid"] in later or entombed(st, q["rid"]) \
+        or q["rid"] in (st.get("inbox_rejections") or {})
+    want = q.get("archive") is True
+    if known and (q["rid"] in intents) != want:
+        # защищённый путь отвечает на повтор всегда (как inbox_delivery.previous), обычный — только свежей просьбе
+        if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
+            pin = intents.get(q["rid"]) or ((st.get("reply_out") or {}).get(q["rid"]) or {})
+            (put or post)({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": "Request ID reused with different input",
+                           **({"target": pin["target"]} if pin.get("target") else {})})
+        return True
+    if want and not known:
+        intents[q["rid"]] = {"id": q["id"], **({"target": q["target"]} if q.get("target") else {})}
+        for k in list(intents)[:-500]:
+            del intents[k]
+        save(st)
+    return False
+
+
+def archive_after(st, put):
+    """Квитанции отправки с намерением «убрать»: за подтверждённым sent (и повтором send_duplicate со state sent) —
+    {"kind": "archived", id, rid, target, ids}. scheduled / send_blocked / send_failed / uncertain — без архива.
+    Повтор rid снова даёт archived: клиенты применяют идемпотентно (config.send_archive)."""
+    def wrapped(event):
+        put(event)
+        intent = (st.get("archive_rids") or {}).get(event.get("rid") or "")
+        ok = event.get("kind") == "sent" or (event.get("kind") == "send_duplicate" and event.get("state") == "sent")
+        if intent and ok and event.get("id") == intent["id"] and event.get("target") == intent.get("target"):
+            put({"kind": "archived", "id": intent["id"], "rid": event["rid"], "ids": [intent["id"]],
+                 **({"target": intent["target"]} if intent.get("target") else {})})
+    return wrapped
 
 
 def hours_for_one(st, q, put=post):
@@ -1027,6 +1069,7 @@ def send_replies(st, reader, queue, put=post, now=None):
     (hold). Модель всех исходов — hub-ios docs/send-model."""
     done = st.setdefault("sent_rids", [])
     later = st.setdefault("later", {})
+    put = archive_after(st, put)
     if "rid_tombs" not in st:   # состояние до отпечатков: уже отправленные rid — тоже под защитой
         for r in done:
             tomb(st, r)
@@ -1126,6 +1169,8 @@ def send_replies(st, reader, queue, put=post, now=None):
                                                                **({"editor": q["editor"]} if q.get("editor") else {})}
                 put(gone)
                 save(st)
+            continue
+        if archive_mismatch(st, q, later, put):
             continue
         if q["rid"] in done or (q.get('inbox') is None and not q.get('automatic') and entombed(st, q["rid"])):
             if q.get('inbox') is not None or q.get('automatic'):

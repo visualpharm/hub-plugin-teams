@@ -66,6 +66,22 @@ class Delivery(unittest.TestCase):
             st = json.loads(json.dumps(st))
             self.assertEqual(self.run_send(st, [queue[-1]], {'id':'different'})[1],[])
 
+    def test_guarded_send_and_archive_archives_after_receipt_and_on_replay(self):
+        st = state(); q = {**self.request(st), 'archive': True, 'target': main.target_of(st['refs']['a'])}
+        out, calls, _ = self.run_send(st, [q], {'id': 'external-123'})
+        kinds = [p['kind'] for p in out]
+        self.assertEqual(len(calls), 1)
+        self.assertLess(kinds.index('sent'), kinds.index('archived'))
+        self.assertEqual(next(p for p in out if p['kind'] == 'archived')['target'], q['target'])
+        st = json.loads(json.dumps(st))
+        out, calls, _ = self.run_send(st, [q], {'id': 'never'})
+        self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_duplicate', 'archived']))
+        out, calls, _ = self.run_send(st, [{k: v for k, v in q.items() if k != 'archive'}], {'id': 'never'})
+        self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_blocked']))
+        st = state(); q = {**self.request(st, 'uncertain'), 'archive': True}
+        out, _, _ = self.run_send(st, [q], error=TimeoutError('unknown'))
+        self.assertNotIn('archived', [p['kind'] for p in out])
+
     def test_hold_and_intentional_empty_survive_restart_release_is_explicit_cas(self):
         st = state(); old = delivery.context(st,'a')
         held = delivery.control(st, {'id':'a','rid':'edit','inbox':old,'action':'hold','editor':'client-a','draft':''})
