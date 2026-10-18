@@ -9,7 +9,8 @@
 по разбору входящих, {"kind": "ignore", id} — больше не показывать и не драфтить этого собеседника (по сообщению id),
 {"kind": "unignore", contact} — вернуть, {"kind": "history", id} —
 показать всю переписку вокруг сообщения, {"kind": "hours", from, to, weekends} — рабочие часы отправки (hours.py),
-{"kind": "hours_for", id, weekends} — выходные у собеседника этого сообщения (true/false; null — как у всех). Команда
+{"kind": "hours_for", id, weekends} — выходные у собеседника этого сообщения (true/false; null — как у всех; с rid,
+contact, target — привязанная просьба с квитанцией hours_set / hours_failed, config.hours_for_bound). Команда
 send отказала из-за ночи или выходного — это не ошибка: ответ переносится на ближайшее разрешённое время, пост
 {"kind": "scheduled", id, rid, at, held: "night"|"weekend"} (hold). В ответ плагин постит sent / send_failed / scheduled / canceled / reacted /
 react_failed, {"kind": "config"} — действующие настройки (в том числе prompt владельца и список ignored) и {"kind": "thread", id, part, of, items} — переписку кусками.
@@ -255,7 +256,13 @@ class Choice:
             self.hours = hours.clean(body) or self.hours   # пустое окно не принимаем: остаётся прежнее
         elif isinstance(body, dict) and body.get("kind") == "hours_for" and isinstance(body.get("id"), str):
             # выходные у одного собеседника: true/false — как сказано, null — как у всех
-            self.sends.append({"hours_for": body["id"], "weekends": body.get("weekends")})
+            if isinstance(body.get("rid"), str) and body["rid"]:   # привязанная просьба: rid + собеседник + адрес
+                self.sends.append({"hours_for": body["id"], "rid": body["rid"][:80], "bound": True,
+                                   "has_weekends": "weekends" in body, "weekends": body.get("weekends"),
+                                   **{k: str(body[k])[:300] for k in ("contact", "target") if isinstance(body.get(k), str)},
+                                   "ts": ev.get("ts") or 0})
+            else:
+                self.sends.append({"hours_for": body["id"], "weekends": body.get("weekends")})
         elif isinstance(body, dict) and body.get("kind") == "ignore" and isinstance(body.get("id"), str):
             self.sends.append({"ignore": body["id"]})
         elif isinstance(body, dict) and body.get("kind") == "unignore" and isinstance(body.get("contact"), str):
@@ -639,7 +646,7 @@ def backfill_refs(st, reader, now, put=post):
     return len(keys)
 
 
-CONFIG_CAPS = 1   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
+CONFIG_CAPS = 2   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
 
 
 def config(st, put=post):
@@ -652,6 +659,7 @@ def config(st, put=post):
          # повтор rid ответа (Teams и вне) подтверждает итог только той же просьбе с тем же target, иначе отказ, без
          # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет (m479566)
          'reply_replay':1,
+         'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
@@ -695,6 +703,55 @@ def hours_for(st, key, weekends, put=post):
     else:
         (h.get("except") or {}).pop(who["contact"], None)
     config(st, put)
+
+
+def hours_for_one(st, q, put=post):
+    """Выходные собеседника по привязанной просьбе {"kind": "hours_for", id, rid, contact, target, weekends}: меняет
+    только если пункт id сейчас того же собеседника (contact) и той же переписки (target), weekends — явно true/false/null.
+    Итог — {"kind": "hours_set", id, rid, contact, target, weekends: действующее у него, except, requested} после
+    нового config, отказ — {"kind": "hours_failed", ..., error}. Повтор rid той же просьбы — прежний итог без нового
+    применения; другой просьбы — отказ; давняя просьба из перечитанного журнала — молча (18.10, codex m484011)."""
+    if time.time() - (q.get("ts") or 0) > HISTORY_FRESH:
+        return
+    outs = st.setdefault("hours_out", {})
+    pin = {k: q[k] for k in ("contact", "target") if q.get(k)}
+    mark = inbox_delivery.digest({k: q.get(k) for k in ("hours_for", "contact", "target", "weekends", "has_weekends")})
+    old = outs.get(q["rid"])
+    if old or entombed(st, q["rid"]):
+        if old and old["print"] == mark:
+            put(old["event"])
+        else:
+            put({"kind": "hours_failed", "id": q["hours_for"], "rid": q["rid"],
+                 **({k: old["event"][k] for k in ("contact", "target") if k in old["event"]} if old else pin),
+                 **({"error": "Request ID reused with different input"} if old else
+                    {"unresolved": True, "error": "Outcome unknown; reload the conversation before changing it again."})})
+        return
+
+    def finish(event):
+        outs[q["rid"]] = {"print": mark, "event": event}
+        for k in list(outs)[:-500]:
+            del outs[k]
+        tomb(st, q["rid"])
+        save(st)
+        put(event)
+
+    fail = lambda why: finish({"kind": "hours_failed", "id": q["hours_for"], "rid": q["rid"], **pin, "error": why})
+    who = (st.get("who") or {}).get(q["hours_for"])
+    ref = (st.get("refs") or {}).get(q["hours_for"])
+    if not q.get("has_weekends") or q.get("weekends") not in (True, False, None):
+        return fail("weekends must be true, false or null")
+    if not q.get("contact") or not q.get("target"):
+        return fail("contact and target are required")
+    if not who or not ref:
+        return fail("Conversation is no longer in Inbox; reload it.")
+    if who.get("contact") != q["contact"] or target_of(ref) != q["target"]:
+        return fail("Conversation changed; reload it before changing weekends.")
+    hours_for(st, q["hours_for"], q["weekends"], put)   # пишет исключение и постит новый config
+    h = st.get("hours") or {}
+    base = (hours.clean(h) or hours.DEFAULT)["weekends"]
+    excepted = q["contact"] in (h.get("except") or {})
+    finish({"kind": "hours_set", "id": q["hours_for"], "rid": q["rid"], **pin, "weekends": base != excepted,
+            "except": excepted, "requested": q["weekends"]})
 
 
 # Подписи (слово Ивана 16.10, m398582): посторонним — никакой, близким от хаба — «🤖 _Хаб от лица Ивана_», текст одобрил
@@ -1037,6 +1094,9 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put({"kind": "answered", "id": q["dismiss"]})
             if closed or gone:
                 save(st)
+            continue
+        if q.get("bound"):
+            hours_for_one(st, q, put)
             continue
         if "hours_for" in q:
             hours_for(st, q["hours_for"], q.get("weekends"), put)

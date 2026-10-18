@@ -160,6 +160,72 @@ class Gate(unittest.TestCase):
         main.hours_for(self.st, "k2", None, self.out.append)          # «как у всех»
         self.assertEqual(next(p for p in reversed(self.out) if p['kind']=='config')["hours"]["except"], [])
 
+    def bound(self, **kw):
+        """Привязанная просьба hours_for (rid + contact + target) из журнала, свежая."""
+        c = main.Choice("/nonexistent")
+        body = {"kind": "hours_for", "id": "k2", "rid": "hr1", "contact": "wa:2",
+                "target": main.target_of(self.st["refs"]["k2"]), "weekends": True, **kw}
+        body = {k: v for k, v in body.items() if v is not ...}
+        c.line(json.dumps({"type": "ext.post", "seq": 1, "ts": main.time.time(), "data": {"plugin": main.NAME, "owner": True,
+                           "channel": "web", "text": json.dumps(body)}}).encode() + b"\n")
+        main.send_replies(self.st, self.R(), c.take_sends(), self.out.append)
+        return [p for p in self.out if p["kind"] in ("hours_set", "hours_failed")][-1]
+
+    def excepted(self):
+        return dict((self.st.get("hours") or {}).get("except") or {})
+
+    def test_bound_hours_for_sets_and_reports_resulting_setting_after_config(self):
+        got = self.bound()
+        self.assertEqual((got["kind"], got["weekends"], got["except"], got["requested"], got["contact"], got["rid"]),
+                         ("hours_set", True, True, True, "wa:2", "hr1"))
+        self.assertEqual(got["target"], main.target_of(self.st["refs"]["k2"]))
+        kinds = [p["kind"] for p in self.out]
+        self.assertLess(kinds.index("config"), kinds.index("hours_set"))   # config с итогом уже вышел
+        self.assertEqual(self.excepted(), {"wa:2": "Лена"})
+
+    def test_bound_hours_for_refuses_replaced_contact_or_target_without_mutation(self):
+        self.st["who"]["k2"] = {"contact": "wa:9", "from": "Другой"}     # пункт k2 теперь другого собеседника
+        got = self.bound()
+        self.assertEqual((got["kind"], got["contact"]), ("hours_failed", "wa:2"))
+        self.assertEqual(self.excepted(), {})
+        self.st["who"]["k2"] = {"contact": "wa:2", "from": "Лена"}
+        got = self.bound(rid="hr2", target="other-target")
+        self.assertEqual((got["kind"], got["target"]), ("hours_failed", "other-target"))
+        self.assertEqual(self.excepted(), {})
+        self.assertNotIn("config", [p["kind"] for p in self.out])
+
+    def test_bound_hours_for_requires_explicit_weekends_contact_and_target(self):
+        for i, kw in enumerate(({"weekends": ...}, {"weekends": "yes"}, {"contact": ...}, {"target": ...})):
+            self.assertEqual(self.bound(rid=f"bad{i}", **kw)["kind"], "hours_failed", kw)
+        self.assertEqual(self.excepted(), {})
+        self.assertEqual(self.bound(rid="null", weekends=None)["kind"], "hours_set")   # null — явное «как у всех»
+
+    def test_bound_hours_for_replay_returns_prior_outcome_and_never_reapplies(self):
+        first = self.bound()
+        self.out.clear()
+        self.assertEqual(self.bound(), first)                             # тот же rid, та же просьба — прежний итог
+        self.assertNotIn("config", [p["kind"] for p in self.out])
+        main.hours_for(self.st, "k2", None, self.out.append)              # владелец вернул «как у всех» другим путём
+        got = self.bound(weekends=False)                                  # тот же rid, другое намерение
+        self.assertEqual((got["kind"], got["error"], got["contact"]), ("hours_failed", "Request ID reused with different input", "wa:2"))
+        self.assertEqual(self.excepted(), {})
+        self.st["hours_out"].clear()                                     # вытеснен: остался только отпечаток
+        got = self.bound()
+        self.assertEqual((got["kind"], got.get("unresolved")), ("hours_failed", True))
+        self.assertEqual(self.excepted(), {})
+
+    def test_stale_bound_request_from_reread_journal_is_ignored_and_legacy_unchanged(self):
+        c = main.Choice("/nonexistent")
+        c.line(json.dumps({"type": "ext.post", "seq": 1, "ts": main.time.time() - main.HISTORY_FRESH - 5, "data": {
+            "plugin": main.NAME, "owner": True, "channel": "web", "text": json.dumps(
+                {"kind": "hours_for", "id": "k2", "rid": "old", "contact": "wa:2", "target": "t", "weekends": True})}}).encode() + b"\n")
+        main.send_replies(self.st, self.R(), c.take_sends(), self.out.append)
+        self.assertEqual((self.out, self.excepted()), ([], {}))
+
+    def test_config_advertises_bound_hours_for(self):
+        main.config(self.st, self.out.append)
+        self.assertEqual(self.out[0]["hours_for_bound"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
