@@ -733,7 +733,7 @@ function matchingConversations(items) {
     groups.sort((a,b)=>weight(b[1])-weight(a[1]));
   }
   if (tab === "sent") {
-    const activity = new Map(groups.map(([key,group]) => { const out=folderOutgoing(group); return [key,{at:outgoingTime(out) || secs(group[0].at) || 0,sequence:outgoingSequence(out)}]; }));
+    const activity = new Map(groups.map(([key,group]) => [key,folderActivity(group)]));
     groups.sort((a,b) => activity.get(b[0]).at-activity.get(a[0]).at || activity.get(b[0]).sequence-activity.get(a[0]).sequence);
   }
   if (tab === "new") groups.sort((a,b) => Number(pins.has(pinKey(b[1][0]))) - Number(pins.has(pinKey(a[1][0]))));
@@ -911,6 +911,11 @@ function folderOutgoing(group) {
   const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state));
   if (tab === "sent") outgoing.push(...[...deliveredReactions.values()].filter(r => ids.has(r.id)));
   return outgoing.reverse().sort((a,b) => outgoingTime(b)-outgoingTime(a) || outgoingSequence(b)-outgoingSequence(a))[0] || null;
+}
+
+function folderActivity(group) {
+  const out = folderOutgoing(group);
+  return {at:outgoingTime(out) || secs(group[0].at) || 0,sequence:outgoingSequence(out)};
 }
 
 function folderReplyPreview(group) {
@@ -1921,6 +1926,10 @@ function paintAll() {
     ui.list.replaceChildren(...rows());
   } else {
     const visible = matching.flatMap(([, group]) => group);
+    if (tab === "sent") {
+      const activity = new Map(visible.map(m => [m,folderActivity([m])]));
+      visible.sort((a,b) => activity.get(b).at-activity.get(a).at || activity.get(b).sequence-activity.get(a).sequence);
+    }
     ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [noSearchResults()]));
   }
 }

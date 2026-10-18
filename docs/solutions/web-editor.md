@@ -264,3 +264,7 @@ Sent must sort by outgoing activity, not the incoming message's age. Share outgo
 
 ### Reaction history and retries
 The latest reaction attempt is not delivery history. Keep a separate confirmed snapshot after the existing exact-rid/target acceptance guard. A waiting or refused replacement must not remove the earlier Sent row or replace its preview. Clear snapshots when the exact destination changes. Regression covers retry, refusal, reload, mismatched receipt, replacement success and rebound identity; original target/draft tests remain in the affected gate. Duplicate successful reply receipts intentionally cannot be undone through false-closure correction: the existing sentOk guard protects delivered messages.
+
+
+### Sent ordering after flattening
+Sorting conversations before flattening is insufficient for flat source-filtered cards. Compute activity per message after search selects matching conversations, then sort that visible list. Share the receipt/schedule fallback with grouped views. The synthetic regression deliberately interleaves delivery order across two messages from one conversation and a third from another, checks search recovery and a later schedule.
