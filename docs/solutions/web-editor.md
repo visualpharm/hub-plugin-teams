@@ -276,3 +276,7 @@ Draft identity is intentionally looser than delivery identity. Clearing sends on
 
 ### Answered message contrast
 Do not dim message content when its workflow becomes done. The previous shared tm-line.tm-done rule reduced contrast in Sent, history and archived content. Compare computed foreground in real themed renders, not only CSS token strings: actual host muted text differed from the default test palette. Regression checks chat/channel/mail, grouped/flat, light/dark and 360/834/1440 widths, preserving outgoing white text.
+
+
+### Delayed delivery status
+Sent sorting already used deliveredTs, but sentBlock still rendered request ts. This made delayed confirmations look old. Use the accepted timestamp for successful reply status in the shared chat/mail renderer, preserving request time for unresolved work and legacy fallback. Regression uses distinct request and receipt times, checks pending first, then accepted status and duplicate receipt stability for both sources. Journal timestamps are millisecond-rounded; use integral fixture seconds for exact assertions.

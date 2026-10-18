@@ -407,3 +407,7 @@ Decided: detach reply requests and accepted/answered projection when pendingRepl
 
 ## 2026-10-18 · Answered message text stays readable
 Decided: incoming text uses the normal foreground even after a reply/archive marks the message done. Why: pinned native light/dark Sent detail keeps source content readable; completion is already expressed by the folder and delivery state. Apply through the shared message rule across grouped/flat chat and mail. Outgoing green/white is intentional native styling and stays unchanged. Undo: revert this CSS rule. By: agent.
+
+
+## 2026-10-18 · Sent age measures confirmed delivery
+Decided: successful outgoing status uses the first accepted receipt timestamp, falling back to request time for older records. Pending, scheduled and failed states keep their existing request timestamp. Why: a reply waiting for two hours must not claim it was delivered two hours ago once confirmed; native uses receipt time. Transport deadlines and ordering are unchanged. Undo: revert this display-only selection. By: agent.
