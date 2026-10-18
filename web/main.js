@@ -93,14 +93,14 @@ async function retainReply(m,q) {
     if(pendingReply(m))throw Error("A reply is awaiting confirmation. Your draft is retained.");
     try { localStorage.setItem(pendingReplyKey(m),JSON.stringify({q,ts:Date.now()/1000})); }
     catch { throw Error("Could not save this reply before sending. Keep this page open and try again."); }
-    sends.set(q.rid,{id:m.id,text:q.text,files:q.files,ts:Date.now()/1000,mine:true,state:"wait"});
+    sends.set(q.rid,{id:m.id,text:q.text,files:q.files,target:q.target,ts:Date.now()/1000,mine:true,state:"wait"});
   };
   if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),persist);
   else persist();
 }
 function restorePendingReply(m) {
   const row=pendingReply(m);
-  if(row?.q && !sends.has(row.q.rid))sends.set(row.q.rid,{id:m.id,text:row.q.text,files:row.q.files,ts:row.ts,mine:true,state:"unresolved"});
+  if(row?.q && !sends.has(row.q.rid))sends.set(row.q.rid,{id:m.id,text:row.q.text,files:row.q.files,target:row.q.target,ts:row.ts,mine:true,state:"unresolved"});
 }
 async function settlePendingReply(m,rid) {
   if(!m)return;
@@ -256,6 +256,11 @@ async function sync() {
       try { d = JSON.parse(p.text); } catch { /* не JSON — черновик текстом */ }
       if (d?.rid && detachedSends.has(d.rid)) continue;
       if (p.by === AUTHOR && d?.rid && sends.has(d.rid) && d.id && sends.get(d.rid).id!==d.id) continue;
+      if (p.by === AUTHOR && d?.rid && ["sent","scheduled","canceled","send_failed","send_blocked","send_uncertain","send_duplicate"].includes(d.kind)) {
+        const pending=pendingReply(msgs.get(d.id));
+        const target=sends.get(d.rid)?.target || (pending?.q?.rid===d.rid ? pending.q.target : null);
+        if(target && d.target!==target)continue;
+      }
       if (p.by === AUTHOR && d) editorFact(d);
       if (p.by === AUTHOR && d) newComposer?.fact(d);
       if (p.by === AUTHOR && ["manage_asked", "manage_failed"].includes(d?.kind) && d.rid === promptState.rid) {
@@ -313,7 +318,7 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) hidden.delete(id);
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, target: sends.get(d.rid)?.target || d.target, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
@@ -904,7 +909,7 @@ function openCompose(m, text, why = "", focus = true) {
   }
   const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
   const pending=pendingReply(m);
-  if(state && pending?.q?.inbox)state.delivery={rid:pending.q.rid,token:pending.q.inbox,text:pending.q.text,state:"unresolved"};
+  if(state && pending?.q?.inbox)state.delivery={rid:pending.q.rid,token:pending.q.inbox,text:pending.q.text,target:pending.q.target,state:"unresolved"};
   if (state) editorStates.set(m.id, state);
   const st = { text, why, state, suggested, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
   composing.set(m.id, st);
@@ -1027,7 +1032,7 @@ function sharedReply(m, st) {
         try {
           await waitForEditor(m,st,revision);
           if(sendAt && Date.parse(sendAt)<=Date.now())throw Error("Choose a future time before scheduling this reply.");
-          q = st.state ? st.state.send(requestId(), text, {at:sendAt}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
+          q = st.state ? st.state.send(requestId(), text, {at:sendAt,target:m.target}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(m.target ? {target:m.target} : {}), ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
           if (!saveDraft(m,text,q.rid,attachments || [])) {
             // No transport has run: release only this unsent local claim, so
             // restoring storage can retry without a phantom pending delivery.
@@ -1100,7 +1105,7 @@ async function sendReply(m, text) {
     error="Could not save this reply before sending. Keep this page open and try again.";
     paint();return;
   }
-  const q={kind:"send",id:m.id,rid,text};
+  const q={kind:"send",id:m.id,rid,text,...(m.target ? {target:m.target} : {})};
   try {await retainReply(m,q);}catch(e){saveDraft(m,text);error=e.message;paint();return;}
   composing.delete(m.id);
   error = "";
