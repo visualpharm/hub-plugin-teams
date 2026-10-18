@@ -10,6 +10,45 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_mixed_teams_sources_name_only_group_bubbles_and_flat_cards_do_not_repeat(self):
+        self.seed_inbox(start_editing=False)
+        for id,src,day in [('group-a','mention','01'),('direct-b','dm','02')]:
+            self.feed({'kind':'msg','id':id,'contact':'synthetic-account/conversation-a','src':src,'from':'Alex',
+                       'text':'Synthetic '+id,'reply':True,'at':f'2099-01-{day}T12:00:00'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-detail .tm-line').length===3"})[-1]['until'])
+        names="[...document.querySelectorAll('.tm-detail .tm-message-sender')].map(n=>n.parentElement.dataset.message)"
+        self.assertEqual(self.page({'eval':names})[-1]['eval'],['group-a'])
+        self.feed({'kind':'msg','id':'group-c','contact':'synthetic-account/conversation-a','src':'channel','from':'Alex',
+                   'text':'Synthetic group-c','reply':True,'at':'2099-01-03T12:00:00'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-detail .tm-line').length===4"})[-1]['until'])
+        self.assertEqual(self.page({'eval':names})[-1]['eval'],['group-a','group-c'])
+        self.page({'tapSelector':'.tm-earlier'});self.queued('history')
+        self.feed({'kind':'thread','id':'group-c','part':0,'of':1,'more':False,'items':[
+            {'id':'h-direct','src':'dm','from':'History direct','text':'Earlier direct message','at':'2020-01-01T12:00:00'},
+            {'id':'h-group','src':'channel','from':'History group','text':'Earlier group message','at':'2020-01-01T12:01:00'}]})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-history-row').length===2"})[-1]['until'])
+        self.assertEqual(self.page({'eval':names})[-1]['eval'],['history:group-c:h-group','group-a','group-c'])
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-options summary'},
+                  {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list .tm-card').length===1"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-list .tm-message-sender').length"})[-1]['eval'],0)
+        self.assertEqual(self.page({'eval':"[...document.querySelectorAll('.tm-list .tm-header-source')].filter(n=>n.checkVisibility()).length"})[-1]['eval'],0)
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_desktop_conversation_keeps_source_beside_name_without_phone_duplication(self):
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
+                   'where':'Design account','text':'Header placement example','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Header placement example')"})[-1]['until'])
+        for width in (360,402,834,1240,1440):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+            got=self.page({'eval':"(()=>{const root=document.querySelector('.tm-container'),head=document.querySelector('.tm-thread > .tm-head'),name=head.querySelector('.tm-from'),source=head.querySelector('.tm-header-source'),history=document.querySelector('.tm-conversation-source'),r=n=>n?.getBoundingClientRect();return {narrow:root.classList.contains('tm-narrow'),header:!!source&&source.checkVisibility(),history:history.checkVisibility(),label:source?.textContent,nameAlign:getComputedStyle(name).textAlign,after:!!source&&r(source).left>=r(name).right,overflow:document.documentElement.scrollWidth-innerWidth,hit:[...head.querySelectorAll('summary,button,a')].filter(n=>n.checkVisibility()).every(n=>{const b=r(n);return n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))})}})()"})[-1]['eval']
+            self.assertEqual(got['header'],not got['narrow'],(width,got));self.assertEqual(got['history'],got['narrow'],(width,got))
+            self.assertEqual(got.get('label'),'Teams · Design account');self.assertEqual(got['overflow'],0);self.assertTrue(got['hit'],got)
+            if not got['narrow']:
+                self.assertEqual(got['nameAlign'],'left');self.assertTrue(got['after'],got)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_mail_retains_its_current_message_header_after_history(self):
         self.seed_inbox(start_editing=False);self.open_external_source('email')
         self.feed({'kind':'msg','id':'external-email','contact':'synthetic/email','src':'email','from':'Synthetic email',
@@ -25,7 +64,7 @@ class InboxWebAcceptance(PageInChrome):
     def test_group_history_names_each_speaker_and_separates_calendar_days(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'mention','from':'Maria',
-                   'where':'Design team','text':'Latest group message','reply':True,'inbox':self.token,'at':'2026-01-02T12:02:00Z'})
+                   'where':'Design team','text':'Latest group message','reply':True,'inbox':self.token,'at':'2026-01-02T12:02:00'})
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('Latest group message')"})[-1]['until'])
         self.page({'tapSelector':'.tm-earlier'});self.queued('history')
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
@@ -33,7 +72,7 @@ class InboxWebAcceptance(PageInChrome):
             {'id':'b','from':'Maria','text':'After midnight','at':'2026-01-02T00:01:00'},
             {'id':'c','from':'Maria','text':'Same day hours later','at':'2026-01-02T08:01:00'},
             {'id':'d','me':True,'from':'Owner','text':'Owner response','at':'2026-01-02T09:01:00'},
-            {'id':'e','from':'Maria','text':'After owner response','at':'2026-01-02T10:01:00'},
+            {'id':'e','from':'Maria [UTC-03:00]','text':'After owner response','at':'2026-01-02T10:01:00'},
         ]})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-history-row').length===5"})[-1]['until'])
         got=self.page({'eval':"({names:[...document.querySelectorAll('.tm-message-sender')].map(n=>n.textContent),days:[...document.querySelectorAll('.tm-divider')].map(n=>n.textContent),own:!!document.querySelector('.tm-own .tm-message-sender'),latest:!!document.querySelector('[data-message=source-a] .tm-message-sender')})"})[-1]['eval']

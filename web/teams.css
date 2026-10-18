@@ -313,6 +313,13 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-narrow .tm-close-conversation { border-radius: 50%; background: var(--card); box-shadow: var(--shadow-lift); }
 .tm-detail .tm-head > .tm-link { color: var(--primary); border-radius: 22px; background: var(--muted); }
 .tm-conversation-source { text-align: center; color: var(--muted-foreground); }
+.tm-header-source { display: none; }
+/* Mac-style source beside the name; phone keeps source above its message history. */
+.tm-container:not(.tm-narrow) .tm-detail > .tm-thread > .tm-head { gap: 8px; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-head > .tm-from { flex: 0 1 auto; max-width: 35%; text-align: left; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-header-source { display: block; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.tm-container:not(.tm-narrow) .tm-detail .tm-conversation-source { display: none; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-history > .tm-conversation-source + * { margin-top: auto; }
 .tm-discard { color: var(--destructive, #d92d20); min-width: 44px; min-height: 44px; padding: 8px; }
 .tm-discard .tm-native-icon { width: 22px; height: 22px; }
 .tm-shared-compose .composer .send .icon { display: none; }
