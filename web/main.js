@@ -38,6 +38,8 @@ function see(group) {
 const answered = new Set();
 const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
 const hidden = new Set();
+const replyArchived = new Set(); // Receipt-bound archive never hides a newer unsent draft.
+const archivedRequests = new Set(); // Replayed success cannot undo a later explicit Restore.
 const work = new Map();      // id → ts: передано хабу в работу
 const draft = new Map();     // id → ts: черновик запрошен
 const replies = new Map();   // номер поста сообщения → [{by, text, ts}] — черновики от сессий
@@ -103,14 +105,14 @@ async function retainReply(m,q) {
     if(pendingReply(m))throw Error("A reply is awaiting confirmation. Your draft is retained.");
     try { localStorage.setItem(pendingReplyKey(m),JSON.stringify({q,ts:Date.now()/1000})); }
     catch { throw Error("Could not save this reply before sending. Keep this page open and try again."); }
-    sends.set(q.rid,{id:m.id,text:q.text,files:q.files,target:q.target,ts:Date.now()/1000,mine:true,state:"wait"});
+    sends.set(q.rid,{...q,guarded:guardedReply(m),ts:Date.now()/1000,mine:true,state:"wait"});
   };
   if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),persist);
   else persist();
 }
 function restorePendingReply(m) {
   const row=pendingReply(m);
-  if(row?.q && !sends.has(row.q.rid))sends.set(row.q.rid,{id:m.id,text:row.q.text,files:row.q.files,target:row.q.target,ts:row.ts,mine:true,state:"unresolved"});
+  if(row?.q && !sends.has(row.q.rid))sends.set(row.q.rid,{...row.q,guarded:guardedReply(m),ts:row.ts,mine:true,state:"unresolved"});
 }
 async function settlePendingReply(m,rid) {
   if(!m)return;
@@ -133,6 +135,35 @@ async function settlePendingReply(m,rid) {
 }
 let inboxProtocol = null;
 let replyReplay = false;
+let archiveSupported = false;
+const sendActionKey=()=>"hub.inbox.send-action.v1:"+hubName();
+function sendAction() { try {return localStorage.getItem(sendActionKey())==='archive' ? 'archive' : 'send';} catch {return 'send';} }
+function rememberSendAction(action) {
+  try {localStorage.setItem(sendActionKey(),action);}
+  catch {throw Error("Could not save the send action. Keep this page open and try again.");}
+}
+function archiveSelection(m) {
+  if(!archiveSupported)throw Error("Send and Archive is unavailable. Refresh Inbox or choose Send now.");
+  const current=msgs.get(m.id);
+  if(!current || pendingReplyKey(current)!==pendingReplyKey(m))throw Error("Reopen this editor using the current conversation.");
+  const members=[...msgs.values()].filter(x=>x.id===m.id || pinKey(x)===pinKey(m) && !done(x));
+  if(members.length>200 || members.some(x=>!x.target || [x.id,x.target,x.contact||''].some(v=>typeof v!=='string' || v.length>300)))
+    throw Error("This conversation cannot be archived safely. Choose Send now.");
+  return members.map(x=>({id:x.id,target:x.target,...(x.contact ? {contact:x.contact} : {})}));
+}
+function acceptArchive(d) {
+  if(archivedRequests.has(d.rid))return;
+  const q=sends.get(d.rid),current=msgs.get(d.id);
+  if(!q?.archive || q.at || q.id!==d.id || q.target!==d.target || current?.target!==q.target || !Array.isArray(q.archive_ids))return;
+  if(q.guarded && (!q.inbox?.version || q.inbox.version!==d.version || !d.receipt?.id))return;
+  if(!Array.isArray(d.members) || !Array.isArray(d.ids) || d.ids.length!==d.members.length || new Set(d.ids).size!==d.ids.length)return;
+  if(d.members.some(x=>!x || !d.ids.includes(x.id) || !q.archive_ids.some(y=>y.id===x.id && y.target===x.target && (y.contact||'')===(x.contact||''))))return;
+  archivedRequests.add(d.rid);
+  for(const member of d.members) {
+    const m=msgs.get(member.id);
+    if(m && m.target===member.target && (!member.contact || m.contact===member.contact))replyArchived.add(m.id);
+  }
+}
 let reactionTargetSupported = false;
 let sendHours = null;
 let hoursForBound = false;
@@ -262,12 +293,13 @@ let toBottom = false;   // открыли переписку с человеко
 
 const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
-const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
+const isArchived = m => hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m);
+const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (replyArchived.has(m.id) || answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
 const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pendingReply(m);
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
-  if (folder === "archive") return hidden.has(m.id) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
+  if (folder === "archive") return (hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m)) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
   if (folder === "failed") return !hidden.has(m.id) && !answered.has(m.id) && outgoing(m,["fail","unresolved"]);
   return folder === "new" ? !done(m) : done(m);
 }
@@ -310,6 +342,7 @@ async function sync() {
           // An owner archive belongs to the destination observed at that journal
           // position. Reusing an id must not archive its replacement on replay.
           hidden.delete(d.id);
+          replyArchived.delete(d.id);
           reactionNotices.delete(pendingReplyKey(previous));
           const reaction=reactionSends.get(d.id);
           if(reaction)detachedSends.add(reaction.rid);
@@ -355,10 +388,11 @@ async function sync() {
       // канала: процесс постит его заново вместе со списком каналов)
       else if ((p.by === "owner" && d?.kind === "watch") || (p.by === AUTHOR && d?.kind === "watching")) watch = d.ids || [];
       else if (p.by === "owner" && d?.kind === "hide") for (const id of d.ids || []) hidden.add(id);
-      else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) hidden.delete(id);
+      else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) {hidden.delete(id);replyArchived.delete(id);}
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, text: d.text, files: d.files, target: sends.get(d.rid)?.target || d.target, ts: p.ts, mine: true, state: sends.get(d.rid)?.state || "wait" });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",...(sends.get(d.rid) || {}) });
+      else if (p.by === AUTHOR && d?.kind === "archived") acceptArchive(d);
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
         if (guarded && !d.receipt?.id) continue;
@@ -397,7 +431,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; archiveSupported=d.send_archive===1 && d.archive_selection===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["hours_set","hours_failed"].includes(d?.kind)) {
         const accept=()=>weekendSettings.accept(d);
         const result=typeof navigator!=="undefined" && navigator.locks ? await navigator.locks.request('hub.inbox.weekend:'+hubName(),accept) : accept();
@@ -408,8 +442,10 @@ async function sync() {
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
-        sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.state === "sent" && d.receipt?.id ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
-        if(d.kind==="send_duplicate" && d.state==="sent" && d.receipt?.id && (!guardedReply(msgs.get(d.id)) || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version)) {
+        const guarded=guardedReply(msgs.get(d.id));
+        const confirmed=d.kind==='send_duplicate' && d.state==='sent' && (guarded ? !!d.receipt?.id : sends.get(d.rid)?.kind==='send');
+        sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: confirmed ? "ok" : "unresolved", error: d.error || "Delivery needs reconciliation" });
+        if(confirmed && (!guarded || pendingReply(msgs.get(d.id))?.q?.inbox?.version===d.version)) {
           const m=msgs.get(d.id);
           answered.add(d.id);answeredAt.set(d.id,p.id);
           await settlePendingReply(m,d.rid);
@@ -535,13 +571,17 @@ async function toHub(m, kind, prev = []) {
 }
 
 async function hide(ids, on) {
-  for (const id of ids) on ? hidden.add(id) : hidden.delete(id);
+  const previous=new Map(ids.map(id=>[id,{hidden:hidden.has(id),reply:replyArchived.has(id)}]));
+  for (const id of ids) {if(on)hidden.add(id);else {hidden.delete(id);replyArchived.delete(id);}}
   confirmAll = false;
   error = "";
   paint();
   for (let i = 0; i < ids.length; i += 80) {   // пост — до 2000 знаков: id по 16 знаков, пачками
     if (!(await mark(on ? "hide" : "unhide", { ids: ids.slice(i, i + 80) }))) {
-      for (const id of ids.slice(i)) on ? hidden.delete(id) : hidden.add(id);   // сохранённые пачки остаются
+      for (const id of ids.slice(i)) { // Restore the exact prior state; committed batches remain.
+        previous.get(id).hidden ? hidden.add(id) : hidden.delete(id);
+        previous.get(id).reply ? replyArchived.add(id) : replyArchived.delete(id);
+      }
       paint();
       return;
     }
@@ -1043,16 +1083,28 @@ function sharedReply(m, st) {
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
     sendToggle.setAttribute("aria-label","Send options");sendToggle.append(hub.icon("chevron-down"));
     const sendChoices=el("div","tm-send-menu");
-    const chooseSend=at=>{
+    const chooseSend=(at,action=null)=>{
       st.nextSendAt=null;
       if(!msgs.get(m.id) || pendingReplyKey(msgs.get(m.id))!==pendingReplyKey(m)){st.error="Reopen this editor using the current conversation.";paint();return;}
       const current=st.box.draft();
       if(current.uploading || (!current.text.trim() && !current.files?.length)){
         st.error=current.uploading ? "Wait for the files to upload." : "Write a reply or attach a file first.";paint();return;
       }
-      st.error="";st.nextSendAt=at;sendMenu.open=false;st.box.node.requestSubmit();
+      try {if(action==='archive')archiveSelection(m);if(action)rememberSendAction(action);}
+      catch(e){st.error=e.message;paint();return;}
+      st.error="";st.nextSendAt=at;st.updateSendAction();sendMenu.open=false;st.box.node.requestSubmit();
     };
-    sendChoices.append(button("Send now","quiet",()=>chooseSend(null)));
+    const now=button("Send now","quiet tm-send-now",()=>chooseSend(null,'send'));
+    const archive=button("Send and Archive","quiet tm-send-archive",()=>chooseSend(null,'archive'));
+    for(const b of [now,archive])b.prepend(hub.icon('allow'));
+    st.updateSendAction=()=>{
+      const action=sendAction(),label=action==='archive' ? 'Send and Archive' : 'Send now';
+      archive.dataset.available=String(archiveSupported);
+      for(const [b,a] of [[now,'send'],[archive,'archive']])b.setAttribute('aria-pressed',String(action===a));
+      const primary=st.box?.node.querySelector('button[type=submit].send');
+      if(primary && primary.getAttribute('aria-label')!==label) {primary.setAttribute('aria-label',label);primary.title=label+' (Enter)';}
+    };
+    sendChoices.append(now,archive,el('hr'));
     const working=button("","quiet tm-send-working",()=>{
       const current=msgs.get(m.id);
       if(!current || pendingReplyKey(current)!==pendingReplyKey(m)){st.error="Reopen this editor using the current conversation.";paint();return;}
@@ -1061,6 +1113,7 @@ function sharedReply(m, st) {
       chooseSend(at.toISOString());
     });
     st.updateSendHours=()=>{
+      st.updateSendAction();
       const at=nextWorkingStart(sendHours,msgs.get(m.id)?.contact);
       working.hidden=!at;if(at)working.textContent=workingStartLabel(at);
       const current=msgs.get(m.id),row=weekendSettings.get(m),pending=['pending','unknown'].includes(row?.state);
@@ -1126,6 +1179,9 @@ function sharedReply(m, st) {
       },
       async send({ text, attachments }) {
         const sendAt=st.nextSendAt;st.nextSendAt=null;
+        let archiveIds;
+        try {if(!sendAt && sendAction()==='archive')archiveIds=archiveSelection(m);}
+        catch(e){return {error:e.message};}
         if(sendAt && (!Number.isFinite(Date.parse(sendAt)) || Date.parse(sendAt)<=Date.now()))return {error:"Choose a future time before scheduling this reply."};
         if (attachments?.length && !acceptsFiles(msgs.get(m.id))) return { error: "This destination accepts text only." };
         if (attachments?.length>10) return { error: "Attach up to 10 files per reply." };
@@ -1140,8 +1196,15 @@ function sharedReply(m, st) {
         if (guardedReply(msgs.get(m.id)) && !st.state) return { error: "Reopen this editor using the current conversation." };
         try {
           await waitForEditor(m,st,revision);
+          if(!msgs.get(m.id) || pendingReplyKey(msgs.get(m.id))!==pendingReplyKey(m))throw Error("Reopen this editor using the current conversation.");
+          if(archiveIds && !archiveSupported)throw Error("Send and Archive is unavailable. Refresh Inbox or choose Send now.");
           if(sendAt && Date.parse(sendAt)<=Date.now())throw Error("Choose a future time before scheduling this reply.");
           q = st.state ? st.state.send(requestId(), text, {at:sendAt,target:m.target}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(m.target ? {target:m.target} : {}), ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
+          if(archiveIds) {
+            q={...q,archive:true,archive_ids:archiveIds};
+            if(JSON.stringify(q).length>1900)throw Error("This reply and archive selection are too large. Shorten the reply or choose Send now.");
+            boundedRequest(q);
+          }
           if (!saveDraft(m,text,q.rid,attachments || [])) {
             // No transport has run: release only this unsent local claim, so
             // restoring storage can retry without a phantom pending delivery.
@@ -1171,6 +1234,11 @@ function sharedReply(m, st) {
       onSent() { if (composing.get(m.id) === st) box.set({text:st.text,...(!st.uploading ? {files:st.files} : {})}); },
     });
     if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
+    // The shared composer refreshes its send/microphone action independently.
+    // Observe only that action; do not overwrite the microphone's accessible name.
+    const actionObserver=new MutationObserver(()=>st.updateSendAction());
+    actionObserver.observe(box.node,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label']});
+    st.updateSendAction();
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
     const close = button("Close editor", "quiet", () => {
@@ -1255,7 +1323,7 @@ function composer(m) {
 }
 
 // ответ можно отправить, если процесс знает, куда (reply) и мы туда ещё не ответили
-const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !hidden.has(m.id) && (hasOwnerDraft(m) || (!sentOk(m.id) && !answered.has(m.id)));
+const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !isArchived(m) && (hasOwnerDraft(m) || (!sentOk(m.id) && !answered.has(m.id)));
 
 // Черновик хаба: сам текст, затем строка `---` и заметка владельцу («Почему: …»). Делим по последней такой строке;
 // заметка показывается рядом, в поле правки и в отправку идёт только текст (владелец 13.10: «когда редактируешь,
@@ -1491,7 +1559,7 @@ function thread(ms) {   // ms — по возрастанию времени
   if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok")) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
   if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
   if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
-  if (ms.every((m) => hidden.has(m.id))) notes.push("Скрыто");
+  if (ms.every(isArchived)) notes.push("Скрыто");
   if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
 
   for (const m of ms) {
@@ -1519,7 +1587,7 @@ function thread(ms) {   // ms — по возрастанию времени
     if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
     acts.prepend(react);
     acts.prepend(action("Скрыть", "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${target.from}`));
-  } else if (ms.some((m) => hidden.has(m.id))) {
+  } else if (ms.some(isArchived)) {
     acts.append(button("Вернуть", "quiet", () => hide(ms.map((m) => m.id), false), `Вернуть сообщения ${last.from}`));
   }
   if (safeLink(last.link)) {
@@ -1893,7 +1961,7 @@ function registerView() {
 export default function register(h) {
   hub = h;
   newComposer = newMessage(h);
-  window.addEventListener('storage',e=>{if(e.key===null || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
+  window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
