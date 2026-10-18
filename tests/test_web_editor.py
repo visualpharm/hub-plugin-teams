@@ -241,6 +241,38 @@ class InboxWebAcceptance(PageInChrome):
         pending=self.page({'eval':"Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.pending.')).map(([,v])=>JSON.parse(v).q)"})[-1]['eval']
         self.assertEqual(pending,[retry])
 
+    def test_definitive_failure_survives_forgotten_outcome_after_retry_succeeds(self):
+        old=self.failed_external_reply();self.edit('Newer draft must remain usable')
+        self.page({'tapSelector':'.tm-retry-failed'});retry=self.queued('send')
+        self.feed({'kind':'sent','id':retry['id'],'rid':retry['rid'],'target':retry['target']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        for index,unknown in enumerate(({'kind':'send_failed','unresolved':True},
+                                       {'kind':'send_uncertain'},
+                                       {'kind':'send_duplicate','state':'uncertain'})):
+            self.feed({**unknown,'id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Collector forgot the cached outcome'})
+            # An ordered source-history marker proves that the old fact was
+            # reduced before checking controls; it is not another send echo.
+            marker='Confirmed journal barrier '+str(index)
+            self.feed({'kind':'thread','id':old['id'],'items':[{'id':'barrier-'+str(index),'text':marker}],'part':0,'of':1,'more':False})
+            self.page({'eval':"document.querySelector('.tm-earlier')?.click();true"})
+            self.assertTrue(self.page({'until':"document.querySelector('.tm-history')?.textContent.includes("+json.dumps(marker)+")"})[-1]['until'])
+            got=self.page({'eval':"({failed:document.querySelectorAll('.tm-mine-fail').length,ok:document.querySelectorAll('.tm-mine-ok').length,unknown:document.querySelectorAll('.tm-mine-unresolved').length,text:document.querySelector('.tm-shared-compose textarea').value})"})[-1]['eval']
+            self.assertEqual(got,{'failed':1,'ok':1,'unknown':0,'text':'Newer draft must remain usable'},(unknown,got))
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+          {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+          {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Newer draft must remain usable'"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-mine-unresolved').length"})[-1]['eval'],0)
+        # A genuinely unknown DIFFERENT request still blocks sending. A newer
+        # success must never erase uncertainty solely by conversation identity.
+        fresh={**old,'rid':'independent-unknown-request','text':'Independent unknown reply'}
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(fresh))
+        self.feed({'kind':'send_failed','id':fresh['id'],'rid':fresh['rid'],'target':fresh['target'],'unresolved':True,'error':'Independent outcome unknown'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-unresolved')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('A reply is awaiting confirmation')"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_receipt_first_success_survives_confirming_duplicate(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='exact-telegram')
         self.edit('Keep this local draft')
