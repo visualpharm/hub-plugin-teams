@@ -17,9 +17,9 @@ class InboxWebAcceptance(PageInChrome):
         now=time.time()
         def owner(d,offset):
             self.j.append('ext.post',None,{'plugin':'teams','channel':'web','owner':True,'text':json.dumps(d)},ts=now+offset)
-        def send(mid,rid,text,offset,state='sent'):
+        def send(mid,rid,text,offset,state='sent',receipt_offset=None):
             owner({'kind':'send','id':mid,'rid':rid,'text':text},offset)
-            self.feed({'kind':state,'id':mid,'rid':rid,'receipt':{'id':'receipt-'+rid},'at':'2099-01-01T12:00:00Z','error':'Synthetic refusal'})
+            self.j.append('ext.post',None,{'plugin':'teams','channel':'plugin','sender':'teams','text':json.dumps({'kind':state,'id':mid,'rid':rid,'receipt':{'id':'receipt-'+rid},'at':'2099-01-01T12:00:00Z','error':'Synthetic refusal'})},ts=now+(offset if receipt_offset is None else receipt_offset))
         send('newer','n1','Earlier outgoing',-30)
         send('older','o1','Recent outgoing',-20)
         self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
@@ -33,15 +33,18 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'sleep':150})
         self.assertEqual(rows(),[['newer','Newest reply'],['older','Recent outgoing']])
         owner({'kind':'react','id':'older','rid':'r1','emoji':'👍','target':'target-older'},2)
-        self.feed({'kind':'reacted','id':'older','rid':'r1','target':'target-older'})
+        self.j.append('ext.post',None,{'plugin':'teams','channel':'plugin','sender':'teams','text':json.dumps({'kind':'reacted','id':'older','rid':'r1','target':'target-older'})},ts=now+2)
         self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='👍'"})[-1]['until'])
         # Equal timestamps use the journal order, including across reply/reaction types.
         send('older','o4','Reply after reaction',2)
         self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='Reply after reaction'"})[-1]['until'])
         owner({'kind':'react','id':'older','rid':'r1','emoji':'👍','target':'target-older'},5)
+        send('newer','delayed','Earlier request delivered last',-100,receipt_offset=10)
+        for mid,rid,kind in (('newer','n1','sent'),('older','r1','reacted')):
+            self.j.append('ext.post',None,{'plugin':'teams','channel':'plugin','sender':'teams','text':json.dumps({'kind':kind,'id':mid,'rid':rid,'receipt':{'id':'receipt-'+rid},'target':'target-'+mid})},ts=now+100)
         send('scheduled','s1','Deferred reply',-40,'scheduled')
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
-        expected=[['scheduled','Deferred reply'],['older','Reply after reaction'],['newer','Newest reply']]
+        expected=[['scheduled','Deferred reply'],['newer','Earlier request delivered last'],['older','Reply after reaction']]
         self.assertEqual(rows(),expected)
         self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('[data-folder=sent]')"},{'tapSelector':'[data-folder=sent]'},
                   {'until':"document.querySelectorAll('.tm-person').length===3"})
