@@ -1291,6 +1291,34 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
         self.assertTrue(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
 
+    def test_next_working_start_uses_trusted_config_and_exact_contact(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
+        self.edit('Reply at working start')
+        self.page({'eval':"window.__Date=Date;window.__now=__Date.parse('2026-10-16T11:00:00Z');window.Date=class extends __Date{constructor(...a){super(...(a.length?a:[window.__now]))}static now(){return window.__now}};true"})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-send-options > summary'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-working')?.getBoundingClientRect().height||0"})[-1]['eval'],0)
+        self.page({'tapSelector':'.tm-send-options > summary'})
+        hours={'from':'08:00','to':'20:00','weekends':False,'tz':'America/Argentina/Buenos_Aires','utc':-180,'except':[]}
+        self.feed({'kind':'config','hours':hours})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['until'])
+        self.page({'tapSelector':'.tm-send-options > summary'})
+        self.assertIn('Monday',self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'])
+        self.feed({'kind':'config','hours':{**hours,'except':[{'contact':'synthetic/telegram'}]}})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-send-working').textContent.includes('tomorrow')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Reply at working start')
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for width,theme in ((360,'light'),(390,'light'),(834,'dark'),(1440,'dark')):
+                got=self.page({'media':theme},{'viewport':{'width':width,'height':600}},
+                    {'shot':str(out/f'working-start-{theme}-{width}.png'),'width':width,'height':600},
+                    {'eval':"(()=>{const b=document.querySelector('.tm-send-working'),r=b.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,hit:b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}})()"})[-1]['eval']
+                self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertGreaterEqual(got['top'],0);self.assertLessEqual(got['bottom'],600);self.assertGreaterEqual(got['height'],44);self.assertTrue(got['hit'])
+        # Recalculate on click: advancing a day must not submit the old label's instant.
+        self.page({'eval':"window.__now=__Date.parse('2026-10-17T12:00:00Z');true"},{'tapSelector':'.tm-send-working'})
+        q=self.queued('send')
+        self.assertEqual(q['at'],'2026-10-18T11:00:00.000Z');self.assertEqual(q['target'],'synthetic-target-a');self.assertEqual(q['text'],'Reply at working start')
+
     def test_external_explicit_retry_reuses_durable_original_request(self):
         self.check_original_reply_recovery(False)
 
