@@ -744,9 +744,17 @@ def archive_after(st, put):
         put(event)
         intent = (st.get("archive_rids") or {}).get(event.get("rid") or "")
         ok = event.get("kind") == "sent" or (event.get("kind") == "send_duplicate" and event.get("state") == "sent")
+        # защищённый путь (Teams) — только с квитанцией источника receipt.id; обычный (wa/tg/mail) квитанции не имеет:
+        # там доказательство — успешный выход команды send, archived без receipt (codex m486007)
+        guarded = "receipt" in event or event.get("kind") == "send_duplicate"
+        rc = event.get("receipt") if isinstance(event.get("receipt"), dict) else {}
+        if guarded and not (isinstance(rc.get("id"), str) and rc["id"]):
+            ok = False
         if intent and ok and event.get("id") == intent["id"] and event.get("target") == intent.get("target"):
             put({"kind": "archived", "id": intent["id"], "rid": event["rid"], "ids": [intent["id"]],
-                 **({"target": intent["target"]} if intent.get("target") else {})})
+                 **({"target": intent["target"]} if intent.get("target") else {}),
+                 **({"receipt": rc} if guarded else {}),
+                 **({"version": event["version"]} if guarded and "version" in event else {})})
     return wrapped
 
 

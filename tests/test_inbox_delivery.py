@@ -73,11 +73,18 @@ class Delivery(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertLess(kinds.index('sent'), kinds.index('archived'))
         self.assertEqual(next(p for p in out if p['kind'] == 'archived')['target'], q['target'])
+        self.assertEqual(next(p for p in out if p['kind'] == 'archived')['receipt']['id'], 'external-123')
         st = json.loads(json.dumps(st))
         out, calls, _ = self.run_send(st, [q], {'id': 'never'})
         self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_duplicate', 'archived']))
         out, calls, _ = self.run_send(st, [{k: v for k, v in q.items() if k != 'archive'}], {'id': 'never'})
         self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_blocked']))
+        for receiptless in ({'kind': 'sent', 'id': 'a', 'rid': 'x', 'receipt': None},
+                            {'kind': 'send_duplicate', 'id': 'a', 'rid': 'x', 'state': 'sent'},
+                            {'kind': 'send_duplicate', 'id': 'a', 'rid': 'x', 'state': 'sent', 'receipt': {'id': ''}}):
+            got = []
+            main.archive_after({'archive_rids': {'x': {'id': 'a'}}}, got.append)(receiptless)
+            self.assertEqual([p['kind'] for p in got], [receiptless['kind']], receiptless)
         st = state(); q = {**self.request(st, 'uncertain'), 'archive': True}
         out, _, _ = self.run_send(st, [q], error=TimeoutError('unknown'))
         self.assertNotIn('archived', [p['kind'] for p in out])
