@@ -10,6 +10,32 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_sent_retains_confirmed_reaction_during_retry_and_clears_rebound_target(self):
+        self.seed_inbox(start_editing=False)
+        msg={'kind':'msg','id':'reaction-history','contact':'synthetic/reaction-history','src':'dm','from':'Reaction history','text':'Synthetic incoming','reply':True,'react':True,'target':'target-first','at':'2026-01-01T12:00:00Z'}
+        self.feed(msg)
+        def owner(rid,emoji):
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'react','id':msg['id'],'rid':rid,'emoji':emoji,'target':msg['target']}))
+        def receipt(rid,kind='reacted',target='target-first'):
+            self.feed({'kind':kind,'id':msg['id'],'rid':rid,'target':target,'error':'Synthetic retry refused'})
+        owner('reaction-first','👍');receipt('reaction-first')
+        self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'})
+        def preview(expected):
+            self.assertTrue(self.page({'until':"document.querySelector('.tm-preview')?.textContent==="+json.dumps(expected)})[-1]['until'])
+            self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],1)
+        preview('👍')
+        owner('reaction-retry','❤️');self.page({'until':"!!document.querySelector('[aria-label=\"Sending reaction\"]')"});preview('👍')
+        receipt('reaction-retry','react_failed');self.page({'sleep':200});preview('👍')
+        self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('[data-folder=sent]')"},{'tapSelector':'[data-folder=sent]'})
+        preview('👍')
+        owner('reaction-next','🎉');receipt('reaction-next',target='wrong-target');self.page({'sleep':200});preview('👍')
+        receipt('reaction-next');preview('🎉')
+        # The original accepted reaction must not leak into a reused message id.
+        msg['target']='target-replacement';self.feed(msg)
+        receipt('reaction-next');self.page({'sleep':200})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===0"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_sent_order_and_preview_follow_outgoing_chronology_across_replay(self):
         self.seed_inbox(start_editing=False)
         for mid,at in (('older','2020-01-01T12:00:00Z'),('newer','2025-01-01T12:00:00Z'),('scheduled','2019-01-01T12:00:00Z')):

@@ -49,6 +49,7 @@ const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(sign
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
+const deliveredReactions = new Map(); // exact message -> last confirmed reaction, independent of a retry
 const reactionNotices = new Map();
 const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
 const REACTION_UNAVAILABLE_NOTICE="Reactions are unavailable. Refresh Inbox.";
@@ -303,8 +304,8 @@ const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (replyArchived.has
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
 const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pendingReply(m);
 function inFolder(m, folder = tab) {
-  if (folder === "sent") return sentOk(m.id) || reactionSends.get(m.id)?.state === "ok" || outgoing(m,["later"]);
-  if (folder === "archive") return (hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m)) && !answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok";
+  if (folder === "sent") return sentOk(m.id) || deliveredReactions.has(m.id) || outgoing(m,["later"]);
+  if (folder === "archive") return (hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m)) && !answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id);
   if (folder === "failed") return !hidden.has(m.id) && !answered.has(m.id) && outgoing(m,["fail","unresolved"]);
   return folder === "new" ? !done(m) : done(m);
 }
@@ -352,6 +353,7 @@ async function sync() {
           const reaction=reactionSends.get(d.id);
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
+          deliveredReactions.delete(d.id);
         }
         if (previous && draftKey(previous)!==draftKey(message)) {
           composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
@@ -417,7 +419,11 @@ async function sync() {
       }
       else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
         const r = reactionSends.get(d.id);
-        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) reactionSends.set(d.id, {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"});
+        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) {
+          const result = {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"};
+          reactionSends.set(d.id,result);
+          if (d.kind === "reacted") deliveredReactions.set(d.id,result);
+        }
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
       else if (p.by === AUTHOR && d?.kind === "canceled" && d.rid) {
@@ -882,7 +888,7 @@ function conversationMark(group) {
   }
   if (group.some(hasOwnerDraft)) return {icon:"edit",label:"Draft"};
   if (out.some(s => s.state === "ok")) return {icon:"reply",label:"Sent"};
-  if (group.some(m => reactionSends.get(m.id)?.state === "ok")) return {icon:"reply",label:"Reaction sent"};
+  if (group.some(m => deliveredReactions.has(m.id))) return {icon:"reply",label:"Reaction sent"};
   for (const m of group) {
     const text = splitDraft((replies.get(m.post) || []).at(-1)?.text || "").text;
     if (text && !done(m)) return m.react && QUICK_REACTIONS.includes(text)
@@ -903,7 +909,7 @@ function folderOutgoing(group) {
   if (!states.length) return null;
   const ids = new Set(group.map(m => m.id));
   const outgoing = [...sends.values()].filter(s => ids.has(s.id) && states.includes(s.state));
-  if (tab === "sent") outgoing.push(...[...reactionSends.values()].filter(r => ids.has(r.id) && r.state === "ok"));
+  if (tab === "sent") outgoing.push(...[...deliveredReactions.values()].filter(r => ids.has(r.id)));
   return outgoing.reverse().sort((a,b) => outgoingTime(b)-outgoingTime(a) || outgoingSequence(b)-outgoingSequence(a))[0] || null;
 }
 
@@ -1689,7 +1695,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   for (const m of ms) appendMessage(m);
 
   const notes = [];
-  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && reactionSends.get(m.id)?.state !== "ok")) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
+  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
   if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
   if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
   if (ms.every(isArchived)) notes.push("Скрыто");

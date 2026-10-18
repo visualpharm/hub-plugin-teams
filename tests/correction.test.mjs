@@ -46,6 +46,11 @@ for(const kind of ['answered','sent']) {
   const test=await replay([initial,[post(23,{kind,id:key,rid:'r1'}),post(24,JSON.parse(correction.text))]]);
   assert.equal(test.canReply(test.msgs.get(key)),false);
 }
+// Receipt replay cannot turn successful delivery into an unsent correction.
+const confirmed=await replay([initial,[post(23,{kind:'sent',id:key,rid:'r1'}),post(24,{kind:'sent',id:key,rid:'r1'}),
+  post(25,{kind:'reopened',id:key,post:'p10',corrects:'p23',contact})]]);
+assert.equal(confirmed.canReply(confirmed.msgs.get(key)),false);
+assert.equal(confirmed.done(confirmed.msgs.get(key)),true);
 console.log('Exact closure correction, restart, draft preservation, editor and send boundary passed');
 if(process.argv[3]) {
   const fixture=JSON.parse(readFileSync(process.argv[3],'utf8'));
