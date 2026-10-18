@@ -15,7 +15,7 @@ import { messageMenus } from "./message-menu.js";
 import { conversationPins } from "./conversation-pins.js";
 import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
-import { workingHours, nextWorkingStart, workingStartLabel } from "./working-hours.js";
+import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -135,6 +135,9 @@ let inboxProtocol = null;
 let replyReplay = false;
 let reactionTargetSupported = false;
 let sendHours = null;
+let hoursForBound = false;
+const weekendSettings = recipientWeekendState(hubName);
+const weekendPosting = new Set();
 const replyRecoveries = new Map();
 let historyAvailable = false;
 const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
@@ -391,7 +394,13 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; reactionTargetSupported = d.reaction_target===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && ["hours_set","hours_failed"].includes(d?.kind)) {
+        const accept=()=>weekendSettings.accept(d);
+        const result=typeof navigator!=="undefined" && navigator.locks ? await navigator.locks.request('hub.inbox.weekend:'+hubName(),accept) : accept();
+        if(result===true && composing.get(d.id))composing.get(d.id).weekendError="";
+        if(result==='storage' && composing.get(d.id))composing.get(d.id).weekendError="Could not save the weekend confirmation. Keep this page open.";
+      }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
@@ -1051,6 +1060,13 @@ function sharedReply(m, st) {
     st.updateSendHours=()=>{
       const at=nextWorkingStart(sendHours,msgs.get(m.id)?.contact);
       working.hidden=!at;if(at)working.textContent=workingStartLabel(at);
+      const current=msgs.get(m.id),row=weekendSettings.get(m),pending=['pending','unknown'].includes(row?.state);
+      weekends.hidden=!(hoursForBound && sendHours && current?.contact && current?.target);
+      weekendInput.checked=!!sendHours && sendHours.weekends!==sendHours.exceptions.has(current?.contact);
+      weekendInput.disabled=pending || weekendPosting.has(pendingReplyKey(m)) || row?.state==='blocked';
+      weekendRetry.hidden=!pending || weekends.hidden;weekendRetry.disabled=weekendPosting.has(pendingReplyKey(m));
+      weekendFeedback.textContent=st.weekendError || (row?.state==='pending' ? 'Waiting for weekend confirmation.' : row?.state==='ok' && row.actual!==weekendInput.checked ? 'Weekend change confirmed.' : ['unknown','blocked','failed'].includes(row?.state) ? row.error || 'Weekend outcome is unknown. Retry the original change.' : '');
+      weekendFeedback.hidden=!weekendFeedback.textContent;
     };
     sendMenu.addEventListener("toggle",()=>{if(sendMenu.open)st.updateSendHours();});
     sendChoices.append(working);
@@ -1064,6 +1080,31 @@ function sharedReply(m, st) {
     date.addEventListener("input",()=>date.setCustomValidity(""));
     date.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();schedule();}});
     later.append(laterToggle,date,button("Schedule send","quiet tm-schedule-send",schedule));sendChoices.append(later);
+    const weekends=el('label','tm-send-weekends'),weekendInput=el('input');weekendInput.type='checkbox';
+    weekends.append(weekendInput,el('span',null,'Weekends too'));
+    const changeWeekend=async()=>{
+      const key=pendingReplyKey(m);if(weekendPosting.has(key))return;
+      const current=msgs.get(m.id);
+      if(!current || pendingReplyKey(current)!==key){st.weekendError='Reopen this conversation before changing weekends.';paint();return;}
+      if(!hoursForBound || !sendHours){st.weekendError='Weekend settings are unavailable. Refresh Inbox.';paint();return;}
+      weekendPosting.add(key);st.weekendError='';paint();
+      try {
+        const begin=()=>{
+          const live=msgs.get(m.id);
+          if(!live || pendingReplyKey(live)!==key)throw Error('Reopen this conversation before changing weekends.');
+          if(!hoursForBound || !sendHours)throw Error('Weekend settings are unavailable. Refresh Inbox.');
+          return weekendSettings.begin(current,!(sendHours.weekends!==sendHours.exceptions.has(current.contact)),requestId());
+        };
+        const q=typeof navigator!=='undefined' && navigator.locks ? await navigator.locks.request('hub.inbox.weekend:'+hubName(),begin) : begin();
+        paint();
+        try {await hub.postFeed(JSON.stringify(q));}catch { /* Preserve original request; its receipt can still arrive. */ }
+      }catch(e){st.weekendError=e.message;}
+      finally{weekendPosting.delete(key);paint();}
+    };
+    weekendInput.addEventListener('change',changeWeekend);
+    const weekendRetry=button('Retry weekend change','quiet tm-weekend-retry',changeWeekend);
+    const weekendFeedback=el('p','tm-weekend-feedback');weekendFeedback.setAttribute('role','status');
+    sendChoices.append(weekends,weekendRetry,weekendFeedback);
     sendMenu.append(sendToggle,sendChoices);
     sendMenu.addEventListener("keydown",e=>{if(e.key==="Escape"){sendMenu.open=false;sendToggle.focus();e.preventDefault();e.stopPropagation();}});
     sendMenu.addEventListener("focusout",e=>{if(e.relatedTarget && !sendMenu.contains(e.relatedTarget))sendMenu.open=false;});

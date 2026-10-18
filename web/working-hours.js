@@ -63,3 +63,39 @@ export function workingStartLabel(at,now=new Date(),timeZone) {
   const name=day===0 ? 'today' : day===1 ? 'tomorrow' : fmt({weekday:'long'}).format(at);
   return 'Send '+name+' at '+fmt({hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at);
 }
+
+// A settings acknowledgement is not a receipt. Keep the original request until
+// the collector settles it, including after reload or a lost HTTP response.
+export function recipientWeekendState(hubName,storage=globalThis.localStorage) {
+  // The setting belongs to a contact, even when its newest inbound message or
+  // target changes. Only the persisted original payload is ever replayed.
+  const key=m=>'hub.inbox.weekend.v1:'+JSON.stringify([hubName(),m.contact]);
+  function load(m) {
+    const raw=storage.getItem(key(m));if(!raw)return null;
+    const r=JSON.parse(raw),q=r?.q;
+    if(!['pending','ok','failed','unknown'].includes(r?.state) || q?.kind!=='hours_for' || typeof q.rid!=='string' || !q.rid || typeof q.id!=='string' || !q.id || q.contact!==m.contact || typeof q.target!=='string' || !q.target || typeof q.weekends!=='boolean')throw Error('Invalid weekend request');
+    return r;
+  }
+  return {
+    get(m) {try{return load(m);}catch{return {state:'blocked',error:'Weekend change history is unreadable. No new change was sent.'};}},
+    begin(m,on,rid) {
+      if(!m?.contact || !m?.target || !m?.id || typeof on!=='boolean')throw Error('Reopen this conversation before changing weekends.');
+      try {
+        const old=load(m);
+        if(['pending','unknown'].includes(old?.state))return old.q;
+        const q={kind:'hours_for',id:m.id,contact:m.contact,target:m.target,rid,weekends:on};
+        storage.setItem(key(m),JSON.stringify({q,state:'pending'}));return q;
+      } catch {throw Error('Could not save the weekend change. No change was sent.');}
+    },
+    accept(d) {
+      // Call only for trusted collector facts; the receipt never rewrites config.
+      if(!d?.contact || !['hours_set','hours_failed'].includes(d?.kind))return false;
+      try {
+        const old=load(d),q=old?.q;
+        if(!['pending','unknown'].includes(old?.state) || ['id','contact','target','rid'].some(k=>!q[k] || q[k]!==d[k]))return false;
+        if(d.kind==='hours_set' && (d.requested!==q.weekends || typeof d.weekends!=='boolean'))return false;
+        storage.setItem(key(d),JSON.stringify({...old,state:d.kind==='hours_set'?'ok':d.unresolved?'unknown':'failed',actual:d.weekends,error:String(d.error||'Weekend change was refused.').slice(0,240)}));return true;
+      } catch {return 'storage';}
+    }
+  };
+}

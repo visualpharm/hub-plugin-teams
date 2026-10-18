@@ -372,7 +372,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-options > summary .icon { width: 18px; height: 18px; }
 .tm-send-options:not([open]) > .tm-send-menu { display: none; }
 .tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
-.tm-send-menu > .btn, .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; }
+.tm .tm-send-menu > .btn, .tm .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; font-size:16px; }
+.tm-send-weekends { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px; border-top:1px solid var(--border); cursor:pointer; font-size:16px; }
+.tm-send-weekends[hidden], .tm-weekend-retry[hidden], .tm-weekend-feedback[hidden] { display:none; }
+.tm-send-weekends input { width:18px; height:18px; margin:0; flex-shrink:0; }
+.tm-weekend-feedback { margin:4px 8px 8px; font-size:16px; line-height:1.4; text-wrap:pretty; }
 .tm-send-date { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 8px; }
 .tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry actions options" "feedback feedback feedback feedback" "error error error error"; }
