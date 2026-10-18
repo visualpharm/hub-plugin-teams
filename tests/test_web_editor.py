@@ -186,6 +186,61 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Changed during retry confirmation')
 
+    def failed_guarded_reply(self):
+        self.seed_inbox(target='retry-guarded');self.acknowledge(self.queued('draft_control'))
+        self.edit('Original guarded reply');self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        old=self.queued('send');self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(old))
+        self.feed({'kind':'send_blocked','id':old['id'],'rid':old['rid'],'target':old['target'],'error':'Definitive refusal'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-failed')"})[-1]['until'])
+        return old
+
+    def test_guarded_retry_refusal_retains_draft_and_can_acquire_a_fresh_hold(self):
+        old=self.failed_guarded_reply()
+        self.page({'tapSelector':'.tm-retry-failed'});hold=self.queued('draft_control')
+        self.feed({'kind':'draft_control_failed','id':old['id'],'rid':hold['rid'],'error':'Synthetic retry hold refused'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-retry-error')?.textContent.includes('Synthetic retry hold refused') && !document.querySelector('.tm-retry-failed').disabled"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertFalse(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],old['text'])
+        self.page({'tapSelector':'.tm-retry-failed'});fresh=self.queued('draft_control')
+        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh)
+        retry=self.queued('send');self.assertEqual(retry['text'],old['text']);self.assertEqual(retry['inbox'],self.token)
+        self.assertNotEqual(retry['rid'],old['rid']);self.assertEqual(self.non_history_actions(),[])
+
+    def test_guarded_retry_timeout_does_not_send_after_late_confirmation(self):
+        old=self.failed_guarded_reply()
+        self.page({'tapSelector':'.tm-retry-failed'});hold=self.queued('draft_control')
+        # Exercise the real confirmation deadline, without altering the clock
+        # used by delivery age, journal order, or the editor state machine.
+        self.page({'sleep':10200})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-retry-error')?.textContent.includes('still pending') && !document.querySelector('.tm-retry-failed').disabled"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertFalse(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
+        self.acknowledge(hold)
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],old['text'])
+        self.page({'tapSelector':'.tm-retry-failed'});fresh=self.queued('draft_control')
+        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh)
+        retry=self.queued('send');self.assertEqual(retry['text'],old['text']);self.assertEqual(retry['inbox'],self.token)
+
+    def test_different_failed_rows_cannot_admit_concurrent_retries(self):
+        old=self.failed_external_reply()
+        other={**old,'rid':'second-definitive-failure','text':'Another failed reply'}
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(other))
+        self.feed({'kind':'send_failed','id':other['id'],'rid':other['rid'],'target':other['target'],'error':'Second definitive refusal'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-retry-failed').length===2"})[-1]['until'])
+        # Queue both distinct controls behind the real conversation Web Lock.
+        self.page({'eval':"window.__lock=navigator.locks.request.bind(navigator.locks);window.__admissions=[];navigator.locks.request=(name,fn)=>new Promise((resolve,reject)=>__admissions.push(()=>__lock(name,fn).then(resolve,reject)));[...document.querySelectorAll('.tm-retry-failed')].forEach(b=>b.click());true"})
+        self.assertTrue(self.page({'until':"__admissions.length===2"})[-1]['until'])
+        self.page({'eval':"navigator.locks.request=__lock;__admissions.forEach(admit=>admit());true"})
+        retry=self.queued('send')
+        self.assertIn(retry['text'],(old['text'],other['text']))
+        self.assertNotIn(retry['rid'],(old['rid'],other['rid']))
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-error') && [...document.querySelectorAll('.tm-retry-failed')].every(b=>b.disabled)"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+        pending=self.page({'eval':"Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.pending.')).map(([,v])=>JSON.parse(v).q)"})[-1]['eval']
+        self.assertEqual(pending,[retry])
+
     def test_receipt_first_success_survives_confirming_duplicate(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='exact-telegram')
         self.edit('Keep this local draft')
