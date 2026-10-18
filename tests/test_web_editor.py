@@ -763,6 +763,61 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"__releaseUpload();true"},{'until':"document.querySelector('.tm-shared-compose .pchip')?.textContent.includes('second.txt') && !document.querySelector('.tm-shared-compose .pchip')?.textContent.match(/uploading|загружаю/)"})
         self.assertTrue(self.page({'eval':"Object.values(localStorage).some(v=>v.includes('second.txt'))"})[-1]['eval'])
 
+    def test_corrupt_pending_record_refuses_settlement_without_breaking_feed(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Original reply')
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"});q=self.queued('send')
+        self.edit('Keep this newer draft')
+        self.page({'eval':"window.__pendingKey=Object.keys(localStorage).find(k=>k.startsWith('hub.inbox.pending.'));localStorage.setItem(__pendingKey,'broken');true"})
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"document.body.innerText.includes('Не удалось загрузить сообщения')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"localStorage.getItem(__pendingKey)"})[-1]['eval'],'broken')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this newer draft')
+
+    def test_other_client_reply_confirmation_clears_only_owned_pending_notice(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'external-telegram','rid':'other-client','text':'Reply from another client'}))
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history')?.textContent.includes('Reply from another client')"})[-1]['until'])
+        self.edit('Keep this local draft')
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose').innerText.includes('awaiting confirmation')"})[-1]['until'])
+        self.feed({'kind':'sent','id':'external-telegram','rid':'other-client'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-shared-compose').innerText.includes('awaiting confirmation')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this local draft')
+
+    def test_pending_reply_notice_cannot_hide_draft_storage_failure(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Original reply')
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"});q=self.queued('send')
+        self.page({'eval':"window.__save=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.draft.'))throw Error('quota');return __save.call(this,k,v)};true"})
+        self.edit('Unsaved newer draft')
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':100})
+        warning="document.querySelector('.tm-shared-compose').innerText.includes('This browser could not save the draft')"
+        self.assertTrue(self.page({'eval':warning})[-1]['eval'])
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        self.assertTrue(self.page({'eval':warning})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Unsaved newer draft')
+
+    def test_lost_ack_feedback_preserves_newer_text_and_uploaded_files(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
+        self.edit('Original reply');self.attach_synthetic_file('original.txt')
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;return new Promise((resolve,reject)=>{window.__rejectSend=()=>reject(Error('Synthetic lost acknowledgement'))})}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+          {'until':"!!window.__rejectSend"})
+        q=self.page({'eval':'__original'})[-1]['eval']
+        self.edit('Newer unsent reply');self.attach_synthetic_file('newer.txt')
+        self.page({'eval':'__rejectSend();true'},{'until':"document.querySelector('.tm-shared-compose').innerText.includes('Submission is awaiting confirmation')"})
+        def retained():
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer unsent reply')
+            self.assertEqual(self.page({'eval':"[...document.querySelectorAll('.tm-shared-compose .pchip')].map(n=>n.textContent.includes('newer.txt'))"})[-1]['eval'],[True])
+        retained()
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':100})
+        retained()
+        self.feed({'kind':'sent','id':q['id'],'rid':q['rid'],'target':q['target']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        retained()
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-shared-compose').innerText.includes('awaiting confirmation')"})[-1]['eval'])
+
     def test_discard_uploaded_file_draft_does_not_return_on_reload(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.attach_synthetic_file()
         self.page({'tapSelector':'.tm-discard'})
@@ -1121,6 +1176,7 @@ class InboxWebAcceptance(PageInChrome):
           {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},
           {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Review colleague' if guarded else 'Synthetic telegram')+")).click();true"},
           {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':100})
         receipt={'kind':'sent','id':mid,'rid':q['rid'],'target':'synthetic-target-b'}
         if guarded:receipt.update({'submitted_inbox':q['inbox'],'inbox':{**q['inbox'],'held':False,'holder':None,'edit_version':q['inbox']['edit_version']+1},'receipt':{'id':'synthetic-delivery'}})
         for invalid in (receipt,{k:v for k,v in receipt.items() if k!='target'},{'kind':'send_failed','id':mid,'rid':q['rid'],'target':'synthetic-target-b','error':'Wrong conversation'}):self.feed(invalid)
@@ -1130,6 +1186,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({**receipt,'target':'synthetic-target-a'})
         self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this newer draft')
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-shared-compose').innerText.includes('awaiting confirmation')"})[-1]['eval'])
 
     def test_guarded_unknown_reply_survives_reload_and_newer_edits(self):
         self.check_unknown_reply_reload(True)
