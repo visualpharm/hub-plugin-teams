@@ -729,6 +729,13 @@ function matchingConversations(items) {
   return groups;
 }
 
+function noSearchResults() {
+  const state = el("section", "tm-search-empty");
+  state.append(hub.icon("search"), el("h2", null, `No results for “${searchQuery.trim()}”`),
+    button("Clear search", "quiet", () => ui.clearSearch.click()));
+  return state;
+}
+
 function mediaKind(m) {
   const kind = m.kind || m.type || "";
   if (["image", "photo", "sticker", "gif"].includes(kind) || m.mime?.startsWith("image/")) return "image";
@@ -1813,7 +1820,7 @@ function paintAll() {
   const items = list();
   const matching = matchingConversations(items);
   const rows = () => matching.length ? matching.map(([key, group]) => personRow(key, group))
-    : [el("p", "tm-empty", "No matching conversations")];
+    : [noSearchResults()];
   ui.clearSearch.hidden = !searchQuery;
   ui.bulk.replaceChildren();
   if (tab === "new" && items.length > 1) {
@@ -1872,7 +1879,7 @@ function paintAll() {
     ui.list.replaceChildren(...rows());
   } else {
     const visible = matching.flatMap(([, group]) => group);
-    ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [el("p", "tm-empty", "No matching conversations")]));
+    ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [noSearchResults()]));
   }
 }
 

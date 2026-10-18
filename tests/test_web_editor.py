@@ -10,6 +10,42 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_no_match_names_query_and_clears_from_center_without_losing_draft(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Keep this exact unsent reply')
+        before=self.non_history_actions()
+        self.page({'tapSelector':'.tm-close-conversation'})
+        query='<not-a-tag> Missing synthetic conversation'
+        for width,theme in ((320,'light'),(402,'dark'),(834,'light'),(1240,'dark')):
+            self.page({'viewport':{'width':width,'height':874}},{'media':theme},
+                      {'eval':"(()=>{const s=document.querySelector('.tm-conversation-search input');s.value="+json.dumps(query)+";s.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+            got=self.page({'eval':"(()=>{const e=document.querySelector('.tm-search-empty');if(!e)return null;const h=e.querySelector('h2'),b=e.querySelector('button'),r=e.getBoundingClientRect(),p=e.parentElement.getBoundingClientRect(),c=b.getBoundingClientRect();return {title:h.textContent,icon:!!e.querySelector('.icon'),size:parseFloat(getComputedStyle(h).fontSize),buttonSize:parseFloat(getComputedStyle(b).fontSize),height:c.height,center:Math.abs((r.top+r.bottom-p.top-p.bottom)/2),hit:b.contains(document.elementFromPoint(c.x+c.width/2,c.y+c.height/2)),overflow:document.documentElement.scrollWidth-innerWidth,markup:!!e.querySelector('not-a-tag')}})()"})[-1]['eval']
+            self.assertIsNotNone(got, 'Missing native no-match state')
+            self.assertEqual(got['title'],'No results for “'+query+'”');self.assertFalse(got['markup']);self.assertTrue(got['icon'])
+            self.assertGreaterEqual(got['size'],20);self.assertGreaterEqual(got['buttonSize'],16);self.assertGreaterEqual(got['height'],44)
+            self.assertLessEqual(got['center'],2,(width,got));self.assertTrue(got['hit']);self.assertEqual(got['overflow'],0)
+            self.page({'tapSelector':'.tm-search-empty button'})
+            self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
+            self.assertEqual(self.page({'eval':"document.activeElement.getAttribute('aria-label')"})[-1]['eval'],'Search conversations')
+        self.page({'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this exact unsent reply')
+        self.assertEqual(self.non_history_actions(),before)
+
+    def test_flat_search_clear_preserves_filter_and_empty_folder_is_distinct(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        self.feed({'kind':'msg','id':'search-channel','contact':'synthetic/channel','src':'channel','from':'Synthetic channel',
+                   'where':'Synthetic team','text':'Channel result','reply':True,'at':'2099-01-01T12:00:00'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===2"})[-1]['until'])
+        self.page({'tapSelector':'.tm-options summary'},
+                  {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        self.page({'eval':"const s=document.querySelector('.tm-conversation-search input');s.value='Absent query';s.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-flat .tm-search-empty button')"})[-1]['eval'])
+        self.page({'tapSelector':'.tm-search-empty button'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-flat .tm-list > .tm-thread').length===1"})[-1]['until'])
+        self.page({'tapSelector':'[data-folder=sent]'})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-search-empty')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-empty').textContent"})[-1]['eval'],'No sent or scheduled replies.')
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_reply_wrap_boundary_tracks_edits_at_actual_compact_capacity(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
         for width in (320,360,402,834,1240):
@@ -2114,7 +2150,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(got["count"],2,got); self.assertIn("Please check the navigation",got["text"]); self.assertEqual(got["draft"],"Unsent exact reply")
         self.page({"viewport":{"width":1440,"height":900}})
         search("no possible match")
-        self.page({"wait":"No matching conversations"})
+        self.page({"wait":"No results for “no possible match”"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Unsent exact reply")
         self.page({"tapSelector":"[aria-label='Clear conversation search']"},{"until":"document.querySelectorAll('.tm-person').length===2"})
         self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Search conversations")
