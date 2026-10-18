@@ -236,3 +236,7 @@ Teams surface types share a conversation key, so the newest message source canno
 ## Flat source layouts
 
 Hiding a grid detail does not remove its reserved column. Toggle the flat layout from the same source-filter predicate as detail visibility; test both source filters and the return to grouped conversations at phone, tablet and desktop widths. Await the synthetic feed before selecting its dynamically built filter. Group context by provider before deduplicating places: deduplicating full provider/place strings repeats the provider in mixed Teams conversations. Never split a supplied place on its display separator.
+
+## Long reply width
+
+A growing textarea can still be squeezed between discard, attach, send and options columns. Move a wrapped reply into its own full grid row, leaving actions below. Decide wrapping against compact available width rather than current expanded textarea width, otherwise layout can oscillate. Use the existing observer and root resize path; never rebuild the field or normalize draft/signature content to repair presentation. Cover short/long transitions, width changes, selected text, exact send payloads, attachments, scheduling and frozen host slots.

@@ -10,6 +10,39 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_long_reply_uses_full_width_and_retains_text_selection_and_menu(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        text='Please keep the complete reply readable while I review the details. '*5+'\n\n**Ivan**\nExact signature stays in the draft.'
+        self.edit(text)
+        for width in (360,402,834,1240,1440):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':150})
+            self.page({'eval':"const ta=document.querySelector('.tm-shared-compose textarea');ta.focus();ta.setSelectionRange(7,20);true"})
+            got=self.page({'eval':"(()=>{const f=document.querySelector('.tm-shared-compose .composer'),t=f.querySelector('textarea'),r=n=>n.getBoundingClientRect(),buttons=[f.querySelector('button[type=submit]'),f.querySelector('.tm-send-options > summary')];return {text:t.value,width:r(t).width,form:r(f).width,start:t.selectionStart,end:t.selectionEnd,below:buttons.every(b=>r(b).top>=r(t).bottom-1),hit:buttons.every(b=>{const p=r(b);return b.contains(document.elementFromPoint(p.x+p.width/2,p.y+p.height/2))}),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertEqual(got['text'],text);self.assertEqual((got['start'],got['end']),(7,20))
+            self.assertGreaterEqual(got['width'],got['form']-32,(width,got));self.assertTrue(got['below'],got);self.assertTrue(got['hit'],got);self.assertEqual(got['overflow'],0)
+        self.page({'tapSelector':'.tm-send-options > summary'})
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-send-menu').checkVisibility()"})[-1]['eval'])
+        self.page({'key':'Escape'},{'tapSelector':'.tm-close-conversation'},{'tapSelector':'.tm-person'})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],text)
+        self.edit('OK')
+        self.page({'sleep':150})
+        self.assertTrue(self.page({'eval':"(()=>{const t=document.querySelector('.tm-shared-compose textarea').getBoundingClientRect(),s=document.querySelector('.tm-shared-compose button[type=submit]').getBoundingClientRect();return s.top<t.bottom})()"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+        self.edit(text)
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        self.assertEqual(self.queued('send')['text'],text)
+
+    def test_wrapped_reply_expands_and_collapses_when_room_changes(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        self.page({'viewport':{'width':360,'height':874}})
+        self.edit('A reply with enough words to wrap on a phone.')
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-expanded-reply')"})[-1]['until'])
+        self.page({'viewport':{'width':1440,'height':874}})
+        self.assertTrue(self.page({'until':"!document.querySelector('.tm-expanded-reply')"})[-1]['until'])
+        self.page({'viewport':{'width':360,'height':874}})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-expanded-reply')"})[-1]['until'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_flat_source_cards_use_available_width_and_restore_grouped_list(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for source in ('mention','channel'):
