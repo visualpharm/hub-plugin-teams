@@ -10,6 +10,26 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_answered_incoming_text_keeps_native_foreground_in_all_views(self):
+        self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
+        for src in ('telegram','channel','email'):
+            self.feed({'kind':'msg','id':'contrast-'+src,'contact':'synthetic/'+src,'src':src,'from':'Contrast '+src,'text':'Readable source '+src,'reply':True,'at':'2099-01-01T12:00:00Z'})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'contrast-'+src,'rid':'contrast-'+src,'text':'Confirmed reply'}))
+            self.feed({'kind':'sent','id':'contrast-'+src,'rid':'contrast-'+src,'receipt':{'id':'receipt-'+src}})
+        self.page({'tapSelector':'[data-folder=sent]'},{'until':"document.querySelectorAll('.tm-person').length===3"})
+        for src in ('telegram','channel','email'):
+            self.page({'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Contrast '+src)+")).click();true"})
+            for theme in ('light','dark'):
+                for width in (360,834,1440):
+                    self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+                    got=self.page({'eval':"(()=>{const t=document.querySelector('.tm-detail .tm-line.tm-done > .tm-text'),root=document.querySelector('.tm');return {text:getComputedStyle(t).color,foreground:getComputedStyle(root).color,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                    self.assertEqual(got['text'],got['foreground'],(src,theme,width,got));self.assertEqual(got['overflow'],0)
+            self.page({'tapSelector':'.tm-close-conversation'})
+        self.page({'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
+        got=self.page({'eval':"(()=>{const t=document.querySelector('.tm-list .tm-line.tm-done > .tm-text');return [getComputedStyle(t).color,getComputedStyle(document.querySelector('.tm')).color,getComputedStyle(document.querySelector('.tm-sent-chat > .tm-draft-text')).color]})()"})[-1]['eval']
+        self.assertEqual(got[0],got[1]);self.assertEqual(got[2],'rgb(255, 255, 255)')
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_sent_reply_does_not_follow_target_only_rebinding(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         msg={'kind':'msg','id':'reused-reply','contact':'same-contact','src':'telegram','from':'Rebound colleague','text':'Original destination','reply':True,'target':'target-old','at':'2099-01-01T12:00:00Z'}

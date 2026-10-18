@@ -403,3 +403,7 @@ Decided: flat source-filtered Sent cards sort by each message's accepted receipt
 
 ## 2026-10-18 · Reply outcomes belong to exact destination
 Decided: detach reply requests and accepted/answered projection when pendingReplyKey changes, including a target-only change. Keep editable drafts under the existing draft key; never erase durable pending records. Why: reused source ids must not show the former destination as answered or sent. Existing rid/target guards still control receipt acceptance. Undo: revert this bounded projection change. By: agent.
+
+
+## 2026-10-18 · Answered message text stays readable
+Decided: incoming text uses the normal foreground even after a reply/archive marks the message done. Why: pinned native light/dark Sent detail keeps source content readable; completion is already expressed by the folder and delivery state. Apply through the shared message rule across grouped/flat chat and mail. Outgoing green/white is intentional native styling and stays unchanged. Undo: revert this CSS rule. By: agent.

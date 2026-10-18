@@ -272,3 +272,7 @@ Sorting conversations before flattening is insufficient for flat source-filtered
 
 ### Target-only rebinding
 Draft identity is intentionally looser than delivery identity. Clearing sends only when draftKey changed left accepted replies attached to a replaced target. Detach sends and answered markers under pendingReplyKey changes alongside reaction/archive state, leaving draft storage intact. Synthetic acceptance covers stale receipt replay, replacement Inbox eligibility, fresh exact-target receipt, reload, canceled original request and retained edited draft.
+
+
+### Answered message contrast
+Do not dim message content when its workflow becomes done. The previous shared tm-line.tm-done rule reduced contrast in Sent, history and archived content. Compare computed foreground in real themed renders, not only CSS token strings: actual host muted text differed from the default test palette. Regression checks chat/channel/mail, grouped/flat, light/dark and 360/834/1440 widths, preserving outgoing white text.
