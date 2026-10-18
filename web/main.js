@@ -1543,6 +1543,19 @@ async function retryOriginalReply(m,rid) {
   }
 }
 
+// Match native Emphasis: preserve identifiers and unfinished markup. Render only;
+// the exact outgoing text remains available to recovery, editing and the collector.
+function replyText(raw) {
+  const body=el("div","tm-draft-text");
+  let pos=0;
+  for (const match of raw.matchAll(/(?<![\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu)) {
+    body.append(raw.slice(pos,match.index),el("em",null,match[1]));
+    pos=match.index+match[0].length;
+  }
+  body.append(raw.slice(pos));
+  return body;
+}
+
 function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const chat=m.src!=="email";
@@ -1559,7 +1572,7 @@ function sentBlock(m, rid, x) {
     : x.mine ? "Вы · " : "Хаб · ");
   by.append(stamp(sent ? x.deliveredTs ?? x.ts : x.ts));
   if (!sent) by.append(` · ${stateText}`);
-  const body=el("div","tm-draft-text",x.text);
+  const body=replyText(x.text || "");
   if (chat) {
     const icon=nativeIcon(x.state==="ok" ? "double-tick" : x.state==="fail" ? "warning" : "clock");icon.setAttribute("aria-hidden","true");
     body.append(icon);d.append(body,by);

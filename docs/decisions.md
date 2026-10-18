@@ -415,3 +415,6 @@ Decided: successful outgoing status uses the first accepted receipt timestamp, f
 
 ## 2026-10-18 · Compact successful delivery labels
 Decided: successful owner replies show Sent followed by the confirmed age, matching native. Automatic replies retain Hub attribution before Sent. Pending, scheduled, refused and unresolved labels keep their existing attribution/error details. Why: redundant owner/age/status fragments clutter every accepted reply, but automatic authorship must remain explicit. Apply through shared chat/mail renderer; no payload or transport change. Undo: revert label construction. By: agent.
+
+## 2026-10-18 · Native outgoing emphasis
+Decided: render standalone underscore-delimited runs as emphasis in outgoing chat and mail, matching the native Emphasis boundary rules. Keep identifiers, unfinished runs and literal HTML as text. Why: approved Hub signatures were displaying raw markup instead of the native italic line. The renderer constructs text nodes and em elements; original reply payloads and retry text remain exact. Undo: revert replyText rendering. By: agent.

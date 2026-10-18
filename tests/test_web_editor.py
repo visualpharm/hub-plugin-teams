@@ -10,6 +10,25 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_outgoing_emphasis_matches_native_without_changing_reply_text(self):
+        self.seed_inbox(start_editing=False)
+        raw='Exact snake_case and имя_файла. <img src=x onerror=alert(1)>\n_Emphasis_\n\n🤖 _Хаб, вычитано Иваном_\n_unclosed'
+        shown=raw.replace('_Emphasis_','Emphasis').replace('_Хаб, вычитано Иваном_','Хаб, вычитано Иваном')
+        for source in ('telegram','email'):
+            self.open_external_source(source);mid='external-'+source;rid='rich-'+source
+            self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Close editor'},{'until':"!document.querySelector('.tm-shared-compose textarea')"})
+            self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':mid,'rid':rid,'text':raw}))
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-wait')"})[-1]['until'])
+            def check(state):
+                got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-"+state+" .tm-draft-text');return {text:b.textContent,italic:[...b.querySelectorAll('em')].map(n=>[n.textContent,getComputedStyle(n).fontStyle]),unsafe:b.querySelectorAll('img,script').length}})()"})[-1]['eval']
+                self.assertEqual(got,{'text':shown,'italic':[['Emphasis','italic'],['Хаб, вычитано Иваном','italic']],'unsafe':0})
+            check('wait')
+            self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail')"})[-1]['until']);check('fail')
+            self.page({'tapSelector':'.tm-mine-fail .tm-acts button'})
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],raw)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_success_status_is_compact_and_preserves_hub_attribution(self):
         self.seed_inbox(start_editing=False)
         for source in ('telegram','email'):
