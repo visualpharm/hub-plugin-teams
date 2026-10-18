@@ -246,3 +246,7 @@ A growing textarea can still be squeezed between discard, attach, send and optio
 An empty search is a recoverable result state, distinct from an empty folder. Share the same no-match renderer between grouped and flat lists, with the pinned native query-specific heading and centered action. Route its clear button through the existing search clear control to retain focus and filter behavior. Test literal markup-like queries, centered readable content, hit targets, exact retained drafts, flat filter recovery and truly empty folders.
 
 Resolved themes can assign the same color to accent and muted. An accent-filled button then disappears into the desktop list pane even though default-theme tests pass. Derive this recovery control surface from foreground and muted, and measure the composited pixel difference against the pane under equal accent/muted tokens. Inspect actual deployed theme captures as well as the default test palette.
+
+## Unselected desktop details
+
+Use a separate placeholder node instead of replacing the hidden conversation tree. The latter risks disconnecting a retained editor, recording or draft while the user browses the list. Mirror grouped/selected state for visibility, and suppress the placeholder at the same container breakpoint as the single-pane layout. Exercise resize, close/reopen with the same textarea node, exact draft retention and both flat source filters.

@@ -194,6 +194,10 @@
 .tm-team legend { text-transform: none; letter-spacing: normal; font-size: var(--text-base); }
 .tm .btn.small, .tm .seg button, .tm-find, .tm-chan { min-height: var(--control-size); font-size: var(--text-base); }
 .tm-detail { position: relative; display: flex; min-width: 0; min-height: 0; padding: var(--space-4); }
+.tm-empty-detail { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; min-width: 0; min-height: 0; padding: 24px; text-align: center; }
+.tm-empty-detail h2 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 600; color: var(--foreground); text-wrap: pretty; }
+.tm-empty-detail > .tm-native-icon { width: 40px; height: 40px; color: var(--muted-foreground); }
+.tm-narrow .tm-empty-detail { display: none; }
 .tm-detail > .tm-thread { flex: 1; min-height: 0; max-width: 760px; margin-inline: auto; padding: 0; gap: var(--space-4); }
 .tm-detail > .tm-thread > .tm-head { padding-right: var(--control-size); min-height: var(--control-size); align-items: center; }
 .tm-close-conversation { position: absolute; top: var(--space-4); right: var(--space-4); min-width: var(--control-size); min-height: var(--control-size); }
@@ -257,6 +261,7 @@
 .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .spacer { display: none; }
 .tm-shared-compose form.composer.has-leading:not(.rec) .hint.has-result { grid-area: feedback; padding: 4px 0; }
 @media (max-width: 680px) {
+  .tm-empty-detail { display: none; }
   .tm { display: flex; }
   .tm-list-pane { flex: 1; }
   .tm-detail-open .tm-list-pane { display: none; }
@@ -264,6 +269,7 @@
 }
 /* Keep a 560px reading/editor pane beside the 336px conversation list. */
 @container (max-width: 900px) {
+  .tm-empty-detail { display: none; }
   .tm { display: flex; }
   .tm-list-pane { flex: 1; background: var(--background); }
   .tm-detail-open .tm-list-pane { display: none; }

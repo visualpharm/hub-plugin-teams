@@ -367,3 +367,7 @@ Replies that would wrap in the compact row place the original textarea above the
 ### 2026-10-18 — Native search recovery in Inbox lists
 
 Both grouped conversations and flat source lists use the pinned native no-match arrangement: centered search icon, exact query in the heading and Clear search. Reuse the existing clear action so the original filter, selected conversation, draft and search focus survive recovery. Empty folders retain their own status. Query text is rendered as text, never markup.
+
+### 2026-10-18 — Explain the unselected desktop Inbox pane
+
+Wide grouped lists show the pinned native tray and No Message Selected state until a conversation opens. This placeholder is a separate pane: closing a conversation must keep its original hidden editor and durable draft intact. Phone/tablet single-pane layouts and flat source lists hide the placeholder; they must not gain an extra screen or consume list space.
