@@ -10,25 +10,31 @@ export class InboxEditor {
     this.id = message.id; this.post = message.post; this.editor = editor;
     this.token = message.inbox; this.text = text; this.instruction = "";
     this.revision = 0; this.control = null; this.request = null; this.proposal = null;
-    this.delivery = null; this.error = "";
+    this.delivery = null; this.error = ""; this.needsHold = false; this.changed = false;
   }
   edit(text) { this.text = text; this.revision++; }
   direct(text) { this.instruction = text; this.revision++; }
   observe(message) {
-    if (message.post !== this.post || valid(message.inbox) && valid(this.token) && message.inbox.version !== this.token.version)
+    if (message.post !== this.post || valid(message.inbox) && valid(this.token) && message.inbox.version !== this.token.version) {
+      this.changed = true;
       this.error = "The conversation changed. Review the current message before continuing.";
+    }
   }
   hold(rid, token = this.token, action = "hold") {
+    if (this.changed) throw Error("The conversation changed. Review the current message before continuing.");
     if (this.control || this.delivery) throw Error("Wait for the current request to be confirmed.");
     if (!valid(token)) throw Error("The current conversation is unavailable. Refresh Inbox.");
+    if (valid(this.token) && (token.version !== this.token.version || token.edit_version < this.token.edit_version))
+      throw Error("The editor changed. Reopen the current conversation.");
     const q = boundedRequest({ kind: "draft_control", id: this.id, rid, inbox: token, editor: this.editor, action });
-    this.control = { rid, token, action };
+    this.control = { rid, token, action }; this.error = "";
     return q;
   }
   ready() {
+    if (this.changed) throw Error("The conversation changed. Review the current message before continuing.");
     if (this.error) throw Error(this.error);
     if (this.control || this.delivery) throw Error("Wait for the current request to be confirmed.");
-    if (!valid(this.token) || !this.token.held || this.token.holder !== this.editor)
+    if (this.needsHold || !valid(this.token) || !this.token.held || this.token.holder !== this.editor)
       throw Error("Confirm this editor before continuing.");
   }
   revise(rid) {
@@ -53,11 +59,12 @@ export class InboxEditor {
     if (d.id && d.id !== this.id) return false;
     if (d.kind === "draft_state" && this.control?.rid === d.rid) {
       const c = this.control, t = d.inbox;
-      if (!valid(t) || t.version !== c.token.version || t.edit_version <= c.token.edit_version
+      if (this.changed || !valid(t) || t.version !== c.token.version || t.edit_version <= c.token.edit_version
+          || valid(this.token) && (t.version !== this.token.version || t.edit_version <= this.token.edit_version)
           || t.held !== (c.action === "hold") || (t.held && t.holder !== this.editor)) {
         this.error = "The editor confirmation does not match this conversation."; return false;
       }
-      this.token = t; this.control = null; this.error = ""; return true;
+      this.token = t; this.control = null; this.error = ""; this.needsHold = false; return true;
     }
     if (["draft_control_failed", "ask_failed", "revision_rejected"].includes(d.kind)
         && (this.control?.rid === d.rid || this.request?.rid === d.rid)) {
@@ -77,7 +84,8 @@ export class InboxEditor {
       this.delivery.state = "sent"; this.text = ""; this.token = d.inbox; this.error = ""; return true;
     }
     if (["send_blocked", "send_failed"].includes(d.kind) && !d.unresolved) {
-      this.delivery = null; this.error = d.error || "The reply was not sent."; return true;
+      this.delivery = null; this.needsHold = true;
+      this.error = d.error || "The reply was not sent."; return true;
     }
     if (["send_uncertain", "send_duplicate", "scheduled"].includes(d.kind) || d.kind==="send_failed" && d.unresolved) {
       this.delivery.state = d.kind === "scheduled" ? "scheduled" : "unresolved";

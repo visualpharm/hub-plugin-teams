@@ -29,7 +29,13 @@ management work owns the protocol; this slice changes only its web consumer.
 - Pinned Mac menu-inbox-send-options and iPhone34 expose five controls: Send now, remembered Send and Archive, next contact working start, custom later, Weekends Too. Reuse native placement and order; whole menu must remain reachable with the keyboard open.
 - Weekends Too reads the trusted collector configuration for this exact contact, not an optimistic local toggle. Changing it requires the current target and correlated collector capability; HTTP acceptance is not confirmation. Persist original id/contact/target/rid/value before sending and use the same request for explicit retry after reload.
 - Wrong receipts, revoked capabilities, stale controls and changed destinations cannot mutate a replacement conversation. Preserve newer reply drafts. Unknown or refused setting changes stay visible.
-- Native Send and Archive and its remembered default remain a separate unfinished requirement.
+- Send and Archive and its remembered default are implemented, including confirmed archive/Restore and newer-draft preservation. Exact full-screen visual parity and actual Safari verification remain separate acceptance work.
+
+## Refused and uncertain replies (2026-10-18)
+- A definitive guarded failure must allow the owner to edit and resend from the still-open composer after fresh collector confirmation. The old held token alone is not sufficient admission.
+- Keep older failed history, newer drafts, exact destination and current revision. A delayed old failure must not affect a newer delivery.
+- An uncertain outcome keeps its original request identity and explicit reconciliation path; editing a newer draft must never turn it into a fresh duplicate send.
+- Native chat's separate direct Retry remains a distinct feature from editing and submitting again.
 
 ## Native context and action comparison (2026-10-18)
 - Pinned0597a826 Letter.origin renders provider plus distinct supplied place once. Teams DM must not read “Teams · Личка · Личка”; Telegram must not repeat its own name.

@@ -66,4 +66,24 @@ for (const kind of ['sent','send_duplicate']) {
   assert.equal(recovered.receive({kind,id:'source',rid:'recover',submitted_inbox:v,inbox:v,version:v.version,state:'sent',receipt:{id:'confirmed'}}),true);
   assert.equal(recovered.error,'');
 }
+for (const kind of ['send_failed','send_blocked']) {
+  const retry=start(),first=confirm(retry);retry.send('first','Original reply',{target:'recipient-a'});
+  assert.equal(retry.receive({kind,id:'source',rid:'first',target:'recipient-a',error:'Definitive refusal'}),true);
+  retry.edit('Newer owner edit');assert.throws(()=>retry.send('retry','Newer owner edit'),/refusal/);
+  retry.hold('reconfirm');assert.equal(retry.error,'');
+  assert.throws(()=>retry.send('retry','Newer owner edit'),/Wait/);
+  assert.equal(retry.receive({kind:'draft_state',id:'source',rid:'reconfirm',inbox:first}),false);
+  assert.throws(()=>retry.send('retry','Newer owner edit'),/confirmation/);
+  const next={...first,edit_version:2};
+  assert.equal(retry.receive({kind:'draft_state',id:'source',rid:'reconfirm',inbox:next}),true);
+  assert.equal(retry.send('retry',retry.text,{target:'recipient-a'}).text,'Newer owner edit');
+  assert.equal(retry.receive({kind,id:'source',rid:'first',target:'recipient-a'}),false);
+  assert.equal(retry.delivery.rid,'retry');
+}
 console.log('Inbox editor: identity, CAS, stale proposals, explicit Apply and truthful delivery passed');
+const refusedChanged=start();confirm(refusedChanged);refusedChanged.send('refused','Original');
+refusedChanged.receive({kind:'send_blocked',id:'source',rid:'refused',error:'Definitive refusal'});
+refusedChanged.observe({...message,inbox:{...token,version:'replacement'}});
+assert.throws(()=>refusedChanged.hold('fresh',{...token,version:'replacement'}),/conversation changed/);
+const monotonic=start();confirm(monotonic);monotonic.token={...monotonic.token,edit_version:5};
+assert.throws(()=>monotonic.hold('old',{...monotonic.token,edit_version:1}),/changed|current/);

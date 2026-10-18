@@ -243,6 +243,7 @@ function editorFact(d) {
     const st = composing.get(id), m = msgs.get(id);
     if (m && state.token) m.inbox = state.token;
     if (st) st.error = state.error;
+    if (st && state.needsHold && !state.control && !state.delivery) st.started = false;
     if (st?.closing && !state.control && !state.token.held) composing.delete(id);
     if (state.delivery?.state === "sent") {
       acceptDraft(m,state.delivery.rid);
@@ -1139,13 +1140,17 @@ function beginEditing(m, st) {
   if (!st.state || st.started) return;
   st.started = true;
   const token = st.state.token;
-  if (token?.held && token.holder === st.state.editor) return;
+  if (token?.held && token.holder === st.state.editor && !st.state.needsHold) return;
   confirmEditor(m, st);
 }
 
 async function confirmEditor(m, st, action = "hold") {
   try {
-    const q = st.state.hold(requestId(), m.inbox, action);
+    const current=msgs.get(m.id);
+    if (!current || composing.get(m.id)!==st || draftKey(current)!==draftKey(m) || current.post!==m.post)
+      throw Error("The conversation changed. Reopen this editor before continuing.");
+    st.state.observe(current);
+    const q = st.state.hold(requestId(), current.inbox, action);
     st.closing = action === "release";
     if (!(await mark(q.kind, q))) st.error = "Editor confirmation is pending. Your draft is retained.";
   } catch (e) { st.error = e.message; }
