@@ -116,7 +116,7 @@
 .tm-flat .tm-top { width: 100%; max-width: 792px; box-sizing: border-box; margin-inline: auto; }
 .tm-flat .tm-bar { max-width: 360px; }
 .tm-flat .tm-list { gap: 24px; padding-block: 12px; }
-.tm-flat .tm-list > .tm-card { width: 100%; max-width: 760px; flex: none; margin-inline: auto; padding-inline: 0; }
+.tm-flat .tm-list > .tm-card { width: 100%; max-width: 760px; flex: none; margin-inline: auto; padding: 0; }
 .tm-top { padding: 8px; border: 0; }
 .tm-top { position: relative; }
 .tm-folders { display: flex; gap: 0; flex: 1; }
