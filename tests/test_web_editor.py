@@ -10,6 +10,24 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_unselected_detail_tracks_width_without_replacing_reply(self):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Retained while browsing the list')
+        before=self.non_history_actions()
+        self.page({'eval':"window.__retainedReply=document.querySelector('.tm-shared-compose textarea');true"},
+                  {'tapSelector':'.tm-close-conversation'})
+        for width in (320,402,834,1024,1240,1440):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
+            got=self.page({'eval':"(()=>{const e=document.querySelector('.tm-empty-detail');if(!e)return null;const r=e.getBoundingClientRect(),root=document.querySelector('.tm'),p=root.getBoundingClientRect(),l=document.querySelector('.tm-list-pane').getBoundingClientRect();return {visible:e.checkVisibility(),narrow:document.querySelector('.tm-container').classList.contains('tm-narrow'),title:e.querySelector('h2').textContent,width:r.width,left:r.left,listRight:l.right,bottom:r.bottom,rootBottom:p.bottom,overflow:document.documentElement.scrollWidth-innerWidth,retained:__retainedReply.isConnected,text:__retainedReply.value}})()"})[-1]['eval']
+            self.assertIsNotNone(got,'Missing native unselected detail')
+            self.assertEqual(got['visible'],not got['narrow'],(width,got));self.assertEqual(got['title'],'No Message Selected')
+            self.assertEqual(got['overflow'],0);self.assertTrue(got['retained']);self.assertEqual(got['text'],'Retained while browsing the list')
+            if got['visible']:
+                self.assertGreaterEqual(got['width'],400);self.assertGreaterEqual(got['left'],got['listRight']-1);self.assertLessEqual(got['bottom'],got['rootBottom']+1)
+        self.page({'tapSelector':'.tm-person'})
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-empty-detail').checkVisibility()"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-shared-compose textarea')===__retainedReply"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),before)
+
     def test_no_match_names_query_and_clears_from_center_without_losing_draft(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Keep this exact unsent reply')
         before=self.non_history_actions()
@@ -143,6 +161,7 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertGreaterEqual(got['pane'],got['root']-1,(source,width,got))
                 self.assertGreaterEqual(got['card'],min(700,got['root']-32)-1,(source,width,got))
                 self.assertLessEqual(got['scroll'],got['client']);self.assertEqual(got['overflow'],0);self.assertFalse(got['detail'])
+                self.assertFalse(self.page({'eval':"document.querySelector('.tm-empty-detail').checkVisibility()"})[-1]['eval'])
         self.page({'tapSelector':'.tm-options summary'},
                   {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Все')).click();document.querySelector('.tm-options').open=false;true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])

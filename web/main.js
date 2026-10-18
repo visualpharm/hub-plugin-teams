@@ -1859,6 +1859,7 @@ function paintAll() {
 
   ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
   ui.detail.hidden = !(grouped && dmPerson);
+  ui.emptyDetail.hidden = !grouped || !!dmPerson;
   ui.detail.dataset.conversation=grouped && dmPerson || "";
   if (!loaded) ui.list.replaceChildren(el("p", "tm-empty", "Загружаю…"));
   else if (!items.length) {
@@ -2017,6 +2018,8 @@ function build(root) {
     prompt.append(input.node, promptFeedback); controls.append(prompt);
   }
   const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
+  const emptyDetail = el("section", "tm-empty-detail");
+  emptyDetail.append(nativeIcon("inbox"), el("h2", null, "No Message Selected"));
   const search = el("div", "tm-conversation-search"), searchInput = el("input");
   searchInput.type = "search"; searchInput.placeholder = "Search"; searchInput.value = searchQuery;
   searchInput.setAttribute("aria-label", "Search conversations");
@@ -2026,9 +2029,9 @@ function build(root) {
   search.append(hub.icon("search"), searchInput, clearSearch);
   listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
   listPane.append(head, listNode, search); detail.hidden = true;
-  wrap.append(listPane, detail);
+  wrap.append(listPane, detail, emptyDetail);
   root.replaceChildren(wrap);
-  ui = { root, resize, wrap, detail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
