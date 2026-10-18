@@ -306,3 +306,7 @@ Successful replay receipts use the same draft and answered-state cleanup as fres
 
 ## 2026-10-18 — Schedule at the recipient's next working start
 The Inbox send menu reads working hours only from trusted collector config. Resolve the next strictly future opening in the Hub's IANA timezone, falling back only to its explicit UTC offset; apply the exact contact's weekend exception. Display the instant in the device timezone and recalculate on click before using the existing durable scheduling path. Invalid or missing hours hides the shortcut. DST gaps advance by the transition duration; overlaps select the first future matching occurrence. No automatic send, recipient-settings mutation, or device-zone assumption is introduced. Remembered Send and Archive and the weekend setting control remain separate work.
+
+
+## 2026-10-18 — Reactions bind the original destination
+A modern reaction carries the message target through the collector parser, provider preflight and receipt. The web only confirms its exact request/id/target; missing or wrong target receipts cannot paint success. Rebinding a message detaches its old reaction, and a detached button cannot act on a replacement conversation. Preserve local pending ownership across owner echoes and retain legacy targetless replay behavior. Drafts remain independent. This follows the reply identity boundary and does not add automatic replay or provider sends from navigation.

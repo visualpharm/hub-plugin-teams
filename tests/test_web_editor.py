@@ -1643,6 +1643,43 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(link["label"],"Open in Teams",link)
         self.assertEqual(link["actions"],["Скрыть сообщения Review colleague","React to Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
 
+    def test_reaction_request_binds_current_destination(self):
+        self.seed_inbox(start_editing=False,target='synthetic-target-a')
+        self.page({'tapSelector':'.tm-react-trigger'},{'tapSelector':'.tm-reactions button:first-child'})
+        self.assertEqual(self.queued('react').get('target'),'synthetic-target-a')
+
+    def test_reaction_receipt_requires_original_target_and_detaches_rebound_message(self):
+        self.seed_inbox(start_editing=False,target='synthetic-target-a')
+        self.edit('Keep this draft');self.acknowledge(self.queued('draft_control'))
+        self.page({'tapSelector':'.tm-react-trigger'},{'tapSelector':'.tm-reactions button:first-child'})
+        q=self.queued('react')
+        for receipt in ({'target':'wrong-target'},{}):
+            self.feed({'kind':'reacted','id':q['id'],'rid':q['rid'],'emoji':'👍',**receipt})
+            self.page({'sleep':300})
+            self.assertIn('Sending reaction',self.page({'eval':"document.querySelector('.tm-reaction-status').textContent"})[-1]['eval'])
+        self.feed({'kind':'reacted','id':q['id'],'rid':q['rid'],'emoji':'👍','target':'synthetic-target-a'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent.includes('Reaction sent')"})[-1]['until'])
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Replacement reaction target','react':True,'reply':True,'inbox':self.token,'target':'synthetic-target-b','at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('Replacement reaction target')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status')"})[-1]['eval'])
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(q))
+        self.feed({'kind':'reacted','id':q['id'],'rid':q['rid'],'target':'synthetic-target-a','emoji':'👍'})
+        self.page({'sleep':300})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this draft')
+
+    def test_detached_reaction_button_cannot_send_to_replacement_destination(self):
+        self.seed_inbox(start_editing=False,target='synthetic-target-a')
+        self.page({'tapSelector':'.tm-react-trigger'},{'eval':"window.__oldReaction=document.querySelector('.tm-reactions button');true"})
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Replacement reaction target','react':True,'reply':True,'inbox':self.token,'target':'synthetic-target-b','at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"document.body.innerText.includes('Replacement reaction target')"})[-1]['until'])
+        self.page({'eval':'window.__oldReaction.click();true'},{'sleep':300})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='react'])
+        self.assertIn('Reopen this conversation',self.page({'eval':'document.body.innerText'})[-1]['eval'])
+        self.page({'tapSelector':'.tm-reactions button:first-child'})
+        self.assertEqual(self.queued('react').get('target'),'synthetic-target-b')
+        self.assertNotIn('Reopen this conversation',self.page({'eval':'document.body.innerText'})[-1]['eval'])
+
     def test_reaction_targets_exact_message_and_keeps_draft_on_refusal(self):
         self.seed_inbox(start_editing=False)
         self.edit("Keep my unsent reply"); self.acknowledge(self.queued("draft_control"))
