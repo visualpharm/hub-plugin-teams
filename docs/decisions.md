@@ -278,3 +278,6 @@ quota; compaction and stable Hub rename migration remain separate work.
 
 ## 2026-10-17: Explicit provider read receipts
 Conversation options offer provider Mark read only for Telegram, WhatsApp and Mail messages with an exact target fingerprint. Opening a conversation and Mark unread remain local. Persist the original request before sending; after a lost acknowledgement, Check read status reuses that rid. Only a trusted matching id/target/rid receipt confirms success. Provider failure and unknown outcomes do not silently start another operation; the owner can inspect the original conversation. Storage refusal sends nothing and retains drafts. Keep the existing legacy native receipt compatibility path separate from modern target-bound proof.
+
+## 2026-10-17: Reply persistence is an admission requirement
+Both shared and legacy reply composers must save the pending request id and draft before posting a send. A quota/privacy refusal keeps text and uploaded files in the current page, displays a recoverable error, and sends nothing. Release only the unsent local editor claim, never a request already posted. Retrying after storage recovery persists a new request before transport; existing unknown-outcome handling remains unchanged. This closes the gap where a draft warning appeared but the provider request still escaped.

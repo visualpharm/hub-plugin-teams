@@ -950,7 +950,16 @@ function sharedReply(m, st) {
         beginEditing(m, st);
         let q;
         if (guardedReply(msgs.get(m.id)) && !st.state) return { error: "Reopen this editor using the current conversation." };
-        try { await waitForEditor(m,st,revision); q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) }); }
+        try {
+          await waitForEditor(m,st,revision);
+          q = st.state ? st.state.send(requestId(), text) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
+          if (!saveDraft(m,text,q.rid,attachments || [])) {
+            // No transport has run: release only this unsent local claim, so
+            // restoring storage can retry without a phantom pending delivery.
+            if (st.state?.delivery?.rid===q.rid) st.state.delivery=null;
+            throw Error("Could not save this reply before sending. Keep this page open and try again.");
+          }
+        }
         catch (e) {
           // The shared composer restores the attempted reply before any text typed while waiting.
           // Persist that same recovery, so a reload cannot lose either unsent edit.
@@ -958,7 +967,8 @@ function sharedReply(m, st) {
           saveDraft(m,st.text);st.state?.edit(st.text);
           return { error: e.message };
         }
-        st.text = text; st.files=attachments || []; if (!saveDraft(m,text,q.rid,st.files)) st.error="This browser could not save the draft. Keep this page open.";
+        st.text = text; st.files=attachments || [];
+        if (st.error==="This browser could not save the draft. Keep this page open.") st.error="";
         sends.set(q.rid, { id: m.id, text, files: q.files, ts: Date.now() / 1000, mine: true, state: "wait" });
         if (!(await mark(q.kind, q))) {
           sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
@@ -1008,7 +1018,11 @@ async function sendReply(m, text) {
   if (deliveryPending(m)) { error="A reply is awaiting confirmation. Your draft is retained.";paint();return; }
   if (guardedReply(m)) { openCompose(m, text); return; }
   const rid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  saveDraft(m,text,rid);
+  if (!saveDraft(m,text,rid)) {
+    saveDraft(m,text); // Retain page-local text without pretending it was queued.
+    error="Could not save this reply before sending. Keep this page open and try again.";
+    paint();return;
+  }
   sends.set(rid, { id: m.id, text, ts: Date.now() / 1000, mine: true, state: "wait" });
   composing.delete(m.id);
   error = "";

@@ -1030,6 +1030,33 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'wait':'This browser could not save the draft.'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'Keep this page text')
 
+    def check_reply_storage_admission(self, guarded):
+        self.seed_inbox(start_editing=False)
+        if not guarded:
+            self.open_external_source('telegram')
+            self.attach_synthetic_file('durable-reply.txt')
+        self.edit('Keep this unsent reply')
+        if guarded:
+            self.acknowledge(self.queued('draft_control'))
+        self.page({'eval':"window.__draftSave=Storage.prototype.setItem;Storage.prototype.setItem=function(k,v){if(k.startsWith('hub.inbox.draft.'))throw new DOMException('Blocked','QuotaExceededError');return __draftSave.call(this,k,v)};document.querySelector('.tm-shared-compose form').requestSubmit();true"}, {'sleep':500})
+        requests=[json.loads(e['data']['text']) for e in self.non_history_actions() if e['type']=='ext.post']
+        self.assertFalse([q for q in requests if q.get('kind')=='send'], 'A send escaped without a durable pending request')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this unsent reply')
+        if not guarded:
+            self.assertIn('durable-reply.txt',self.page({'eval':"document.querySelector('.tm-shared-compose .pchip').textContent"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"document.body.innerText.includes('Could not save this reply before sending')"})[-1]['eval'])
+        self.page({'eval':"Storage.prototype.setItem=window.__draftSave;document.querySelector('.tm-shared-compose form').requestSubmit();true"}, {'sleep':400})
+        q=self.queued('send');self.assertEqual(q['text'],'Keep this unsent reply')
+        if not guarded:
+            self.assertEqual(len(q['files']),1);self.assertTrue(q['files'][0].endswith('durable-reply.txt'))
+        self.assertTrue(self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.')).some(k=>JSON.parse(localStorage.getItem(k)).pendingRid==="+json.dumps(q['rid'])+")"})[-1]['eval'])
+
+    def test_external_reply_requires_durable_pending_request(self):
+        self.check_reply_storage_admission(False)
+
+    def test_guarded_reply_requires_durable_pending_request(self):
+        self.check_reply_storage_admission(True)
+
     def test_narrow_conversation_has_one_header_and_keeps_draft_when_returning(self):
         self.seed_inbox(start_editing=False)
         self.edit("Keep my exact draft")
