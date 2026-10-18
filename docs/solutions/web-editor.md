@@ -284,3 +284,6 @@ Sent sorting already used deliveredTs, but sentBlock still rendered request ts. 
 
 ### Native successful status copy
 Use one successful-delivery label and one age node. Removing the owner prefix from a confirmed owner reply is safe only when automatic replies still name the Hub. The shared chat/mail renderer preserves all non-success attribution and error text. Browser acceptance covers owner/automatic success, pending and scheduled attribution, first-receipt age and delivery icons. Actual synthetic flat Sent captures verify the same shared label on the served asset.
+
+### Outgoing signatures and emphasis
+Native Emphasis uses Unicode letter/number boundaries to distinguish standalone underscore markup from identifiers. Port that display rule to the shared outgoing renderer without a general HTML/Markdown parser. Construct DOM text and em nodes, preserving literal HTML, line breaks, unclosed runs and source payloads. The regression verifies pending/failed chat and mail rendering and uses Retry to prove the original text survives; successful flat Sent uses actual served assets and synthetic signatures. Close the fixture's initially open editor before testing Retry; otherwise its guard correctly hides that action.
