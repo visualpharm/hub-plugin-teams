@@ -16,6 +16,10 @@
 .tm-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4) var(--space-5); }
 .tm-empty { margin: var(--space-6) auto; color: var(--muted-foreground); text-align: center; max-width: var(--measure); }
+.tm-search-empty { flex: none; display: flex; flex-direction: column; align-items: center; gap: 16px; margin: auto; padding-block: 24px; width: min(100%, 360px); text-align: center; }
+.tm-search-empty > .icon { width: 40px; height: 40px; color: var(--muted-foreground); }
+.tm-search-empty h2 { margin: 0; max-width: 100%; color: var(--foreground); font-size: 20px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; text-wrap: pretty; }
+.tm .tm-search-empty .btn.small { min-height: 44px; padding: 8px 16px; font-size: 17px; background: var(--accent); }
 .tm-card { display: flex; flex-direction: column; gap: var(--space-2); max-width: calc(var(--measure) + 12rem);
   padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
 .tm-card.tm-done { background: transparent; }

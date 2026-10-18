@@ -240,3 +240,7 @@ Hiding a grid detail does not remove its reserved column. Toggle the flat layout
 ## Long reply width
 
 A growing textarea can still be squeezed between discard, attach, send and options columns. Move a wrapped reply into its own full grid row, leaving actions below. Decide wrapping against compact available width rather than current expanded textarea width, otherwise layout can oscillate. Use the existing observer and root resize path; never rebuild the field or normalize draft/signature content to repair presentation. Cover short/long transitions, width changes, selected text, exact send payloads, attachments, scheduling and frozen host slots.
+
+## Search recovery
+
+An empty search is a recoverable result state, distinct from an empty folder. Share the same no-match renderer between grouped and flat lists, with the pinned native query-specific heading and centered action. Route its clear button through the existing search clear control to retain focus and filter behavior. Test literal markup-like queries, centered readable content, hit targets, exact retained drafts, flat filter recovery and truly empty folders.

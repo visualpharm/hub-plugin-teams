@@ -363,3 +363,7 @@ Mention and channel filters have no selected conversation detail, so they use on
 ### 2026-10-18 — Give wrapped replies a full-width entry row
 
 Replies that would wrap in the compact row place the original textarea above the action controls. Measure against compact available width so expansion does not oscillate when the field becomes wider; explicit line breaks also expand. Short replies return to the compact row. Preserve the actual field, selection, signature text, drafts and transport payloads. Recording retains the shared composer layout.
+
+### 2026-10-18 — Native search recovery in Inbox lists
+
+Both grouped conversations and flat source lists use the pinned native no-match arrangement: centered search icon, exact query in the heading and Clear search. Reuse the existing clear action so the original filter, selected conversation, draft and search focus survive recovery. Empty folders retain their own status. Query text is rendered as text, never markup.
