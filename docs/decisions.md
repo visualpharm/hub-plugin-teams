@@ -375,3 +375,7 @@ Wide grouped lists show the pinned native tray and No Message Selected state unt
 ### 2026-10-18 — Label the active Inbox folder
 
 The visible expanded folder label follows selection: Inbox, Sent or Archive. Inactive folders remain icon controls with their existing accessible labels. This matches pinned native folder navigation and prevents the toolbar from continuing to emphasize Inbox while showing Sent. Retain the existing compact-label exception when Failed adds an extra control, preserving all touch targets.
+
+## 2026-10-18 · Outgoing folder previews
+
+Sent previews use the latest accepted or scheduled reply from the exact grouped message IDs; Failed previews use failed/unconfirmed reply text. Unsent edits and later refused retries cannot replace accepted Sent content. Reactions and attachment-only replies have readable previews, and search includes the displayed outgoing text. Incoming folders retain incoming context. A latest eligible reply without text falls back to incoming context rather than borrowing an older reply. This presentation change leaves receipts, drafts, targets and transport untouched.
