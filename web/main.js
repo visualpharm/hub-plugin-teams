@@ -121,7 +121,13 @@ async function retainReply(m,q,{validate,retryOf,onRetained}={}) {
         const saved=savedDraft(m),key=draftKey(m);
         // Only move an untouched failed attempt's tombstone. A newer edit,
         // attachment or another tab's persisted draft is never replaced.
-        if(saved?.pendingRid===retryOf && localStorage.getItem(key)===JSON.stringify(saved)) {
+        // An older bubble can be retried after a later identical attempt fails.
+        let sameFailedPayload=false;
+        if(saved?.pendingRid)try {
+          const previous=failedReply(m,saved.pendingRid);
+          sameFailedPayload=previous.x.text===q.text && JSON.stringify(previous.files)===JSON.stringify(q.files || []);
+        }catch {}
+        if(sameFailedPayload && localStorage.getItem(key)===JSON.stringify(saved)) {
           const next={...saved,pendingRid:q.rid};
           localStorage.setItem(key,JSON.stringify(next));editorDrafts.set(key,next);
         }
@@ -1589,7 +1595,7 @@ function failedReply(m,rid) {
   if(!canReply(current))throw Error("This conversation is no longer available for a reply.");
   const files=(x.files || []).map(f=>typeof f==='string' ? f : f?.path);
   if(files.some(f=>typeof f!=='string' || !f) || files.length>10)throw Error("The original attachments are unavailable.");
-  if(files.length && !acceptsFiles(current))throw Error("This destination accepts text only.");
+  if(files.length && !acceptsFiles(current))throw Error("Attachments are currently unavailable. Reopen this conversation before retrying.");
   if(!x.text.trim() && !files.length)throw Error("The original reply is unavailable.");
   return {current,x,files};
 }
@@ -1686,7 +1692,7 @@ function sentBlock(m, rid, x) {
   }
   if ((x.state === "fail" || late)) {
     const a = el("div", "tm-acts");
-    if(chat && x.state==="fail" && x.mine && typeof x.text==="string" && (x.text.trim() || x.files?.length)) {
+    if(chat && x.state==="fail" && x.mine && canReply(m) && typeof x.text==="string" && (x.text.trim() || x.files?.length)) {
       const attempt=replyRecoveries.get(rid),retry=button(attempt?.busy ? T("Повторяю…","Retrying…") : T("Повторить","Retry"),"quiet tm-retry-failed",()=>retryFailedReply(m,rid),"Retry: "+personName(m.from));
       retry.disabled=!!attempt?.busy || deliveryPending(m);a.append(retry);
       if(attempt?.error){const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem);}

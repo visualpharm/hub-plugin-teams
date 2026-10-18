@@ -123,6 +123,25 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
         self.assertFalse(self.page({'eval':"document.body.innerText.includes('Submission is awaiting confirmation')"})[-1]['eval'])
 
+    def test_retrying_older_failure_after_another_failure_clears_only_its_delivered_draft(self):
+        old=self.failed_external_reply()
+        self.page({'tapSelector':'.tm-retry-failed'});second=self.queued('send')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(second))
+        self.feed({'kind':'send_failed','id':second['id'],'rid':second['rid'],'target':second['target'],'error':'Second refusal'})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-mine-fail').length===2 && !Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        self.page({'eval':"document.querySelector('.tm-mine-fail .tm-retry-failed').click();true"})
+        third=self.queued('send');self.assertNotIn(third['rid'],(old['rid'],second['rid']))
+        self.assertEqual(third['text'],old['text'])
+        self.feed({'kind':'sent','id':third['id'],'rid':third['rid'],'target':third['target']})
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.'))"})[-1]['eval'],[])
+        self.page({'eval':"document.querySelector('.tm-close-conversation')?.click();document.querySelector('[data-folder=sent]').click();true"},
+                  {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
+                  {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-mine-fail').length===2"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-failed')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_failed_retry_lost_ack_notice_clears_after_matching_receipt(self):
         old=self.failed_external_reply();self.edit('Newer draft')
         self.page({'eval':"window.__requests=[];window.__fetch=fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){__requests.push(q);throw Error('Synthetic lost acknowledgment')}}return __fetch(u,o)};document.querySelector('.tm-retry-failed').click();true"})
