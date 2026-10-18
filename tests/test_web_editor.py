@@ -1188,6 +1188,84 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this newer draft')
         self.assertFalse(self.page({'eval':"document.querySelector('.tm-shared-compose').innerText.includes('awaiting confirmation')"})[-1]['eval'])
 
+    def check_original_reply_recovery(self, guarded):
+        self.seed_inbox(start_editing=False, target='synthetic-target-a' if guarded else None)
+        if not guarded:self.open_external_source('telegram', target='synthetic-target-a')
+        self.edit('Original uncertain reply')
+        if guarded:self.acknowledge(self.queued('draft_control'))
+        self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;throw Error('Synthetic lost acknowledgement')}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+                  {'until':"!!window.__original && !!document.querySelector('.tm-mine-unresolved')"})
+        original=self.page({'eval':'__original'})[-1]['eval']
+        self.edit('Keep newer draft')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+        self.feed({'kind':'config','reply_replay':1,'inbox_protocol':{'version':1}})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-original')"})[-1]['until'])
+        # Same original request, even after reload; never the edited draft.
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},
+                  {'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},
+                  {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Review colleague' if guarded else 'Synthetic telegram')+")).click();true"},
+                  {'until':"!!document.querySelector('.tm-retry-original')"})
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for width,theme in ((390,'light'),(1440,'dark')):
+                got=self.page({'media':theme},{'viewport':{'width':width,'height':874}},
+                  {'shot':str(out/f'recovery-{guarded}-{theme}-{width}.png'),'width':width,'height':874},
+                  {'eval':"(()=>{const b=document.querySelector('.tm-retry-original'),r=b.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height,hit:b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width);self.assertGreaterEqual(got['height'],44);self.assertTrue(got['hit']);self.assertEqual(got['overflow'],0)
+        self.page({'eval':"window.__replays=[];window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){__replays.push(q);await new Promise(r=>window.__releaseReplay=r);throw Error('Synthetic transport unavailable')}}return __realFetch(u,o)};const b=document.querySelector('.tm-retry-original');b.click();b.click();true"})
+        self.assertTrue(self.page({'until':"__replays.length===1"})[-1]['until'])
+        self.assertEqual(self.page({'eval':'__replays'})[-1]['eval'],[original])
+        self.page({'eval':'__releaseReplay();true'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-error') && !document.querySelector('.tm-retry-original').disabled"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep newer draft')
+        receipt={'kind':'sent','id':original['id'],'rid':original['rid'],'target':original['target']}
+        if guarded:receipt.update({'submitted_inbox':original['inbox'],'inbox':{**original['inbox'],'held':False,'holder':None,'edit_version':original['inbox']['edit_version']+1},'receipt':{'id':'synthetic-delivery'}})
+        self.feed({**receipt,'target':'wrong-target'})
+        self.page({'sleep':150})
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+        if guarded:
+            duplicate={'kind':'send_duplicate','id':original['id'],'rid':original['rid'],'target':original['target'],'state':'sent','receipt':{'id':'synthetic-delivery'},'version':'wrong-version'}
+            self.feed(duplicate);self.page({'sleep':1200})
+            self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+            receipt={**duplicate,'version':original['inbox']['version']}
+        self.page({'tapSelector':'.tm-retry-original'})
+        self.assertTrue(self.page({'until':"__replays.length===2"})[-1]['until'])
+        self.assertEqual(self.page({'eval':'__replays'})[-1]['eval'],[original,original])
+        self.feed(receipt)
+        self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.')) && !document.querySelector('.tm-retry-original')"})[-1]['until'])
+        self.page({'eval':'__releaseReplay();true'},{'sleep':100})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-error')"})[-1]['eval'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep newer draft')
+
+    def test_reply_recovery_requires_trusted_capability_and_exact_saved_target(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
+        self.edit('Original reply')
+        self.page({'eval':"window.__realFetch=window.fetch;window.__sendCount=0;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post') && JSON.parse(JSON.parse(o.body).text).kind==='send'){__sendCount++;throw Error('Synthetic offline')}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
+                  {'until':"!!document.querySelector('.tm-mine-unresolved')"})
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'config','reply_replay':1}))
+        self.page({'sleep':150})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+        self.feed({'kind':'config','reply_replay':1})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-original')"})[-1]['until'])
+        self.page({'eval':"window.__oldRetry=document.querySelector('.tm-retry-original');window.__key=Object.keys(localStorage).find(k=>k.startsWith('hub.inbox.pending.'));window.__saved=localStorage.getItem(__key);const row=JSON.parse(__saved);row.q.target='different-target';localStorage.setItem(__key,JSON.stringify(row));__oldRetry.click();true"})
+        self.assertEqual(self.page({'eval':'__sendCount'})[-1]['eval'],1)
+        self.feed({'kind':'status','source':'telegram','ok':True});self.page({'until':"!document.querySelector('.tm-retry-original')"})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-retry-original')"})[-1]['eval'])
+        self.page({'eval':"localStorage.setItem(__key,'corrupt');__oldRetry.click();true"})
+        self.assertEqual(self.page({'eval':'__sendCount'})[-1]['eval'],1)
+        self.page({'eval':"localStorage.setItem(__key,__saved);true"})
+        self.feed({'kind':'config','reply_replay':1})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-retry-original')"})[-1]['until'])
+        self.feed({'kind':'config'})
+        self.page({'until':"!document.querySelector('.tm-retry-original')"},{'eval':'__oldRetry.click();true'})
+        self.assertEqual(self.page({'eval':'__sendCount'})[-1]['eval'],1)
+
+    def test_external_explicit_retry_reuses_durable_original_request(self):
+        self.check_original_reply_recovery(False)
+
+    def test_guarded_explicit_retry_reuses_durable_original_request(self):
+        self.check_original_reply_recovery(True)
+
     def test_guarded_unknown_reply_survives_reload_and_newer_edits(self):
         self.check_unknown_reply_reload(True)
 

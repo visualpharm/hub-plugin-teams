@@ -128,6 +128,8 @@ async function settlePendingReply(m,rid) {
   if(typeof navigator!=="undefined" && navigator.locks)await navigator.locks.request(pendingReplyKey(m),settle);else settle();
 }
 let inboxProtocol = null;
+let replyReplay = false;
+const replyRecoveries = new Map();
 let historyAvailable = false;
 const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
 // A collector capability is not a token for every source. Explicit tokens stay
@@ -276,6 +278,10 @@ async function sync() {
         const pending=pendingReply(msgs.get(d.id));
         const target=sends.get(d.rid)?.target || (pending?.q?.rid===d.rid ? pending.q.target : null);
         if(target && d.target!==target)continue;
+        if(d.kind==="send_duplicate" && d.state==="sent" && guardedReply(msgs.get(d.id))) {
+          const token=pending?.q?.inbox || editorStates.get(d.id)?.delivery?.token || msgs.get(d.id)?.inbox;
+          if(!token?.version || d.version!==token.version || !d.receipt?.id)continue;
+        }
       }
       if (p.by === AUTHOR && d) editorFact(d);
       if (p.by === AUTHOR && d) newComposer?.fact(d);
@@ -372,7 +378,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
@@ -1216,6 +1222,36 @@ async function unschedule(m,rid) {
   } catch { clearTimeout(x.cancelTimer);failed(T("Отмена не подтверждена. Повторите запрос.","Cancellation is unconfirmed. Retry the request.")); }
 }
 
+function recoverableReply(m,rid) {
+  const current=msgs.get(m.id), x=sends.get(rid);
+  if(!replyReplay || !current || pendingReplyKey(current)!==pendingReplyKey(m) || !x ||
+     x.id!==m.id || !(x.state==="unresolved" || x.state==="wait" && Date.now()/1000-x.ts>WAIT_MAX))return null;
+  const q=pendingReply(current)?.q;
+  if(!q || q.rid!==rid || !q.rid || typeof q.target!=="string" || !q.target || q.target!==current.target ||
+     guardedReply(current) && (!q.inbox?.version || q.inbox.version!==current.inbox?.version))return null;
+  try { return boundedRequest(q); } catch { return null; }
+}
+
+async function retryOriginalReply(m,rid) {
+  const q=recoverableReply(m,rid);
+  if(!q || replyRecoveries.get(rid)?.busy)return;
+  const attempt={busy:true,error:""};replyRecoveries.set(rid,attempt);paint();
+  let timer;
+  try {
+    // Replay may submit a request that never reached the collector. Keep its
+    // entire saved payload and rid; the editable draft is never consulted.
+    const result=await Promise.race([hub.postFeed(JSON.stringify(q)),new Promise(resolve=>{
+      timer=setTimeout(()=>resolve({error:"Confirmation is still pending. Retry the original reply when connected."}),10000);
+    })]);
+    if(result?.error)attempt.error=result.error;
+  } catch { attempt.error="Could not reach the Inbox service. Your original reply is retained."; }
+  finally {
+    clearTimeout(timer);attempt.busy=false;
+    if(!recoverableReply(m,rid))replyRecoveries.delete(rid);
+    paint();
+  }
+}
+
 function sentBlock(m, rid, x) {
   const d = el("div", "tm-mine tm-mine-" + x.state);
   const chat=m.src!=="email";
@@ -1240,6 +1276,12 @@ function sentBlock(m, rid, x) {
     const cancel=button(x.canceling ? T("Отменяется…","Canceling…") : T("Снять отправку","Unschedule"),"quiet tm-unschedule",()=>unschedule(m,rid));
     cancel.disabled=!!x.canceling;d.append(cancel);
     if (x.cancelError) { const problem=el("p","tm-cancel-error",x.cancelError);problem.setAttribute("role","status");d.append(problem); }
+  }
+  if(recoverableReply(m,rid)) {
+    const attempt=replyRecoveries.get(rid);
+    const retry=button(attempt?.busy ? "Retrying original reply…" : "Retry original reply","quiet tm-retry-original",()=>retryOriginalReply(m,rid));
+    retry.disabled=!!attempt?.busy;d.append(retry);
+    if(attempt?.error) { const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem); }
   }
   if ((x.state === "fail" || late) && !composing.has(m.id)) {
     const a = el("div", "tm-acts");
