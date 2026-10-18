@@ -803,6 +803,22 @@ class Later(unittest.TestCase):
             st["later"]["s1"]["at"] = "2000-01-01T00:00:00Z"
             main.send_replies(st, self.R(), [], self.out.append)
             late = next(p for p in self.out if p["kind"] == "archived")
+            st["refs"]["x"] = dict(ref)                                      # проверка контакта: x теперь в той же переписке
+            st["who"]["x"] = {"contact": "wa:1"}
+            del self.out[:]
+            sel = [{"id": "x", "target": a}, both[1]]
+            main.send_replies(st, self.R(), [{**q, "rid": "c2", "at": "2999-01-01T00:00:00Z", "archive_ids": sel}], self.out.append)
+            st["who"]["x"] = {"contact": "wa:7"}                             # тот же адрес, другой собеседник до отправки
+            st["later"]["c2"]["at"] = "2000-01-01T00:00:00Z"
+            main.send_replies(st, self.R(), [], self.out.append)
+            swapped = next(p for p in self.out if p["kind"] == "archived")
+            del self.out[:]
+            st["who"]["w0"] = {"contact": "wa:9"}                            # отказ по выбору
+            bq = {**q, "rid": "d1", "archive_ids": [{"id": "w0", "target": main.target_of(st["refs"]["w0"]), "contact": "wa:1"}, both[1]]}
+            main.send_replies(st, self.R(), [bq], self.out.append)
+            st["who"]["w0"] = {"contact": "wa:1"}                            # «после перезапуска» выбор снова сходится
+            main.send_replies(st, self.R(), [bq], self.out.append)
+            durable = [(p["kind"], p.get("error")) for p in self.out]
         finally:
             sources.run, main.save = real
         self.assertEqual((first["ids"], first["members"], first["target"]), (["w", "w0"], sorted(both, key=lambda m: m["id"]), a))
@@ -810,7 +826,9 @@ class Later(unittest.TestCase):
         self.assertEqual(replay[1], first)
         self.assertEqual(bad, [("send_blocked", "Archive selection changed; reload before sending.")] * 5)
         self.assertEqual((late["ids"], [m["id"] for m in late["members"]]), (["w"], ["w"]))
-        self.assertEqual(len(ran), 2)                                        # r1 и s1
+        self.assertEqual(swapped["ids"], ["w"])
+        self.assertEqual(durable, [("send_blocked", "Archive selection changed; reload before sending.")] * 2)
+        self.assertEqual(len(ran), 3)                                        # r1, s1, c2 — d1 не отправлялся
 
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
         # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —

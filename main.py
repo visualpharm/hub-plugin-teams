@@ -726,6 +726,11 @@ def archive_mismatch(st, q, later, put=None):
         or q["rid"] in (st.get("inbox_rejections") or {})
     want = q.get("archive") is True
     sel = sorted(q["archive_ids"], key=lambda m: m.get("id", "")) if want and "archive_ids" in q else None
+    refused = (st.get("archive_refused") or {}).get(q["rid"])
+    if refused:   # отказ по выбору окончателен: повтор rid получает его же, без переоценки и отправки (m486368)
+        if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
+            (put or post)(refused)
+        return True
     if known and ((q["rid"] in intents) != want or (want and intents[q["rid"]].get("members") != sel)):
         # защищённый путь отвечает на повтор всегда (как inbox_delivery.previous), обычный — только свежей просьбе
         if q.get("inbox") is not None or q.get("automatic") or time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:
@@ -740,13 +745,23 @@ def archive_mismatch(st, q, later, put=None):
             not m.get("id") or not m.get("target") or m["id"] not in refs or target_of(refs[m["id"]]) != m["target"]
             or (m.get("contact") and (who.get(m["id"]) or {}).get("contact") != m["contact"]) for m in sel)
         if bad:
-            (put or post)({"kind": "send_blocked", "id": q["id"], "rid": q["rid"],
-                           "error": "Archive selection changed; reload before sending.",
-                           **({"target": q["target"]} if q.get("target") else {})})
+            event = {"kind": "send_blocked", "id": q["id"], "rid": q["rid"],
+                     "error": "Archive selection changed; reload before sending.",
+                     **({"target": q["target"]} if q.get("target") else {})}
+            gone = st.setdefault("archive_refused", {})
+            gone[q["rid"]] = event
+            for k in list(gone)[:-500]:
+                del gone[k]
+            st.setdefault("sent_rids", []).append(q["rid"])   # rid израсходован: ни этот, ни другой путь его не отправит
+            tomb(st, q["rid"])
+            save(st)
+            (put or post)(event)
             return True
     if want and not known:
         intents[q["rid"]] = {"id": q["id"], **({"target": q["target"]} if q.get("target") else {}),
-                             **({"members": sel} if sel is not None else {})}
+                             **({"members": sel,   # и собеседник каждого на момент просьбы: сменился — не убираем
+                                 "seen": {m["id"]: ((st.get("who") or {}).get(m["id"]) or {}).get("contact") for m in sel}}
+                                if sel is not None else {})}
         for k in list(intents)[:-500]:
             del intents[k]
         save(st)
@@ -769,9 +784,10 @@ def archive_after(st, put):
             ok = False
         if intent and ok and event.get("id") == intent["id"] and event.get("target") == intent.get("target"):
             if not intent.get("event"):   # первый успех фиксирует состав; повтор rid отдаёт тот же archived
-                refs = st.get("refs") or {}
-                members = [m for m in intent.get("members") or ()   # сменившие адрес после просьбы не убираем
-                           if m["id"] in refs and target_of(refs[m["id"]]) == m["target"]]
+                refs, who, seen = st.get("refs") or {}, st.get("who") or {}, intent.get("seen") or {}
+                members = [m for m in intent.get("members") or ()   # сменившие адрес или собеседника после просьбы — нет
+                           if m["id"] in refs and target_of(refs[m["id"]]) == m["target"]
+                           and (who.get(m["id"]) or {}).get("contact") == seen.get(m["id"])]
                 intent["event"] = {"kind": "archived", "id": intent["id"], "rid": event["rid"],
                                    "ids": [m["id"] for m in members] if "members" in intent else [intent["id"]],
                                    **({"members": members} if "members" in intent else {}),
