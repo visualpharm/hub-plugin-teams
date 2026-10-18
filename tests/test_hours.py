@@ -225,6 +225,7 @@ class Gate(unittest.TestCase):
     def test_config_advertises_bound_hours_for(self):
         main.config(self.st, self.out.append)
         self.assertEqual(self.out[0]["hours_for_bound"], 1)
+        self.assertEqual(self.out[0]["reaction_target"], 1)
 
 
 if __name__ == "__main__":

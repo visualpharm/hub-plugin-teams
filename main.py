@@ -648,7 +648,7 @@ def backfill_refs(st, reader, now, put=post):
     return len(keys)
 
 
-CONFIG_CAPS = 2   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
+CONFIG_CAPS = 3   # поднимать при новом флаге протокола в config: после перезапуска пост уходит сразу, не через 6 часов
 
 
 def config(st, put=post):
@@ -662,6 +662,7 @@ def config(st, put=post):
          # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет (m479566)
          'reply_replay':1,
          'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
+         'reaction_target':1,   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
