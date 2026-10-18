@@ -1553,7 +1553,7 @@ function sentBlock(m, rid, x) {
     : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
     : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
   const by = el("div", "tm-draft-by", x.mine ? "Вы · " : "Хаб · ");   // автоответ разбора — не слова владельца
-  by.append(stamp(x.ts), ` · ${stateText}`);
+  by.append(stamp(x.state === "ok" ? x.deliveredTs ?? x.ts : x.ts), ` · ${stateText}`);
   const body=el("div","tm-draft-text",x.text);
   if (chat) {
     const icon=nativeIcon(x.state==="ok" ? "double-tick" : x.state==="fail" ? "warning" : "clock");icon.setAttribute("aria-hidden","true");

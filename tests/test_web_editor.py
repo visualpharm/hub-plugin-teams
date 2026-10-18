@@ -10,6 +10,27 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_sent_status_time_is_first_confirmed_delivery_not_request_age(self):
+        self.seed_inbox(start_editing=False)
+        for source in ('telegram','email'):
+            self.open_external_source(source)
+            mid='external-'+source;rid='delayed-'+source;requested=int(time.time())-7200;delivered=int(time.time())-120
+            self.j.append('ext.post',None,{'plugin':'teams','channel':'web','owner':True,'text':json.dumps({'kind':'send','id':mid,'rid':rid,'text':'Delayed exact reply'})},ts=requested)
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-wait .ago')"})[-1]['until'])
+            def shown(): return float(self.page({'eval':"document.querySelector('.tm-mine .tm-draft-by .ago').dataset.ts"})[-1]['eval'])
+            self.assertEqual(shown(),requested)
+            receipt={'plugin':'teams','channel':'plugin','sender':'teams','text':json.dumps({'kind':'sent','id':mid,'rid':rid,'receipt':{'id':rid+'-receipt'}})}
+            self.j.append('ext.post',None,receipt,ts=delivered)
+            self.page({'tapSelector':'.tm-close-conversation'},{'tapSelector':'[data-folder=sent]'},
+                {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes("+json.dumps('Synthetic '+source)+"))"},
+                {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes("+json.dumps('Synthetic '+source)+")).click();true"})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-ok')"})[-1]['until'])
+            self.assertEqual(shown(),delivered)
+            self.j.append('ext.post',None,receipt,ts=delivered+60)
+            self.page({'sleep':150})
+            self.assertEqual(shown(),delivered)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_answered_incoming_text_keeps_native_foreground_in_all_views(self):
         self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-close-conversation'})
         for src in ('telegram','channel','email'):
