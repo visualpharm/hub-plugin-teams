@@ -10,6 +10,51 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_reply_wrap_boundary_tracks_edits_at_actual_compact_capacity(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+        for width in (320,360,402,834,1240):
+            self.page({'viewport':{'width':width,'height':874}});self.edit('OK')
+            self.assertTrue(self.page({'until':"!document.querySelector('.tm-expanded-reply')"})[-1]['until'])
+            fit=self.page({'eval':"(()=>{const t=document.querySelector('.tm-shared-compose textarea'),s=getComputedStyle(t),c=document.createElement('canvas').getContext('2d');c.font=`${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;let text='W';while(c.measureText(text+'W').width<=t.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight))text+='W';return text})()"})[-1]['eval']
+            self.edit(fit+'W')
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-expanded-reply')"})[-1]['until'],width)
+            self.edit(fit)
+            self.assertTrue(self.page({'until':"!document.querySelector('.tm-expanded-reply')"})[-1]['until'],width)
+            self.assertLessEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').scrollHeight"})[-1]['eval'],45,width)
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_expanded_reply_with_file_keeps_menu_targets_inside_small_viewports(self):
+        self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.attach_synthetic_file()
+        text=('A complete caption with a retained attachment. '*8).strip()
+        self.edit(text)
+        for width in (320,360,402,834,1240):
+            self.page({'viewport':{'width':width,'height':874}},{'sleep':150})
+            self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-expanded-reply .pchip')"})[-1]['eval'])
+            self.page({'tapSelector':'.tm-send-options > summary'})
+            got=self.page({'eval':"(()=>{const menu=document.querySelector('.tm-send-menu'),r=menu.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,hit:[...menu.querySelectorAll(':scope > button,:scope > details > summary')].filter(n=>n.checkVisibility()).every(n=>{const b=n.getBoundingClientRect();return n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))}),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertGreaterEqual(got['left'],0);self.assertLessEqual(got['right'],width)
+            self.assertGreaterEqual(got['top'],0);self.assertLessEqual(got['bottom'],874)
+            self.assertTrue(got['hit'],(width,got));self.assertEqual(got['overflow'],0)
+            self.page({'key':'Escape'})
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        q=self.queued('send');self.assertEqual(q['text'],text);self.assertEqual(len(q['files']),1)
+        self.assertEqual(Path(q['files'][0]).read_text(),'Synthetic attachment bytes')
+
+    def test_reply_recording_cancel_restores_compact_entry_without_sending(self):
+        with mock.patch.dict(os.environ,{'VOICE_CMD':'true'}):
+            self.seed_inbox(start_editing=False);self.open_external_source('telegram')
+            self.page({'viewport':{'width':320,'height':874}},
+                {'until':"!!document.querySelector('.tm-shared-compose .mic')"},
+                {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});navigator.mediaDevices.getUserMedia=()=>Promise.resolve(new AudioContext().createMediaStreamDestination().stream);true"},
+                {'tapSelector':'.tm-shared-compose .mic'})
+            self.assertTrue(self.page({'until':"!!document.querySelector('.tm-shared-compose [data-rec-clock]')"})[-1]['until'])
+            self.assertEqual(self.page({'eval':"document.documentElement.scrollWidth-innerWidth"})[-1]['eval'],0)
+            self.page({'tapSelector':'.tm-shared-compose .recstrip .linkbtn'})
+            self.assertTrue(self.page({'until':"!document.querySelector('.tm-shared-compose .rec')"})[-1]['until'])
+            self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'')
+            self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-expanded-reply')"})[-1]['eval'])
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_long_reply_uses_full_width_and_retains_text_selection_and_menu(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
         text='Please keep the complete reply readable while I review the details. '*5+'\n\n**Ivan**\nExact signature stays in the draft.'
