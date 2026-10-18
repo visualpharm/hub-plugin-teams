@@ -210,7 +210,9 @@ class Choice:
         elif isinstance(body, dict) and body.get("kind") == "react":
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid", "emoji")) and len(body["emoji"]) <= 16:
                 self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"], **({"ts": ev["ts"]} if ev.get("ts") else {}),
-                                   **({"reply_to": body["msg"][:200]} if isinstance(body.get("msg"), str) and body["msg"] else {})})
+                                   **({"reply_to": body["msg"][:200]} if isinstance(body.get("msg"), str) and body["msg"] else {}),
+                                   # адрес, который видел клиент (target_of): send_one откажет до источника, если сменился
+                                   **({"target": body["target"][:300]} if isinstance(body.get("target"), str) and body["target"] else {})})
         elif isinstance(body, dict) and body.get("kind") == "cancel" and isinstance(body.get("rid"), str):
             self.sends.append({"cancel": body["rid"],**({'editor':body['editor']} if isinstance(body.get('editor'),str) else {}),
                                **({"ts": ev["ts"]} if ev.get("ts") else {})})

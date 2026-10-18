@@ -559,6 +559,32 @@ class Later(unittest.TestCase):
         self.assertFalse(collect.can_react({"chat": "c1"}))     # запощено до реакций: id сообщения не знаем
         self.assertFalse(collect.can_react({"mail": "a", "thread": "1"}))
 
+    def test_reaction_keeps_target_and_wrong_target_never_reaches_provider(self):
+        """Реакция несёт target, как ответ: пункт сменил адрес — react_failed с тем же target, до источника не идёт;
+        без target — как раньше (18.10, codex m484137)."""
+        import json
+        c = main.Choice("/nonexistent")
+        for body in ({"kind": "react", "id": "k1", "rid": "r1", "emoji": "👍", "target": "stale-target"},
+                     {"kind": "react", "id": "k1", "rid": "r2", "emoji": "👍", "target": ""},
+                     {"kind": "react", "id": "k1", "rid": "r3", "emoji": "👍", "target": 7}):
+            c.line(json.dumps({"type": "ext.post", "seq": 1, "data": {"plugin": main.NAME, "owner": True, "channel": "web",
+                                                                     "text": json.dumps(body)}}).encode() + b"\n")
+        q = c.take_sends()
+        self.assertEqual([x.get("target") for x in q], ["stale-target", None, None])
+        st = {"refs": {"k1": {"chat": "c1", "msg": "m1"}}, "open": {"k1": ["b", "t"]}}
+        main.send_replies(st, self.R(), q[:1], self.out.append)
+        self.assertEqual(self.sent, [])
+        self.assertEqual([(p["kind"], p["rid"], p["target"]) for p in self.out], [("react_failed", "r1", "stale-target")])
+        self.assertEqual(st["open"], {"k1": ["b", "t"]})
+        self.out.clear()
+        main.send_replies(st, self.R(), [{**q[0], "ts": main.time.time()}], self.out.append)   # свежий повтор rid — прежний отказ
+        self.assertEqual((self.sent, [p["kind"] for p in self.out]), ([], ["react_failed"]))
+        self.out.clear()
+        good = {**q[0], "rid": "r4", "target": main.target_of(st["refs"]["k1"])}
+        main.send_replies(st, self.R(), [good], self.out.append)
+        self.assertEqual(self.sent, [("react", {"chat": "c1", "msg": "m1"}, "👍")])
+        self.assertEqual([(p["kind"], p.get("target")) for p in self.out][:1], [("reacted", good["target"])])
+
     def test_teams_reaction_calls(self):
         collect.react = self.real[1]
         calls = []
