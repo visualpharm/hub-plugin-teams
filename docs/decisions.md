@@ -424,3 +424,6 @@ Decided: the flat list owns card separation through its existing 24px gap; its c
 
 ## 2026-10-18 · Flat search follows its content column
 Decided: center the flat Inbox search field at the same maximum width and side inset as its cards, without a second icon inset. Why: the footer previously stretched beyond the centered desktop reading column and started 12px inside the phone content edge. Keep the grouped list search unchanged and retain 44px controls. Undo: remove the scoped flat-search override. By: agent.
+
+## 2026-10-18 · Truthful failed-reply editing label
+Decided: label the failed/late reply action Edit reply because it opens the composer, rather than claiming Retry. Keep exact raw text and existing unknown-outcome replay behavior unchanged. Why: native distinguishes editing from sending again, and an editing action must not promise transmission. This microcopy fix does not implement direct retry or change draft recovery policy; those remain separate acceptance work. Undo: revert the shared label. By: agent.
