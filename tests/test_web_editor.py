@@ -1408,7 +1408,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===2"},
           {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
         self.edit('Newer reply')
-        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose button[type=submit]').getAttribute('aria-label')"})[-1]['eval'],'Отправить и убрать')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose button[type=submit]').getAttribute('aria-label')"})[-1]['eval'],'Отправить Synthetic telegram и убрать')
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-archive').getAttribute('aria-pressed')"})[-1]['eval'],'true')
         pending=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.pending.v1:')).map(k=>JSON.parse(localStorage[k]).q)"})[-1]['eval']
         self.assertEqual(pending,[q])
