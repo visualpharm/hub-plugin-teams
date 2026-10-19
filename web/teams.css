@@ -593,3 +593,5 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   grid-template-areas: "reply reply reply" "pending pending pending" "entry attach actions" "error error error"; }
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions { flex-wrap: nowrap; align-self: center; }
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions > .spacer { display: none; }
+/* круглые кнопки шапки на телефоне — с промежутком 8, как ‹ › на столе (ревью ui-expert m582026) */
+.view-toolbar > .tm-quick-trigger + .tm-search-toggle { margin-left: 8px; }

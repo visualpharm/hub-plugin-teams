@@ -1269,6 +1269,8 @@ class InboxWebAcceptance(PageInChrome):
                 # phone: an icon in the header; the field opens over the title (ui-expert m578128)
                 got=self.page({'until':"!!document.querySelector('.view-toolbar .tm-search-toggle')?.checkVisibility()"},{'eval':"document.querySelector('"+field+"').checkVisibility()"})
                 self.assertTrue(got[-2]['until'],got);self.assertFalse(got[-1]['eval'],'Closed on a phone: only the icon')
+                gap=self.page({'eval':"(()=>{const q=[...document.querySelectorAll('.view-toolbar > .tm-quick-trigger')].find(n=>n.checkVisibility()),t=document.querySelector('.view-toolbar .tm-search-toggle');return q?t.getBoundingClientRect().left-q.getBoundingClientRect().right:8})()"})[-1]['eval']
+                self.assertGreaterEqual(gap,7.5,'Round header buttons keep an 8 px gap')
                 self.page({'eval':"document.querySelector('.view-toolbar .tm-search-toggle').click();true"})
                 got=self.page({'until':"document.activeElement===document.querySelector('"+field+"')"},
                               {'eval':"(()=>{const s=document.querySelector('.view-toolbar .tm-conversation-search').getBoundingClientRect(),t=[...document.querySelectorAll('h1,h2,.view-title,.title')].find(n=>n.textContent.trim()==='Inbox'&&n.checkVisibility());"
