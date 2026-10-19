@@ -1003,6 +1003,15 @@ function refreshListAges() {
 }
 let agesTimer=null;
 
+let autoOpen = true;   // как на Mac: при входе в широкий Inbox открыта первая переписка; потом выбирает владелец
+function openPerson(key, group) {
+  autoOpen = false;
+  see(group); dmPerson = key; toBottom = true;
+  const target = group.find(m=>canReply(m) && savedDraft(m)!==undefined) || group.find(canReply);
+  if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
+  else paint();
+}
+
 function personRow(key, group) {
   const latest = group[0];
   const name = personName(latest.from) || "—";
@@ -1039,13 +1048,7 @@ function personRow(key, group) {
   const photo = media.find(m => thumbnail(m));
   if (photo) { const img = el("img"); img.src = thumbnail(photo); img.alt = photo.name || mediaLabel(photo); img.loading = "lazy"; preview.append(img); }
   row.append(preview);
-  const open = () => {
-    see(group); dmPerson = key; toBottom = true;
-    const target = group.find(m=>canReply(m) && savedDraft(m)!==undefined) || group.find(canReply);
-    if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
-    else paint();
-  };
-  row.addEventListener("click", open);
+  row.addEventListener("click", () => openPerson(key, group));
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
   row.setAttribute("aria-label", `Переписка с ${name}, ${SRC[latest.src] || latest.src}, ${group.length} сообщени${group.length === 1 ? "е" : "й"}`);
@@ -1311,8 +1314,8 @@ function sharedReply(m, st) {
       catch(e){st.error=e.message;paint();return;}
       st.error="";st.nextSendAt=at;st.updateSendAction();sendMenu.open=false;st.box.node.requestSubmit();
     };
-    const now=button("Send now","quiet tm-send-now",()=>chooseSend(null,'send'));
-    const archive=button("Send and Archive","quiet tm-send-archive",()=>chooseSend(null,'archive'));
+    const now=button(T("Отправить сейчас","Send now"),"quiet tm-send-now",()=>chooseSend(null,'send'));
+    const archive=button(T("Отправить и убрать","Send and Archive"),"quiet tm-send-archive",()=>chooseSend(null,'archive'));
     for(const b of [now,archive])b.prepend(hub.icon('allow'));
     st.updateSendAction=()=>{
       const action=sendAction(),label=action==='archive' ? 'Send and Archive' : 'Send now',caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
@@ -1344,7 +1347,7 @@ function sharedReply(m, st) {
     };
     sendMenu.addEventListener("toggle",()=>{if(sendMenu.open)st.updateSendHours();});
     sendChoices.append(working);
-    const later=el("details","tm-send-later"),laterToggle=el("summary","btn quiet","Send later…");
+    const later=el("details","tm-send-later"),laterToggle=el("summary","btn quiet",T("Отправить позже…","Send later…"));
     const date=el("input","tm-send-date");date.type="datetime-local";date.setAttribute("aria-label","When to send");date.setAttribute("form","schedule-picker-"+requestId());
     const schedule=()=>{
       const at=new Date(date.value).getTime();
@@ -1353,9 +1356,9 @@ function sharedReply(m, st) {
     };
     date.addEventListener("input",()=>date.setCustomValidity(""));
     date.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();e.stopPropagation();schedule();}});
-    later.append(laterToggle,date,button("Schedule send","quiet tm-schedule-send",schedule));sendChoices.append(later);
+    later.append(laterToggle,date,button(T("Запланировать","Schedule send"),"quiet tm-schedule-send",schedule));sendChoices.append(later);
     const weekends=el('label','tm-send-weekends'),weekendInput=el('input');weekendInput.type='checkbox';
-    weekends.append(weekendInput,el('span',null,'Weekends too'));
+    weekends.append(weekendInput,el('span',null,T('И в выходные','Weekends too')));
     const changeWeekend=async()=>{
       const key=pendingReplyKey(m);if(weekendPosting.has(key))return;
       const current=msgs.get(m.id);
@@ -1386,7 +1389,7 @@ function sharedReply(m, st) {
     const trailing=hub.capabilities?.composerTrailing===1;
     const leading=el("div","tm-send-leading");if(hub.capabilities?.composerActions)leading.append(discard);if(!trailing)leading.append(sendMenu);
     const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: st.text,
-      label: "Reply to " + (personName(m.from) || "recipient"), placeholder: "Reply…", attachments: acceptsFiles(m), maxLength: 1500,
+      label: "Reply to " + (personName(m.from) || "recipient"), placeholder: T("Ответ…", "Reply…"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
       onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!(text.trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
@@ -2093,6 +2096,11 @@ function paintAll() {
   ui.wrap.classList.toggle("tm-flat", !grouped);
   if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) dmPerson = null;   // ушёл из пула (сменилась вкладка) — назад к списку людей
 
+  if (autoOpen && loaded && grouped && !dmPerson && tab === "new" && !searchQuery && !picking && matching.length && ui.root.getBoundingClientRect().width > 900) {
+    const [key, group] = matching[0];
+    autoOpen = false;
+    queueMicrotask(() => { if (ui?.root.isConnected && !dmPerson) openPerson(key, group); });
+  }
   ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
   ui.detail.hidden = !(grouped && dmPerson);
   ui.emptyDetail.hidden = !grouped || !!dmPerson;
@@ -2101,13 +2109,13 @@ function paintAll() {
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"
       ? (msgs.size ? "Новых сообщений нет. Разобранные — во вкладке рядом." : emptyNote())
-      : tab === "sent" ? "No sent or scheduled replies." : tab === "archive" ? "No archived conversations."
-      : tab === "failed" ? "No failed replies." : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
+      : tab === "sent" ? T("Отправленных и отложенных ответов нет.", "No sent or scheduled replies.") : tab === "archive" ? T("В архиве пусто.", "No archived conversations.")
+      : tab === "failed" ? T("Неудачных ответов нет.", "No failed replies.") : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
     const back = el("button", "btn quiet tm-close-conversation");
     back.append(nativeIcon("back")); back.setAttribute("aria-label", "Back to Inbox");
     back.type = "button";
-    back.addEventListener("click", () => { dmPerson = null; paint(); });
+    back.addEventListener("click", () => { autoOpen = false; dmPerson = null; paint(); });
     const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
     ui.list.replaceChildren(...rows());
     updateConversation(thread(mine),back,dmPerson);
@@ -2259,10 +2267,10 @@ function build(root) {
   }
   const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
   const emptyDetail = el("section", "tm-empty-detail");
-  emptyDetail.append(nativeIcon("inbox"), el("h2", null, "No Message Selected"));
+  emptyDetail.append(nativeIcon("inbox"), el("h2", null, T("Сообщение не выбрано", "No Message Selected")));
   const search = el("div", "tm-conversation-search"), searchInput = el("input");
-  searchInput.type = "search"; searchInput.placeholder = "Search"; searchInput.value = searchQuery;
-  searchInput.setAttribute("aria-label", "Search conversations");
+  searchInput.type = "search"; searchInput.placeholder = T("Поиск", "Search"); searchInput.value = searchQuery;
+  searchInput.setAttribute("aria-label", T("Поиск по перепискам", "Search conversations"));
   searchInput.addEventListener("input", () => { searchQuery = searchInput.value; paint(); });
   const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; paint(); searchInput.focus(); });
   clearSearch.append(hub.icon("close")); clearSearch.setAttribute("aria-label", "Clear conversation search");

@@ -884,7 +884,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-search input').value"})[-1]['eval'],'Retained search')
         self.page({'tapSelector':'[aria-label="Clear conversation search"]'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-conversation-search input').value"})[-1]['eval'],'')
-        self.assertEqual(self.page({'eval':"document.querySelector('.tm-empty').textContent"})[-1]['eval'],'No sent or scheduled replies.')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-empty').textContent"})[-1]['eval'],'Отправленных и отложенных ответов нет.')
         self.assertEqual(self.non_history_actions(),[])
 
     def test_reply_wrap_boundary_tracks_edits_at_actual_compact_capacity(self):
