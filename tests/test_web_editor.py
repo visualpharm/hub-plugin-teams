@@ -3115,6 +3115,22 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(link["label"],"Открыть в Teams",link)
         self.assertEqual(link["actions"],["Убрать сообщения Review colleague","Реакция для Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
 
+    def test_message_actions_are_one_row_icons_on_phone_words_on_desktop(self):
+        # d433431: Archive / React / Draft / Hand off — one row above the composer; icons on a phone, words on a desktop
+        self.seed_inbox(start_editing=False)
+        probe=("(()=>{const b=[...document.querySelectorAll('.tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action')].filter(n=>n.checkVisibility());"
+               "return b.map(n=>{const r=n.getBoundingClientRect(),l=n.querySelector('.tm-action-label');"
+               "return {top:Math.round(r.top),left:r.left,right:r.right,height:r.height,label:!!l&&l.checkVisibility(),name:n.getAttribute('aria-label'),title:n.title}})})()")
+        for width in (360,402,1240):
+            got=self.page({"viewport":{"width":width,"height":874}},{"eval":probe})[-1]["eval"]
+            self.assertGreaterEqual(len(got),4,got)
+            self.assertEqual(len({b["top"] for b in got}),1,(width,got))
+            self.assertTrue(all(b["name"] and b["title"] for b in got),got)
+            self.assertTrue(all(b["height"]>=44 and b["left"]>=0 and b["right"]<=width for b in got),(width,got))
+            self.assertEqual({b["label"] for b in got},{width>479},(width,got))
+            self.assertEqual(self.page({"eval":"document.documentElement.scrollWidth-innerWidth"})[-1]["eval"],0)
+            self.p14_shot(f"teams-actions-{width}",width)
+
     def test_targeted_reaction_requires_current_collector_capability(self):
         self.seed_inbox(start_editing=False,target='synthetic-target-a')
         self.feed({'kind':'config'})
@@ -3284,6 +3300,11 @@ class InboxWebAcceptance(PageInChrome):
         self.edit("Intentional owner reply")
         self.edit("")
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
+
+    def p14_shot(self, name, width, height=874):
+        if os.environ.get("HUB_INBOX_SCREENSHOTS") and width in (402, 1240):
+            out = Path(os.environ["HUB_INBOX_SCREENSHOTS"]); out.mkdir(parents=True, exist_ok=True)
+            self.page({"viewport": {"width": width, "height": height}}, {"shot": str(out / f"{name}.png"), "width": width, "height": height})
 
     def force_lang(self, lang):
         """Page language as the shared T() reads it; survives later snapshots."""
