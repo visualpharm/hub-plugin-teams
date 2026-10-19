@@ -21,10 +21,10 @@ import { inboxAge } from "./inbox-time.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
-const SRC = { dm: "Личка", mention: "Упоминание", channel: "Канал", whatsapp: "WhatsApp", telegram: "Telegram", email: "Почта" };
-const SRCS = { dm: "Личка", mention: "Упоминания", channel: "Каналы", whatsapp: "WhatsApp", telegram: "Telegram", email: "Почта" };   // в фильтре
+const SRC = { dm: "Личка", mention: "Упоминание", channel: "Канал", whatsapp: "WhatsApp", telegram: "Telegram", get email() { return T("Почта", "Mail", "Correo"); } };
+const SRCS = { dm: "Личка", mention: "Упоминания", channel: "Каналы", whatsapp: "WhatsApp", telegram: "Telegram", get email() { return T("Почта", "Mail", "Correo"); } };   // в фильтре
 const TEAMS_SRCS = ["dm", "mention", "channel"];   // WhatsApp и почта — вкладки только у включённых каналов (sources.py)
-const NAMES = { teams: "Teams", whatsapp: "WhatsApp", telegram: "Telegram", email: "Почта" };   // чьё чтение: пост status с полем source
+const NAMES = { teams: "Teams", whatsapp: "WhatsApp", telegram: "Telegram", get email() { return T("Почта", "Mail", "Correo"); } };   // чьё чтение: пост status с полем source
 const statuses = new Map();   // источник → последний status процесса
 let hub = null;
 let newComposer = null;
@@ -684,7 +684,7 @@ async function mark(kind, data) {
   return true;
 }
 
-const SRC_FROM = (m) => (TEAMS_SRCS.includes(m.src) ? "Teams" : SRC[m.src] === "Почта" ? "почты" : SRC[m.src]);
+const SRC_FROM = (m) => (TEAMS_SRCS.includes(m.src) ? "Teams" : m.src === "email" ? T("почты", "Mail", "Correo") : SRC[m.src]);
 const sending = new Set();   // id сообщений, по которым запрос хабу ещё в пути: второе нажатие не шлёт дубль
 // «В работу» (владелец 14.10: «не будем отправлять, чтобы люди могли что-то дописать»): поле хаба, а не отправка —
 // служебная ссылка на пост уходит цитатой (метка «в ответ на», не его слова), в поле — короткое «Разбери.»
@@ -1292,13 +1292,13 @@ function personRow(key, group) {
 // Chat dates follow native calendar-day boundaries; source context lives above the thread.
 // Mail retains its dated header until its separate message-header presentation is aligned.
 const GAP = 3 * 3600e3;
-const clock = (d) => d.toLocaleTimeString(T("ru","en-GB"), { hour: "2-digit", minute: "2-digit" });
+const clock = (d) => d.toLocaleTimeString(document.documentElement.lang || T("ru","en-GB"), { hour: "2-digit", minute: "2-digit" });
 function dayLabel(iso, withTime=true) {
   const d = new Date(iso), now = new Date();
   if(!Number.isFinite(d.getTime()))return "";
   const day0 = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((day0(now) - day0(d)) / 864e5);
-  const date = diff === 0 ? T("Сегодня","Today") : diff === 1 ? T("Вчера","Yesterday") : d.toLocaleDateString(T("ru","en-GB"), { day: "numeric", month: "long" });
+  const date = diff === 0 ? T("Сегодня", "Today", "Hoy") : diff === 1 ? T("Вчера", "Yesterday", "Ayer") : d.toLocaleDateString(document.documentElement.lang || T("ru","en-GB"), { day: "numeric", month: "long" });
   return withTime ? `${date}, ${clock(d)}` : date;
 }
 
@@ -2089,7 +2089,7 @@ function placeSearch() {
   if (!ui?.search) return;
   const inBar = hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
   const input = ui.search.querySelector("input");
-  input.placeholder = inBar && innerWidth >= 900 ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search");
+  input.placeholder = inBar && innerWidth >= 900 ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search", "Buscar");
   if (inBar) { if (ui.search.parentNode !== toolbarRoot) toolbarRoot.append(ui.search); }
   else if (ui.search.parentNode === toolbarRoot) ui.listPane.insertBefore(ui.search, ui.list);
   ui.searchToggle.hidden = inBar;
@@ -2610,7 +2610,7 @@ function build(root) {
   const emptyDetail = el("section", "tm-empty-detail");
   emptyDetail.append(nativeIcon("inbox"), el("h2", null, T("Сообщение не выбрано", "No Message Selected")));
   const search = el("div", "tm-conversation-search"), searchInput = el("input");
-  searchInput.type = "search"; searchInput.placeholder = T("Поиск", "Search"); searchInput.value = searchQuery;
+  searchInput.type = "search"; searchInput.placeholder = T("Поиск", "Search", "Buscar"); searchInput.value = searchQuery;
   searchInput.setAttribute("aria-label", T("Поиск по перепискам", "Search conversations"));
   searchInput.addEventListener("input", () => { searchQuery = searchInput.value; paint(); });
   const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; searchOpen = true; paint(); searchInput.focus(); });
@@ -2621,7 +2621,7 @@ function build(root) {
   const foot = el("div", "tm-list-foot"), searchToggle = button("", "quiet tm-search-toggle", () => {
     searchOpen = !searchOpen; paint();
     if (searchOpen) searchInput.focus(); else if (searchQuery) { searchQuery = ""; searchInput.value = ""; paint(); }
-  }, T("Поиск", "Search"));
+  }, T("Поиск", "Search", "Buscar"));
   searchToggle.append(hub.icon("search")); foot.append(searchToggle, options);
   search.hidden = !searchQuery;
   listPane.append(head, search, listNode, foot); detail.hidden = true;
@@ -2653,6 +2653,7 @@ function registerView() {
     async render(root, snap) {
       for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
       if (!ui || ui.root !== root) { build(root); if (!loaded) restoreCache(); paint(); }
+      if (ui.lang !== document.documentElement.lang) { ui.lang = document.documentElement.lang; paint(); }
       const last = snap?.feeds?.teams || 0;
       if (!loaded || last > since) {
         const first = !loaded;
