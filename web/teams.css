@@ -514,9 +514,9 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-signature[hidden] { display: none; }
 .tm-native-footer .tm-discard { flex: none; margin-left: auto; }
 @media (max-width: 899px) {
-  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; width: 100%; grid-column: 1 / -1; }
-  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > * { grid-area: auto; }
-  .app .tm-shared-compose .tm-native-footer, .tm-native-footer { grid-column: 1 / -1; grid-row: 1; }
-  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .send { grid-row: 2; grid-column: 2; }
-  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions .tm-send-options { grid-row: 2; grid-column: 3; grid-area: auto; }
+  .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; width: 100%; grid-column: 1 / -1; }
+  .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > * { grid-area: auto; }
+  .tm-native-footer { grid-column: 1 / -1; grid-row: 1; }
+  .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .send { grid-row: 2; grid-column: 2; }
+  .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions .tm-send-options { grid-row: 2; grid-column: 3; grid-area: auto; }
 }

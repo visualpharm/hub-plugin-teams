@@ -716,7 +716,8 @@ function conversationOptions(m, title=null) {
   const summary = el("summary", "btn quiet");
   summary.setAttribute("aria-label", title===null ? "Conversation options" : `${title}: Conversation options`);
   if(title!==null)menu.classList.add('tm-title-options');
-  summary.append(hub.icon("menu"));
+  if(title!==null && !nativeFooter())summary.append(el('b','tm-from',title));   // web-1 draws the name itself, as a direct child of the head
+  else summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
   const toggle = button(pins.has(id) ? "Unpin conversation" : "Pin conversation", "quiet", () => {
     togglePin(m);
@@ -1817,7 +1818,7 @@ function reactionRow(m) {
 const quickDialogs=new Map();
 // ⚡ and the conversation search live in the page toolbar when the core offers one (viewToolbar); otherwise in the thread head / list.
 let toolbarRoot = null;
-const toolbarReady = () => hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
+const toolbarReady = () => nativeFooter() && hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
 function quickButton() {
   const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));
   quick.append(nativeIcon('quick'));return quick;
@@ -1877,7 +1878,8 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const sourceLabel=conversationSources(ms);
   const headerSource=el("span","tm-header-source tm-head-source",sourceLabel);headerSource.title=sourceLabel;
   const name=personName(last.from) || "—", options=conversationOptions(last,detail ? name : null);
-  if(detail)head.append(el("b","tm-from",name),headerSource,options);
+  if(detail && nativeFooter())head.append(el("b","tm-from",name),headerSource,options);
+  else if(detail)head.append(options,headerSource);
   else head.append(el("b","tm-from",name),headerSource,options);
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
