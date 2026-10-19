@@ -3075,7 +3075,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({"eval":"document.querySelector('.tm-detail').checkVisibility()"})[-1]["eval"])
         search("no possible match")
         self.page({"tapSelector":"[aria-label='Clear conversation search']"},{"until":"document.querySelectorAll('.tm-person').length===2"})
-        self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Search conversations")
+        self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Поиск по перепискам")
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"})
         for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
             got=self.page({"media":theme},{"viewport":{"width":width,"height":874}}, {"eval":"(()=>{const r=document.querySelector('.tm-conversation-search').getBoundingClientRect(),p=document.querySelector('.tm-person').getBoundingClientRect();return {bottom:r.bottom,height:r.height,row:p.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
