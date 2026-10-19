@@ -297,12 +297,26 @@
 .tm-suggested-label, .tm-draft-stale { color: var(--muted-foreground); }
 .tm-draft-stale { margin: 0 0 8px; }
 .tm-suggested-reaction .tm-send-reaction { min-height: 44px; border-radius: 22px; padding-inline: 16px; }
+/* I-54: «В работу» и стрелка выбора агента — одна кнопка с меню, как на Mac */
+.tm-handoff-split { display: inline-flex; align-items: stretch; gap: 2px; position: relative; }
+.tm-handoff { position: relative; display: flex; }
+.tm-handoff > summary { list-style: none; cursor: pointer; }
+.tm-handoff > summary::-webkit-details-marker { display: none; }
+.tm-thread .tm-handoff-split > .tm-action { border-radius: 22px 6px 6px 22px; }
+.tm-thread .tm-handoff > .tm-action { border-radius: 6px 22px 22px 6px; min-width: 36px; padding-inline: 8px; }
+.tm-handoff-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 20; display: grid; gap: 8px; min-width: 260px; max-width: min(360px, 90vw);
+  padding: 12px; border-radius: 12px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / .18)); }
+.tm-handoff-agent { display: grid; gap: 4px; }
+.tm-handoff-agent select { min-height: 44px; font: inherit; }
+.tm-handoff-menu .tm-latest-thread { min-height: 44px; justify-content: flex-start; text-align: left; white-space: normal; }
 /* d433431: one row above the composer — icons on a phone (the name stays in aria-label and title), words where they fit */
 @container inbox-thread (max-width: 560px) {
   .tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action { flex: 1 1 0; min-width: 44px; padding-inline: 0; }
   .tm-thread > .tm-acts > * { flex: 1 1 0; display: flex; }
   .tm-thread > .tm-acts .tm-action-label { display: none; }
 }
+/* a flat list card also carries «Ответить»: there the row may wrap instead of overflowing a phone */
+.tm-list > .tm-thread > .tm-acts { flex-wrap: wrap; }
 
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
 .tm-icon-archive { --tm-icon: url("icons/archive.svg"); }

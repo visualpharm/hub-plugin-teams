@@ -1209,6 +1209,46 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):
+        # I-54: «Hand it to Noe, make it possible to change the agent; a quick item to send to the latest thread»
+        self.ev("session.requested", "noe", session_id="s-noe", cwd="/noe", role="agent", about="Assistant", channel="cli", owner=True)
+        self.ev("session.started", "noe", session_id="s-noe")
+        self.ev("session.requested", "visited", session_id="s-visited", cwd="/visited", channel="cli", owner=True)
+        self.ev("session.started", "visited", session_id="s-visited")
+        self.seed_inbox(start_editing=False)
+        menu=".tm-thread > .tm-acts .tm-handoff"
+        recent="localStorage.setItem('hub.recent',"+json.dumps(json.dumps([{"route":"#/s/visited","title":"visited"}]))+");document.querySelector('.tm-close-conversation').click();document.querySelector('.tm-person').click();true"
+        self.page({'eval':recent},{'until':"!!document.querySelector('"+menu+"')"})
+        got=self.page({'tapSelector':menu+" > summary"},{'until':"document.querySelector('"+menu+"').open"},
+                      {'eval':"(()=>{const m=document.querySelector('"+menu+"');return {agents:[...m.querySelectorAll('select option')].map(o=>o.value),value:m.querySelector('select').value,"
+                             "latest:m.querySelector('.tm-latest-thread').textContent,disabled:m.querySelector('.tm-latest-thread').disabled}})()"})
+        self.assertTrue(got[-2]['until'],got)
+        got=got[-1]['eval']
+        self.assertEqual(got['value'],'hub');self.assertIn('noe',got['agents']);self.assertIn('hub',got['agents']);self.assertNotIn('visited',got['agents'])
+        self.assertEqual((got['latest'],got['disabled']),('В последний тред: visited',False))
+        self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
+        # choosing Noe sends nothing; «В работу» then prepares Noe's composer with the exact source quote
+        self.page({'eval':"(()=>{const s=document.querySelector('"+menu+" select');s.value='noe';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"})
+        self.assertEqual(self.non_history_actions(),[])
+        self.assertIn('noe',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').getAttribute('title')+document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
+        self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').click();true"})
+        got=self.page({'until':"location.hash==='#/s/noe' && document.getElementById('msg')?.value==='Разбери.'"},{'eval':"location.hash"})
+        self.assertTrue(got[-2]['until'],got)
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[],'Preparing a review never sends by itself')
+        # the quick item queues one review in the latest opened thread, with the exact post
+        self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'eval':"document.querySelector('.tm-person').click();true"},
+                  {'until':"!!document.querySelector('"+menu+"')"},{'eval':recent},{'until':"!!document.querySelector('"+menu+"')"})
+        self.page({'tapSelector':menu+" > summary"},{'until':"document.querySelector('"+menu+"').open"},{'tapSelector':menu+" .tm-latest-thread"})
+        sent=[e for e in self.non_history_actions() if e['type']=='message.received']
+        deadline=time.monotonic()+5
+        while not sent and time.monotonic()<deadline:
+            time.sleep(.1);sent=[e for e in self.non_history_actions() if e['type']=='message.received']
+        self.assertEqual(len(sent),1,sent)
+        self.assertEqual(sent[0]['data'].get('to'),'visited',sent);self.assertEqual(sent[0]['data'].get('client_id') is not None,True,sent)
+        got=self.page({'until':"document.querySelector('.tm-handoff-status')?.textContent.includes('Передано в visited')"},
+                      {'tapSelector':menu+" > summary"},{'eval':"document.querySelector('"+menu+" .tm-latest-thread').disabled"})
+        self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-1]['eval'],'A queued handoff is not offered twice')
+
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
@@ -3185,7 +3225,7 @@ class InboxWebAcceptance(PageInChrome):
             self.assertLessEqual(got["actions"],got["composer"],got)
             self.assertLessEqual(got["footer"],844,got)
             self.assertEqual(got["overflow"],0,got)
-            icons=self.page({'eval':"[...document.querySelectorAll('.tm-acts .tm-action > .icon,.tm-acts .tm-action > .tm-native-icon')].map(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height}))"})[-1]['eval']
+            icons=self.page({'eval':"[...document.querySelectorAll('.tm-acts .tm-action:not(.tm-handoff-toggle) > .icon,.tm-acts .tm-action > .tm-native-icon')].map(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height}))"})[-1]['eval']
             self.assertEqual(len(icons),4,icons)
             self.assertEqual(len({(i['width'],i['height']) for i in icons}),1,{'width':width,'icons':icons})
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):
@@ -3194,7 +3234,7 @@ class InboxWebAcceptance(PageInChrome):
         link=self.page({"eval":"({href:document.querySelector('.tm-thread > .tm-head .tm-link')?.href,label:document.querySelector('.tm-thread > .tm-head .tm-link')?.getAttribute('aria-label'),actions:[...document.querySelectorAll('.tm-thread > .tm-acts .tm-action')].map(b=>b.getAttribute('aria-label'))})"})[-1]["eval"]
         self.assertEqual(link["href"],"https://teams.microsoft.com/l/message/synthetic-source-a",link)
         self.assertEqual(link["label"],"Открыть в Teams",link)
-        self.assertEqual(link["actions"],["Убрать сообщения Review colleague","Реакция для Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague"],link)
+        self.assertEqual(link["actions"],["Убрать сообщения Review colleague","Реакция для Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague","Кому передать"],link)
 
     def test_message_actions_are_one_row_icons_on_phone_words_on_desktop(self):
         # d433431: Archive / React / Draft / Hand off — one row above the composer; icons on a phone, words on a desktop
@@ -3398,7 +3438,7 @@ class InboxWebAcceptance(PageInChrome):
         """Every label of the open thread panel: text, accessible name, tooltip and placeholder (not message bodies)."""
         return self.page({"eval": "[...document.querySelectorAll('.tm-detail :is(button,summary,a,select,option,textarea,input,[role=img],[role=status],.tm-note,.tm-divider,.tm-draft-by,.tm-draft-why,.tm-reaction-status,.tm-sus,.tm-action-label)')]"
                           ".filter(n=>!n.closest('.tm-line > .tm-text'))"
-                          ".flatMap(n=>[n.matches('button,summary,option,.tm-note,.tm-divider,.tm-draft-by,.tm-draft-why,.tm-reaction-status,.tm-sus,.tm-action-label,[role=status]') ? n.textContent.trim() : '',"
+                          ".flatMap(n=>[n.matches('button,summary,.tm-note,.tm-divider,.tm-draft-by,.tm-draft-why,.tm-reaction-status,.tm-sus,.tm-action-label,[role=status]') ? n.textContent.trim() : '',"
                           "n.getAttribute('aria-label')||'',n.getAttribute('title')||'',n.getAttribute('placeholder')||''])"
                           ".map(t=>t.replace(/Review colleague|Teams|WhatsApp|Telegram|Hub|⌘F/g,'').trim()).filter(t=>/\\p{L}/u.test(t))"})[-1]["eval"]
 
