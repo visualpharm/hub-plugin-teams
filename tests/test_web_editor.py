@@ -373,6 +373,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
         self.page({'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})[-1]['until'])
+        self.page({'eval':"document.querySelector('.tm-search-toggle').click();true"})   # the search field opens from the list footer
         for theme in ('light','dark'):
             for width in (360,402,834,1240,1440):
                 self.page({'media':theme},{'viewport':{'width':width,'height':874}})
@@ -2816,7 +2817,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('New message while typing')"})[-1]['until'])
         self.assertEqual(self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-instruction').open})"})[-1]['eval'],got)
         self.page({'key':'Escape'})
-        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && __instruction.value==='Keep my exact instruction'"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_flat_card_draft_menu_keeps_readable_width_and_bounds(self):
