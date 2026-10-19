@@ -373,6 +373,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
         self.page({'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})[-1]['until'])
+        self.page({'eval':"document.querySelector('.tm-search-toggle').click();true"})   # the search field opens from the list footer
         for theme in ('light','dark'):
             for width in (360,402,834,1240,1440):
                 self.page({'media':theme},{'viewport':{'width':width,'height':874}})
@@ -831,7 +832,7 @@ class InboxWebAcceptance(PageInChrome):
             self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
             got=self.page({'eval':"(()=>{const e=document.querySelector('.tm-empty-detail');if(!e)return null;const r=e.getBoundingClientRect(),root=document.querySelector('.tm'),p=root.getBoundingClientRect(),l=document.querySelector('.tm-list-pane').getBoundingClientRect();return {visible:e.checkVisibility(),narrow:document.querySelector('.tm-container').classList.contains('tm-narrow'),title:e.querySelector('h2').textContent,width:r.width,left:r.left,listRight:l.right,bottom:r.bottom,rootBottom:p.bottom,overflow:document.documentElement.scrollWidth-innerWidth,retained:__retainedReply.isConnected,text:__retainedReply.value}})()"})[-1]['eval']
             self.assertIsNotNone(got,'Missing native unselected detail')
-            self.assertEqual(got['visible'],not got['narrow'],(width,got));self.assertEqual(got['title'],'No Message Selected')
+            self.assertEqual(got['visible'],not got['narrow'],(width,got));self.assertEqual(got['title'],'Сообщение не выбрано')
             self.assertEqual(got['overflow'],0);self.assertTrue(got['retained']);self.assertEqual(got['text'],'Retained while browsing the list')
             if got['visible']:
                 self.assertGreaterEqual(got['width'],400);self.assertGreaterEqual(got['left'],got['listRight']-1);self.assertLessEqual(got['bottom'],got['rootBottom']+1)
@@ -858,7 +859,7 @@ class InboxWebAcceptance(PageInChrome):
             self.assertGreaterEqual(got['surfaceDifference'],12,(width,got))
             self.page({'tapSelector':'.tm-search-empty button'})
             self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
-            self.assertEqual(self.page({'eval':"document.activeElement.getAttribute('aria-label')"})[-1]['eval'],'Search conversations')
+            self.assertEqual(self.page({'eval':"document.activeElement.getAttribute('aria-label')"})[-1]['eval'],'Поиск по перепискам')
         self.page({'tapSelector':'.tm-person'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this exact unsent reply')
         self.assertEqual(self.non_history_actions(),before)
@@ -1023,7 +1024,7 @@ class InboxWebAcceptance(PageInChrome):
         for width in (360,402,834,1240,1440):
             self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
             got=self.page({'eval':"(()=>{const root=document.querySelector('.tm-container'),head=document.querySelector('.tm-thread > .tm-head'),name=head.querySelector('.tm-from'),source=head.querySelector('.tm-header-source'),history=document.querySelector('.tm-conversation-source'),r=n=>n?.getBoundingClientRect();return {narrow:root.classList.contains('tm-narrow'),header:!!source&&source.checkVisibility(),history:history.checkVisibility(),label:source?.textContent,nameAlign:getComputedStyle(name).textAlign,after:!!source&&r(source).left>=r(name).right,overflow:document.documentElement.scrollWidth-innerWidth,hit:[...head.querySelectorAll('summary,button,a')].filter(n=>n.checkVisibility()).every(n=>{const b=r(n);return n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))})}})()"})[-1]['eval']
-            self.assertEqual(got['header'],not got['narrow'],(width,got));self.assertEqual(got['history'],got['narrow'],(width,got))
+            self.assertTrue(got['header'],(width,got));self.assertFalse(got['history'],(width,got))   # the source sits under/beside the name at every width, never twice
             self.assertEqual(got.get('label'),'Teams · Design account');self.assertEqual(got['overflow'],0);self.assertTrue(got['hit'],got)
             if not got['narrow']:
                 self.assertEqual(got['nameAlign'],'left');self.assertTrue(got['after'],got)
@@ -2326,7 +2327,7 @@ class InboxWebAcceptance(PageInChrome):
         for width in (360,390,768,834,1024,1280,1440):
             got=self.page({'viewport':{'width':width,'height':874}},{'sleep':100},
               {'eval':"(()=>{const pane=document.querySelector('.tm-list-pane').getBoundingClientRect();return [...document.querySelectorAll('.tm-bar button,.tm-bar > details > summary')].filter(n=>n.getBoundingClientRect().width).map(n=>{const r=n.getBoundingClientRect();return {label:n.getAttribute('aria-label'),left:r.left,right:r.right,paneLeft:pane.left,paneRight:pane.right,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}})})()"})[-1]['eval']
-            self.assertEqual(len(got),7,got)
+            self.assertEqual(len(got),6,got)
             for control in got:
                 self.assertGreaterEqual(control['left'],control['paneLeft'],(width,control))
                 self.assertLessEqual(control['right'],control['paneRight'],(width,control))
@@ -2648,7 +2649,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"window.__realFetch=window.fetch;window.fetch=async(u,o)=>{if(String(u).endsWith('/api/feed/post')){const q=JSON.parse(JSON.parse(o.body).text);if(q.kind==='send'){window.__original=q;throw Error('Synthetic lost acknowledgement')}}return __realFetch(u,o)};document.querySelector('.tm-shared-compose form').requestSubmit();true"},
                   {'until':"!!window.__original && !!document.querySelector('.tm-mine-unresolved')"})
         q=self.page({'eval':'__original'})[-1]['eval']
-        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"})
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'viewport':{'width':402,'height':874}},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"})
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose textarea')"})[-1]['eval'])
         self.feed({'kind':'send_duplicate','state':'sent','receipt':{'id':'synthetic-delivery'},'id':q['id'],'rid':q['rid'],'target':q['target'],'version':q['inbox']['version']})
         self.assertTrue(self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['until'])
@@ -2816,7 +2817,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('New message while typing')"})[-1]['until'])
         self.assertEqual(self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-instruction').open})"})[-1]['eval'],got)
         self.page({'key':'Escape'})
-        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && __instruction.value==='Keep my exact instruction'"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_flat_card_draft_menu_keeps_readable_width_and_bounds(self):
@@ -3058,7 +3059,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind":"msg", "id":"source-b", "contact":"synthetic-account/conversation-b", "src":"dm", "from":"Review colleague",
                    "text":"Different conversation", "at":"2026-01-02T12:00:00Z", "reply":True})
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"}, {"until":"document.querySelectorAll('.tm-person').length===2"})
-        self.assertTrue(self.page({"eval":"!!document.querySelector('input[aria-label=\"Search conversations\"]')"})[-1]["eval"])
+        self.assertTrue(self.page({"eval":"!!document.querySelector('input[aria-label=\"Поиск по перепискам\"]')"})[-1]["eval"])
         def search(value):
             return self.page({"eval":"(()=>{const s=document.querySelector('.tm-conversation-search input');s.value="+json.dumps(value)+";s.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
         search("TELESCOPE")
