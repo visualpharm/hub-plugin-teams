@@ -49,3 +49,8 @@ management work owns the protocol; this slice changes only its web consumer.
 - Preserve newer local/cross-tab drafts and failed history. Transfer only an untouched old pending tombstone; clear it only on the matching accepted receipt. Refused storage causes no transport.
 - A lost retry acknowledgment persists the new request; reload never sends automatically and explicit reconciliation reuses that exact request. Existing uncertain outcomes never become fresh Retry requests.
 - Compare the pinned native failed-bubble controls, with at least 44px hit targets on phone/tablet/desktop. Functional acceptance does not imply exact screen parity.
+
+## Media list preview target (pinned0597a826)
+- LetterRow uses the first attachment label followed by its14px media-type glyph when no message text exists. Audio prefers transcript, otherwise voice label plus m:ss duration; files use their name.
+- Collapse preview newlines; preserve two-line clamp and outgoing folder preview priority. Thumbnails are44px squares, radius8, gap8; explicit video/file thumbnails are valid too.
+- Source tests and synthetic captures do not prove actual Safari or complete native pixel parity.

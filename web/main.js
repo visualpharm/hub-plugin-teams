@@ -799,6 +799,19 @@ function mediaKind(m) {
   return "file";
 }
 const mediaLabel = (m) => ({image:"Photo",audio:"Voice message",video:"Video",file:"File"})[mediaKind(m)];
+// Native LetterRow previews the first attachment, retaining transcripts and filenames.
+const listLine = text => String(text || "").split(/[\r\n]+/).filter(Boolean).join(" ");
+function listMediaLabel(m) {
+  const kind=mediaKind(m);
+  if(kind==="audio") {
+    const transcript=typeof (m.text ?? m.transcript)==="string" ? (m.text ?? m.transcript) : "";
+    if(transcript.trim())return listLine(transcript);
+    const duration=typeof m.duration==="number" && Number.isFinite(m.duration) && m.duration>=0 ? " "+voiceClock(m.duration) : "";
+    return T("Голосовое","Voice message")+duration;
+  }
+  if(kind==="file")return typeof m.name==="string" && m.name.trim() ? listLine(m.name) : T("Файл","File");
+  return kind==="image" ? T("Фото","Photo") : T("Видео","Video");
+}
 function mediaURL(raw) {
   if (typeof raw !== "string" || !raw || raw.startsWith("//")) return "";
   try {
@@ -1015,10 +1028,16 @@ function personRow(key, group) {
   }
   row.append(head);
   const reply = folderReplyPreview(group);
-  const media = reply === null ? mediaList(latest) : [], text = el("div", "tm-text tm-clamp", reply ?? (messageText(latest) || media.map(mediaLabel).join(", ")));
+  const media = reply === null ? mediaList(latest) : [], line=listLine(reply ?? messageText(latest));
+  const text = el("div", "tm-text tm-clamp", line);
+  if(!line && media.length) {
+    text.classList.remove("tm-clamp");text.classList.add("tm-media-label");
+    text.append(el("span","tm-clamp",listMediaLabel(media[0])),nativeIcon({image:"image",audio:"mic",video:"video",file:"doc"}[mediaKind(media[0])]));
+  }
   const preview = el("div", "tm-preview"); preview.append(text);
-  const photo = media.find(m => mediaKind(m) === "image" && mediaURL(m.url || m.path));
-  if (photo) { const img = el("img"); img.src = mediaURL(photo.thumb && typeof photo.thumb === "string" ? photo.thumb : photo.url || photo.path); img.alt = photo.name || "Photo"; img.loading = "lazy"; preview.append(img); }
+  const thumbnail = m => mediaURL(typeof m.thumb==="string" && m.thumb ? m.thumb : mediaKind(m)==="image" ? m.url || m.path : "");
+  const photo = media.find(m => thumbnail(m));
+  if (photo) { const img = el("img"); img.src = thumbnail(photo); img.alt = photo.name || mediaLabel(photo); img.loading = "lazy"; preview.append(img); }
   row.append(preview);
   const open = () => {
     see(group); dmPerson = key; toBottom = true;

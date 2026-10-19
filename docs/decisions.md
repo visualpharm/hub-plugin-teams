@@ -457,3 +457,6 @@ Decided: make the conversation name the detail menu trigger, combining conversat
 
 ## 2026-10-18 — Compact Inbox list ages
 Inbox list rows use the native compact age convention: now, minutes, hours, calendar yesterday, days, then a date. Exact dates remain available on hover and through the time element. Delivery sentences retain their existing timestamp semantics. The plugin refreshes its own list labels every 30 seconds without repainting the conversation or drafts; separate selectors prevent the core updater from replacing compact labels.
+
+## 2026-10-18 · Native media previews in Inbox lists
+Use the first attachment label and its shared native14px type icon for media-only rows, preserving voice transcripts/duration and filenames. Caption and outgoing text stay plain two-line previews with newlines collapsed. Use44px thumbnails and8px preview gaps, including supplied video/file thumbnail URLs through the existing URL validator. No collector, send, draft or read-state change. Undo by reverting this presentation slice.
