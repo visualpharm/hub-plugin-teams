@@ -384,7 +384,7 @@ function restoreCache() {
 let cacheAt = 0;
 // без связи — повтор каждые 5 с; на связи — проверка раз в 15 с, пока Inbox открыт: снимков ядра без хаба не будет
 function watchConnection() {
-  clearTimeout(retryTimer); retryTimer = null;
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (offline) retryTimer = setTimeout(async () => { retryTimer = null; if (ui?.root.isConnected && (await sync())) paint(); }, 5000);
 }
 const inboxCount = () => byPerson([...msgs.values()].filter((m) => !done(m))).size;
