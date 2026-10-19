@@ -292,9 +292,8 @@
 .tm-thread > .tm-head .tm-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: auto; }
 .tm-thread { container: inbox-thread / inline-size; }
 @container inbox-thread (max-width: 560px) {
-  .tm-thread > .tm-acts .tm-action { flex: 1; padding-inline: 0; }
-  .tm-action-label { display: none; }
-  .tm-action .tm-native-icon, .tm-action .icon { width: 28px; height: 28px; }
+  .tm-thread > .tm-acts { display: grid; grid-template-columns: 1fr 1fr; }
+  .tm-thread > .tm-acts .tm-action { padding-inline: 14px; justify-content: flex-start; }
 }
 
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
@@ -481,3 +480,23 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" ". attach discard actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-shared-compose form.composer .btn.round.send { width: auto; min-width: 44px; padding: 0 14px 0 10px; border: 0; border-radius: 22px; gap: 6px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .tm-shared-compose form.composer .btn.round.send[data-label]::after { content: attr(data-label); }
+
+/* Native scale and placement of the Inbox detail (ui-expert review, 2026-10-19). */
+.tm-container:not(.tm-narrow) .tm-close-conversation { display: none; }
+.tm-conversation-search[hidden] { display: none; }
+.tm-list-foot { position: relative; flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 12px 8px; }
+.tm-list-foot > .tm-options { margin-left: auto; }
+.tm-list-foot .tm-options-panel { top: auto; bottom: calc(100% + 4px); inset-inline: 8px; }
+.tm-search-toggle { width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 22px; }
+.tm-search-toggle .icon { width: 22px; height: 22px; }
+.tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
+.tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
+.tm-instruction > summary { display: flex; align-items: center; gap: 6px; list-style: none; }
+.tm-instruction > summary::-webkit-details-marker { display: none; }
+.tm-instruction > summary .icon { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); transform: rotate(-90deg); transition: transform 0.15s; }
+.tm-instruction[open] > summary .icon { transform: none; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-draft, .tm-instruction > summary, .tm-rich-text) { font-size: 14px; }
+.tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.tm-narrow .tm-detail .tm-conversation-source { display: none; }
+.tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
+.tm .tm-earlier { background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); }

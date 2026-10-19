@@ -1003,6 +1003,7 @@ function refreshListAges() {
 }
 let agesTimer=null;
 
+let searchOpen = false;
 let autoOpen = true;   // как на Mac: при входе в широкий Inbox открыта первая переписка; потом выбирает владелец
 function openPerson(key, group) {
   autoOpen = false;
@@ -1286,6 +1287,7 @@ function sharedReply(m, st) {
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
     if (st.state) {
       const details = el("details", "tm-instruction"), summary = el("summary", null, T("Личное указание к черновику", "Private draft instruction"));
+      summary.prepend(hub.icon("chevron-down"));
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
       directive.placeholder = T("Расскажи ему о…", "Tell them about…");
       directive.setAttribute("aria-label", T("Личное указание к черновику", "Private draft instruction"));
@@ -2061,6 +2063,8 @@ function paintAll() {
   const rows = () => matching.length ? matching.map(([key, group]) => personRow(key, group))
     : [noSearchResults()];
   ui.clearSearch.hidden = !searchQuery;
+  ui.search.hidden = !(searchQuery || searchOpen);
+  ui.searchToggle.setAttribute("aria-pressed", String(!ui.search.hidden));
   ui.bulk.replaceChildren();
   if (tab === "new" && items.length > 1) {
     if (!confirmAll) ui.bulk.append(button(`Скрыть все (${items.length})`, "quiet", () => { confirmAll = true; paint(); }));
@@ -2236,7 +2240,7 @@ function build(root) {
   controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
   const newTrigger = button("", "quiet tm-new-trigger", () => newComposer.open(), T("Новое сообщение", "New message"));
   newTrigger.append(hub.icon("edit"));
-  bar.append(tabs,sort,newTrigger,options);
+  bar.append(tabs,sort,newTrigger);
   const panelNode = el("div", "tm-panel");
   panelNode.id = "tm-panel";
   panelNode.hidden = true;
@@ -2276,10 +2280,17 @@ function build(root) {
   clearSearch.append(hub.icon("close")); clearSearch.setAttribute("aria-label", "Clear conversation search");
   search.append(hub.icon("search"), searchInput, clearSearch);
   listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
-  listPane.append(head, listNode, search); detail.hidden = true;
+  // Settings and the conversation search are not filters: one quiet footer row, as the native list has no search field
+  const foot = el("div", "tm-list-foot"), searchToggle = button("", "quiet tm-search-toggle", () => {
+    searchOpen = !searchOpen; paint();
+    if (searchOpen) searchInput.focus(); else if (searchQuery) { searchQuery = ""; searchInput.value = ""; paint(); }
+  }, T("Поиск", "Search"));
+  searchToggle.append(hub.icon("search")); foot.append(searchToggle, options);
+  search.hidden = !searchQuery;
+  listPane.append(head, search, listNode, foot); detail.hidden = true;
   wrap.append(listPane, detail, emptyDetail);
   root.replaceChildren(wrap);
-  ui = { root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
