@@ -1591,13 +1591,21 @@ export function splitDraft(reply) {
   return { text: lines.slice(0, i).join("\n").trim(), why };
 }
 
+// Заметка владельцу — одной фразой, как на Mac/iPhone: служебные метки («Context:», «Next action:», «Контекст:», «Следующий шаг:»)
+// снимаются, строки склеиваются в предложения
+const WHY_LABEL = /^\s*(?:Контекст|Следующий шаг|Следующее действие|Почему|Context|Next action|Why|Contexto|Siguiente paso|Por qué)\s*:\s*/i;
+export function whyLine(why) {
+  const parts = String(why || "").split("\n").map((l) => l.replace(WHY_LABEL, "").trim()).filter(Boolean);
+  return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p)).map((p, i) => (i < parts.length - 1 ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
+}
+
 function draftBlock(m, r) {
   const d = el("div", "tm-draft");
   const by = el("div", "tm-draft-by", `Черновик ответа · ${r.by} · `);
   by.append(stamp(r.ts));
   const { text, why } = splitDraft(r.text);
   d.append(by, replyText(el,text));
-  if (why) d.append(el("div", "tm-draft-why", `Почему: ${why}`));
+  if (why) d.append(el("div", "tm-draft-why", `Почему: ${whyLine(why)}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
@@ -1967,7 +1975,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if(hub.input){const quick=quickButton();head.append(quick);}   // web-1 hides it in the head from 900px, where the toolbar has its own
   const guidance = composeFor && composing.get(composeFor.id)?.why;
   if (guidance) {
-    const explanation=el("div","tm-guidance");explanation.append(el("div",null,guidance));box.append(explanation);
+    const explanation=el("div","tm-guidance");explanation.append(el("div",null,whyLine(guidance)));box.append(explanation);
   }
   const reactionTarget = ms.find(m=>m.id === reacting);
   if (reactionTarget) box.append(reactionRow(reactionTarget));
