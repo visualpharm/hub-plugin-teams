@@ -555,3 +555,12 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-narrow .tm-thread > .tm-acts .tm-action { padding-inline: 10px; gap: 4px; }
 .tm-narrow .tm-thread > .tm-acts .tm-action-label { font-size: 14px; }
 .tm-narrow .tm-thread > .tm-acts .tm-action .tm-native-icon, .tm-narrow .tm-thread > .tm-acts .tm-action .icon { width: 22px; height: 22px; flex: none; }
+
+/* m571766: строка адресата — первая строка внутри поля ответа наружу (Кому · имя · канал), шрифт 13, всегда видна */
+.tm-to-field { position: relative; }
+.tm-shared-compose .tm-to-field > form.composer { padding-top: 32px; }
+.tm-to-line { position: absolute; top: 10px; left: 14px; right: 52px; z-index: 1; display: flex; align-items: baseline; min-width: 0;
+  font-size: 13px; line-height: 18px; white-space: nowrap; pointer-events: none; color: var(--muted-foreground); }
+.tm-to-line > .tm-to-label { flex: none; margin-right: 4px; }
+.tm-to-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--foreground); }
+.tm-to-channel { flex: none; }

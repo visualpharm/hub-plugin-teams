@@ -1555,7 +1555,9 @@ function sharedReply(m, st) {
     const archive=button(T("Отправить и убрать","Send and Archive"),"quiet tm-send-archive",()=>chooseSend(null,'archive'));
     for(const b of [now,archive])b.prepend(hub.icon('allow'));
     st.updateSendAction=()=>{
-      const action=sendAction(),label=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить сейчас','Send now'),caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
+      // кнопка называет, кому уйдёт ответ (m571766): «Отправить Fantix Tickets»
+      const who=personName(msgs.get(m.id)?.from || m.from) || T('собеседнику','recipient');
+      const action=sendAction(),label=action==='archive' ? T(`Отправить ${who} и убрать`,`Send to ${who} and Archive`) : T(`Отправить ${who}`,`Send ${who}`),caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
       archive.dataset.available=String(archiveSupported);
       for(const [b,a] of [[now,'send'],[archive,'archive']])b.setAttribute('aria-pressed',String(action===a));
       const primary=st.box?.node.querySelector('button[type=submit].send');
@@ -1631,7 +1633,7 @@ function sharedReply(m, st) {
     }
     if(!trailing)leading.append(sendMenu);
     const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m),
-      label: T("Ответ: ","Reply to ") + (personName(m.from) || T("собеседнику","recipient")), placeholder: T("Ответ…", "Reply…"), attachments: acceptsFiles(m), maxLength: 1500,
+      label: T("Ответ: ","Reply to ") + (personName(m.from) || T("собеседнику","recipient")), placeholder: T("Ответ", "Reply"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
       onChange(text) { text = withSignature(text,m); st.suggested=false; st.text = text; st.discard.hidden=!(replyBody(text,m).trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
@@ -1712,9 +1714,23 @@ function sharedReply(m, st) {
       else { composing.delete(m.id); paint(); }
     });
     optionsBody.append(close);
-    wrap.append(box.node, feedback);
+    // m571409/m571766: поле наружу по виду отличает только строка адресата — первая строка внутри поля, всегда видна,
+    // не прокручивается с текстом; в полях хаба её нет. Слота в общем композере нет — строка лежит поверх его верхнего поля
+    const field = el("div", "tm-to-field"), to = st.toLine = el("div", "tm-to-line");
+    field.append(to, box.node);
+    wrap.append(field, feedback);
   }
   st.box.set({});
+  if (st.toLine) {
+    const current = msgs.get(m.id) || m, name = personName(current.from) || T("собеседник", "recipient");
+    const channel = TEAMS_SRCS.includes(current.src) ? "Teams" : current.src === "email" ? T("Почта", "Mail", "Correo") : SRC[current.src] || current.src;
+    const sig = JSON.stringify([name, channel, T("ru", "en")]);
+    if (st.toLine.dataset.sig !== sig) {
+      st.toLine.dataset.sig = sig;
+      st.toLine.replaceChildren(el("span", "tm-to-label", T("Кому", "To")), " ", el("b", "tm-to-name", name), el("span", "tm-to-channel", ` · ${channel}`));
+      st.toLine.title = `${T("Кому", "To")} ${name} · ${channel}`;
+    }
+  }
   replyLayout(st);
   const state = st.state, p = state?.proposal;
   if (st.signatureNode) { st.signatureNode.textContent = signature.replace(/_([^_]+)_/g, "$1"); st.signatureNode.hidden = !(signature && m.sign); }

@@ -1273,6 +1273,57 @@ class InboxWebAcceptance(PageInChrome):
             self.assertTrue(got[-2]['until'],(width,got));self.assertEqual(got[-1]['eval'],'')
         self.assertEqual(self.non_history_actions(),[])
 
+    def recipient_line(self):
+        return self.page({"eval":"(()=>{const f=document.querySelector('.tm-shared-compose form.composer'),l=document.querySelector('.tm-shared-compose .tm-to-line'),t=f?.querySelector('textarea'),s=f?.querySelector('button[type=submit]');"
+                          "if(!l)return null;const fr=f.getBoundingClientRect(),lr=l.getBoundingClientRect(),tr=t.getBoundingClientRect(),c=l.querySelector('.tm-to-channel').getBoundingClientRect(),n=l.querySelector('.tm-to-name');"
+                          "return {text:l.textContent,visible:l.checkVisibility(),inside:lr.top>=fr.top&&lr.bottom<=tr.top+1&&lr.left>=fr.left&&lr.right<=fr.right,channel:c.right<=fr.right&&c.width>0,"
+                          "font:parseFloat(getComputedStyle(l).fontSize),bold:+getComputedStyle(n).fontWeight>=600,placeholder:t.placeholder,send:s.getAttribute('aria-label'),height:fr.height,top:lr.top-fr.top,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
+
+    def test_reply_field_always_shows_who_receives_it(self):
+        # m571409/m571766: Ivan's note about the field went to the counterpart. The external reply field names its recipient
+        # inside the field at all times; Hub prompts have no such line.
+        self.seed_inbox(start_editing=False)
+        got=self.recipient_line()
+        self.assertIsNotNone(got,'The external reply field has no recipient line')
+        self.assertEqual(got['text'],'Кому Review colleague · Teams');self.assertTrue(got['visible'] and got['inside'] and got['channel'],got)
+        self.assertEqual(got['font'],13);self.assertTrue(got['bold'],got)
+        self.assertEqual(got['placeholder'],'Ответ');self.assertEqual(got['send'],'Отправить Review colleague')
+        empty=got
+        self.edit('A')
+        got=self.recipient_line();self.assertEqual(got['height'],empty['height'],'The field does not jump on the first character')
+        self.edit('Line one\nLine two\nLine three')
+        got=self.recipient_line();self.assertTrue(got['visible'] and got['inside'],got);self.assertEqual(got['top'],empty['top'],got)
+        self.page({"eval":"document.querySelector('.tm-shared-compose textarea').scrollTop=999;true"})
+        self.assertEqual(self.recipient_line()['top'],empty['top'],'The line does not scroll with the text')
+        self.edit('')
+        for width,theme in ((402,'light'),(402,'dark'),(1240,'light'),(1240,'dark')):
+            self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+            got=self.recipient_line();self.assertTrue(got['visible'] and got['inside'] and got['channel'],(width,got));self.assertEqual(got['overflow'],0)
+            self.p14_shot(f'teams-to-empty-{theme}-{width}',width)
+            self.edit('Line one\nLine two\nLine three');self.p14_shot(f'teams-to-3lines-{theme}-{width}',width);self.edit('')
+        # attachments: the line stays above the chips
+        self.open_external_source('telegram')
+        self.attach_synthetic_file('review.txt')
+        got=self.page({"until":"!!document.querySelector('.tm-shared-compose .pending')"},{"eval":"(()=>{const l=document.querySelector('.tm-shared-compose .tm-to-line').getBoundingClientRect(),p=document.querySelector('.tm-shared-compose .pending').getBoundingClientRect();return l.bottom<=p.top+1})()"})
+        self.assertTrue(got[-2]['until'] and got[-1]['eval'],got)
+        self.assertEqual(self.recipient_line()['text'],'Кому Synthetic telegram · Telegram')
+        for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
+        # mail and a long name: the end of the name is cut, the channel stays visible
+        long='Fantix Tickets Customer Support Department of the Argentine Grand Prix'
+        self.feed({'kind':'msg','id':'mail-long','contact':'synthetic/mail','src':'email','from':long,'text':'Ticket confirmation','reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'eval':"document.querySelector('.tm-close-conversation')?.click();true"},{'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Fantix'))"},
+                  {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Fantix')).click();true"},{'until':"!!document.querySelector('.tm-shared-compose .tm-to-line')"})
+        for width,theme in ((402,'light'),(402,'dark'),(1240,'light'),(1240,'dark')):
+            self.page({'media':theme},{'viewport':{'width':width,'height':874}})
+            got=self.recipient_line();self.assertTrue(got['text'].startswith('Кому Fantix') and got['text'].endswith(' · Почта'),got)
+            self.assertTrue(got['visible'] and got['inside'] and got['channel'],(width,got));self.assertEqual(got['overflow'],0)
+            self.p14_shot(f'teams-to-mail-long-{theme}-{width}',width)
+        # Hub prompts carry no recipient line
+        self.page({'eval':"document.querySelector('.tm-quick-trigger').click();true"},{'until':"document.querySelector('dialog.tm-quick')?.open"})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-whole-prompt .tm-to-line, dialog.tm-quick .tm-to-line').length"})[-1]['eval'],0)
+        sent=[json.loads(e['data']['text']).get('kind') for e in self.non_history_actions() if e['type']=='ext.post']
+        self.assertFalse([k for k in sent if k in ('send','react')],sent)
+
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
