@@ -2329,7 +2329,7 @@ function build(root) {
   searchInput.type = "search"; searchInput.placeholder = T("Поиск", "Search"); searchInput.value = searchQuery;
   searchInput.setAttribute("aria-label", T("Поиск по перепискам", "Search conversations"));
   searchInput.addEventListener("input", () => { searchQuery = searchInput.value; paint(); });
-  const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; paint(); searchInput.focus(); });
+  const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; searchOpen = true; paint(); searchInput.focus(); });
   clearSearch.append(hub.icon("close")); clearSearch.setAttribute("aria-label", "Clear conversation search");
   search.append(hub.icon("search"), searchInput, clearSearch);
   listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
