@@ -27,11 +27,11 @@ vm.createContext(transport);
 const postSource=api.match(/export async function post\(path, body\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(postSource,'Actual core POST adapter must be available');
 vm.runInContext(postSource.replace('export ', '')+'\nglobalThis.post=post;',transport);
-const hub={snapshot:()=>({sessions}),el:(...a)=>new Element(...a),capabilities:{inboxHandoff:1},handoff:{latest:()=>({name:'visited',title:'Last opened conversation'})},
+const hub={snapshot:()=>({sessions}),el:(...a)=>new Element(...a),icon:()=>new Element('svg'),capabilities:{inboxHandoff:1},handoff:{latest:()=>({name:'visited',title:'Last opened conversation'})},
   compose:(...args)=>{prepared.push(args);return true;},post:transport.post};
 c.t.setHub(hub);
 const menu=c.t.agentMenu(m);assert.deepEqual(menu.children.map(x=>x.value),['canonical','noe']);
-menu.value='noe';menu.listeners.change();assert.equal(prepared.length,0,'Choosing agent does not send or navigate');
+menu.children.find(x=>x.value==='noe').listeners.click();assert.equal(prepared.length,0,'Choosing agent does not send or navigate');
 assert.deepEqual(JSON.parse(storage.get('hub.inbox.reviewAgents')),[[JSON.stringify(['whatsapp','whatsapp:source']),'noe']],'Conversation choice is persisted locally');
 const restarted={console,URL,Map,Set,Date,...dependencies,localStorage:c.localStorage};vm.createContext(restarted);
 vm.runInContext(source+'\nglobalThis.choice=reviewAgents.get(JSON.stringify(["whatsapp","whatsapp:source"]));',restarted);assert.equal(restarted.choice,'noe');

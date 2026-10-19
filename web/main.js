@@ -796,21 +796,35 @@ async function sendLatest(m) {
 // the choice follows the conversation, which keeps its key when the collector re-posts it under a new post id;
 // pre-conversation entries were keyed by post and still apply to that exact post
 const chosenAgent = (m) => reviewAgents.get(conversationKey(m)) || reviewAgents.get(m.post) || hubName();
+// имя агента для людей (ревью ui-expert m572303): хаб — «Хаб»; у агента — начало его описания до «:», « — » или « (»
+// («Hub Developer», «Noe»), длинное или пустое — имя сессии
+function agentTitle(s) {
+  if (!s) return "";
+  if (s.kind === "hub") return T("Хаб", "Hub");
+  const about = String(s.about || "").split(/:| — | \(/)[0].trim();
+  return s.title || (about && about.length <= 32 ? about : s.name);
+}
+// список агентов — строками меню с отметкой выбранного, как Picker в нативном меню; выбор ничего не отправляет
 function agentMenu(m) {
-  const select = el("select", "tm-review-agent"); select.setAttribute("aria-label", T("Агент для разбора", "Agent for review"));
-  const current = chosenAgent(m);
-  const agents = typeof hub.handoff?.agents === "function" ? hub.handoff.agents() : (hub.snapshot().sessions || []).filter((s) => availableTarget(s.name) && (s.role === "agent" || s.kind === "hub"));
-  for (const agent of agents) { const option = el("option", null, agent.title || agent.name); option.value = agent.name; select.append(option); }
-  if (!agents.some((s) => s.name === current)) {
-    const option = el("option", null, T("Выбранный агент недоступен", "Selected agent unavailable")); option.value = current; option.disabled = true; select.append(option);
-  }
-  select.value = current;
-  select.addEventListener("change", () => {
-    reviewAgents.set(conversationKey(m), select.value);
-    try { globalThis.localStorage?.setItem("hub.inbox.reviewAgents", JSON.stringify([...reviewAgents].slice(-200))); } catch { /* keep the current choice in memory */ }
-    paint();
-  });
-  return select;
+  const list = el("div", "tm-review-agent"); list.setAttribute("role", "group"); list.setAttribute("aria-label", T("Агент для разбора", "Agent for review"));
+  const current = chosenAgent(m), sessions = hub.snapshot().sessions || [];
+  const names = typeof hub.handoff?.agents === "function" ? hub.handoff.agents().map((a) => a.name) : sessions.filter((s) => availableTarget(s.name) && (s.role === "agent" || s.kind === "hub")).map((s) => s.name);
+  const row = (name, text, disabled = false) => {
+    const b = button("", "quiet tm-agent-row", () => {
+      reviewAgents.set(conversationKey(m), name); list.value = name;
+      for (const other of list.children) { other.setAttribute("aria-checked", String(other.value === name)); other.firstChild?.replaceChildren?.(...(other.value === name ? [hub.icon("allow")] : [])); }
+      try { globalThis.localStorage?.setItem("hub.inbox.reviewAgents", JSON.stringify([...reviewAgents].slice(-200))); } catch { /* keep the current choice in memory */ }
+      paint();
+    });
+    b.value = name; b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(name === current)); b.disabled = disabled;
+    const mark = el("span", "tm-agent-check"); if (name === current) mark.append(hub.icon("allow"));
+    b.append(mark, el("span", "tm-agent-name", text));
+    list.append(b); return b;
+  };
+  for (const name of names) row(name, agentTitle(sessions.find((s) => s.name === name)) || name);
+  if (!names.includes(current)) row(current, T("Выбранный агент недоступен", "Selected agent unavailable"), true);
+  list.value = current;
+  return list;
 }
 
 // I-54: «В работу» — как кнопка с меню на Mac: нажатие готовит разбор выбранному агенту, стрелка рядом — выбор агента
@@ -831,12 +845,13 @@ function handoffMenu(m) {
   }
   const summary = menu.querySelector(":scope > summary");
   summary.setAttribute("aria-label", T("Кому передать", "Hand off to")); summary.title = T("Кому передать", "Hand off to");
-  const body = menu.querySelector(":scope > .tm-handoff-menu"), field = el("label", "tm-handoff-agent");
-  body.replaceChildren();
-  field.append(el("span", null, T("Агент для разбора", "Agent for review")), agentMenu(m));
-  body.append(field);
+  if (!summary.dataset.hold) { summary.dataset.hold = "1"; holdLabel(summary, () => T("Кому передать", "Hand off to")); }
+  const body = menu.querySelector(":scope > .tm-handoff-menu");
+  body.setAttribute("role", "menu");
+  body.replaceChildren(el("p", "tm-handoff-heading", T("Агент для разбора", "Agent for review")), agentMenu(m), el("hr"));
   const saved = restoreHandoffs(), latest = latestTarget(), sent = latest && handoffs.get(handoffKey(m.post, latest.name));
-  const quick = button(latest ? T(`В последний тред: ${latest.title || latest.name}`, `Send to latest thread: ${latest.title || latest.name}`) : T("В последний тред", "Send to latest thread"),
+  const thread = latest && (latest.title && latest.title !== latest.name ? latest.title : agentTitle((hub.snapshot().sessions || []).find((s) => s.name === latest.name)) || latest.name);
+  const quick = button(latest ? T(`В последний тред: ${thread}`, `Send to latest thread: ${thread}`) : T("В последний тред", "Send to latest thread"),
     "quiet tm-latest-thread", () => { menu.open = false; sendLatest(m); });
   quick.disabled = !latest || !saved || !!sent;
   body.append(quick);
@@ -880,7 +895,29 @@ function action(text, name, fn, label) {
   const b = button("", "tm-action", fn, label || text);
   b.title = label || text;
   b.append(name === "react" ? hub.icon("react") : nativeIcon(name), el("span", "tm-action-label", text));
+  holdLabel(b, text);
   return b;
+}
+
+// на телефоне у значка нет подписи и нет наведения: долгое нажатие показывает его название, как подсказка значков iOS,
+// и нажатием не считается (ревью ui-expert m572303, п. 8)
+function holdLabel(b, text) {
+  let timer = 0, tip = null, shown = false;
+  const hide = () => { clearTimeout(timer); timer = 0; if (tip) { const t = tip; tip = null; setTimeout(() => t.remove(), 1200); } };
+  b.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    shown = false; clearTimeout(timer);
+    timer = setTimeout(() => {
+      shown = true;
+      tip = el("span", "tm-tip", typeof text === "function" ? text() : text); tip.setAttribute("role", "tooltip");
+      const r = b.getBoundingClientRect();
+      tip.style.left = Math.max(8, Math.min(innerWidth - 8, r.left + r.width / 2)) + "px"; tip.style.top = r.top - 8 + "px";
+      document.body.append(tip);
+    }, 450);
+  });
+  for (const type of ["pointerup", "pointercancel", "pointerleave"]) b.addEventListener(type, hide);
+  b.addEventListener("contextmenu", (e) => { if (shown || timer) e.preventDefault(); });
+  b.addEventListener("click", (e) => { if (shown) { shown = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 }
 
 // личка — группа по человеку (владелец 09.10: «видел одно сообщение от человека последнее, захочу — в чела, там всё»):
@@ -1265,10 +1302,12 @@ function personRow(key, group) {
     head.append(icon);
   }
   head.append(listAge(secs(latest.at)));
+  // непрочитано — синяя точка 9 в колонке знака слева, как у строк тредов (list-controls-sync §2.2); пустая колонка той же ширины
+  const sign = el("span", "tm-sign");
   if (tab === "new" && reads.isUnread(latest)) {
-    const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", "Unread"); head.append(dot);
+    const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", T("Не прочитано", "Unread")); sign.append(dot);
   }
-  row.append(head);
+  row.append(sign, head);
   const reply = folderReplyPreview(group);
   const media = reply === null ? mediaList(latest) : [], line=listLine(reply ?? messageText(latest));
   const text = el("div", "tm-text tm-clamp", line);
@@ -1436,7 +1475,7 @@ function openCompose(m, text, why = "", focus = true) {
     else {
       const latest = (replies.get(m.post) || []).at(-1), offer = splitDraft(latest?.text || "");
       text = offer.text && !QUICK_REACTIONS.includes(offer.text.trim()) ? signed(offer.text,m) : "";
-      why = offer.why; suggested = !!text; offerTs = latest?.ts;
+      why = offer.why; suggested = !!text; offerTs = text || QUICK_REACTIONS.includes(offer.text.trim()) ? latest?.ts : undefined;
     }
   }
   const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
@@ -1752,7 +1791,7 @@ function sharedReply(m, st) {
     }
   }
   st.updateSendHours?.();
-  st.feedback.textContent = st.error || state?.error || (state?.control ? "Confirming editor…" : "");
+  st.feedback.textContent = st.error || state?.error || (state?.control ? T("Подтверждаю правку…", "Confirming editor…") : "");
   st.feedback.hidden = !st.feedback.textContent;
   return st.root;
 }
@@ -1830,7 +1869,7 @@ export function whyLine(why) {
 
 // повтор ✨ позже последнего черновика: черновик устарел, пока хаб не положит новый
 const draftStale = (m) => { const latest = (replies.get(m.post) || []).at(-1); return !!latest && (draft.get(m.id) || 0) > latest.ts; };
-const staleMark = () => el("p", "tm-draft-stale", T("Прежний черновик устарел — хаб готовит новый", "The previous draft is out of date — Hub is preparing a new one"));
+const staleMark = () => el("p", "tm-draft-stale", T("Черновик устарел", "Draft is out of date"));
 
 async function askDraft(m) {
   let q;
@@ -1846,7 +1885,9 @@ function adoptOffer(m, st, latest) {
   if (st.offerTs === latest.ts || st.files?.length || st.uploading || st.state?.control || st.state?.delivery) return;
   if (!st.suggested && replyBody(st.text, m).trim()) return;
   const offer = splitDraft(latest.text);
-  if (!offer.text || QUICK_REACTIONS.includes(offer.text.trim())) return;
+  // совет-реакция в поле не идёт: её ставит «Поставить 👍» (I-12); пояснение — как к любому совету
+  if (QUICK_REACTIONS.includes(offer.text.trim())) { st.offerTs = latest.ts; st.why = offer.why; return; }
+  if (!offer.text) return;
   st.text = signed(offer.text, m); st.why = offer.why; st.suggested = true; st.offerTs = latest.ts;
   st.state?.edit(st.text);
   st.box?.set({ text: replyBody(st.text, m) });
@@ -1856,7 +1897,7 @@ function draftBlock(m, r) {
   const stale = draftStale(m) && (replies.get(m.post) || []).at(-1) === r;
   const d = el("div", "tm-draft" + (stale ? " tm-draft-old" : ""));
   if (stale) d.append(staleMark());
-  const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${r.by} · `);
+  const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${agentTitle((hub.snapshot().sessions || []).find((s) => s.name === r.by)) || r.by} · `);
   by.append(stamp(r.ts));
   const { text, why } = splitDraft(r.text);
   d.append(by, replyText(el,text));
@@ -2223,7 +2264,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const prevOpen = open.filter((m) => m !== last);
     const target = open.includes(last) ? last : open[open.length - 1];
     if (canReply(target) && !composeFor) acts.append(button(T("Ответить","Reply"), "", () => openCompose(target), `${T("Ответить","Reply")}: ${personName(target.from)}`));
-    const agent = chosenAgent(target), toAgent = agent === hubName() ? T("В работу хабу","Hand to Hub") : `${T("В работу","Hand to")}: ${availableTarget(agent)?.title || agent}`;
+    const agent = chosenAgent(target), toAgent = agent === hubName() ? T("В работу хабу","Hand to Hub") : `${T("В работу","Hand to")}: ${agentTitle(availableTarget(agent)) || agent}`;
     const go = action(busy ? T("Отправляю…","Sending…") : toAgent, "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `${T("В работу: сообщение","Hand to Hub: message from")} ${personName(target.from)}`);
     go.disabled = busy;
     const handoff = el("div", "tm-handoff-split"), handoffChoice = handoffMenu(target);
@@ -2250,7 +2291,8 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     head.append(a);
   }
   if(hub.input){const quick=quickButton();head.append(quick);}   // web-1 hides it in the head from 900px, where the toolbar has its own
-  const guidance = composeFor && composing.get(composeFor.id)?.why;
+  // пояснение относится к прежнему черновику: пока хаб готовит новый, его не показываем (ревью ui-expert m572303)
+  const guidance = composeFor && !draftStale(composeFor) && composing.get(composeFor.id)?.why;
   if (guidance) {
     const explanation=el("div","tm-guidance");explanation.append(el("div",null,whyLine(guidance)));box.append(explanation);
   }
@@ -2679,7 +2721,7 @@ function registerView() {
       refreshListAges();
       // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
       // заново зарегистрированному виду новый узел, и поле ответа теряло курсор
-      if (inboxCount() !== badgeShown) registerView();
+      if (inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); }   // меню уже нарисовано этим снимком — перерисовать с новым числом
     },
   });
 }

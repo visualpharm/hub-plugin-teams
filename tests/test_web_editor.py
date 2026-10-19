@@ -1132,7 +1132,7 @@ class InboxWebAcceptance(PageInChrome):
         # I-12: the hub suggests 👍 instead of a text reply — the thread offers it next to the suggestion, one tap sends it
         self.seed_inbox(start_editing=False)
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nWhy: He only promised to look; a reaction is enough.',reply_to=post)
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nПочему: он только обещал посмотреть, реакции хватит.',reply_to=post)
         got=self.page({'until':"!!document.querySelector('.tm-thread .tm-suggested-reaction')"},
                       {'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction'),b=s.querySelector('button.tm-send-reaction'),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();"
                              "return {text:s.textContent,button:b.textContent,label:b.getAttribute('aria-label'),above:s.getBoundingClientRect().bottom<=a.top+1,reply:document.querySelector('.tm-shared-compose textarea').value}})()"})
@@ -1156,8 +1156,8 @@ class InboxWebAcceptance(PageInChrome):
         # I-16: ✨ again (e.g. the day changed) asks for a new draft; the old one is marked stale and never doubled
         self.seed_inbox(start_editing=False)
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='See you tomorrow.\n---\nWhy: Written yesterday.')
-        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='See you tomorrow.'"})[-1]['until'])
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='До завтра.\n---\nПочему: написано вчера.')
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='До завтра.'"})[-1]['until'])
         ask="document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]')"
         self.assertTrue(self.page({'eval':"!!"+ask})[-1]['eval'])
         self.page({'eval':ask+".click();true"})
@@ -1165,13 +1165,14 @@ class InboxWebAcceptance(PageInChrome):
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(first))
         got=self.page({'until':"!!document.querySelector('.tm-thread .tm-draft-stale')"},{'eval':"[document.querySelector('.tm-thread .tm-draft-stale')?.textContent,!!"+ask+"]"})
         self.assertTrue(got[-2]['until'],got);self.assertIn('устарел',got[-1]['eval'][0]);self.assertTrue(got[-1]['eval'][1],'The button stays for another request')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-guidance')"})[-1]['eval'],'The old explanation is hidden while the draft is redone')
         self.p14_shot('teams-draft-stale-402',402);self.p14_shot('teams-draft-stale-1240',1240)
         self.page({'sleep':50},{'eval':ask+".click();true"})
         second=self.queued('ask');self.assertNotEqual(second['rid'],first['rid']);self.assertEqual(second['post'],post)
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(second))
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='See you today at 5.\n---\nWhy: The day changed.')
-        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='See you today at 5.'"},
-                      {'eval':"({stale:!!document.querySelector('.tm-draft-stale'),old:document.querySelector('.tm-detail').textContent.includes('See you tomorrow'),drafts:document.querySelectorAll('.tm-detail .tm-draft').length})"})
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Сегодня в 17:00.\n---\nПочему: день сменился.')
+        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Сегодня в 17:00.'"},
+                      {'eval':"({stale:!!document.querySelector('.tm-draft-stale'),old:document.querySelector('.tm-detail').textContent.includes('До завтра'),drafts:document.querySelectorAll('.tm-detail .tm-draft').length})"})
         self.assertTrue(got[-2]['until'],got)
         self.assertEqual(got[-1]['eval'],{'stale':False,'old':False,'drafts':0})
         self.p14_shot('teams-draft-new-402',402)
@@ -1211,26 +1212,29 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):
         # I-54: «Hand it to Noe, make it possible to change the agent; a quick item to send to the latest thread»
-        self.ev("session.requested", "noe", session_id="s-noe", cwd="/noe", role="agent", about="Assistant", channel="cli", owner=True)
+        self.ev("session.requested", "noe", session_id="s-noe", cwd="/noe", role="agent", about="Noe — ассистент Ивана: входящие", channel="cli", owner=True)
         self.ev("session.started", "noe", session_id="s-noe")
-        self.ev("session.requested", "visited", session_id="s-visited", cwd="/visited", channel="cli", owner=True)
+        self.ev("session.requested", "visited", session_id="s-visited", cwd="/visited", about="Счёт за свет: проверить тариф", channel="cli", owner=True)
         self.ev("session.started", "visited", session_id="s-visited")
         self.seed_inbox(start_editing=False)
         menu=".tm-thread > .tm-acts .tm-handoff"
         recent="localStorage.setItem('hub.recent',"+json.dumps(json.dumps([{"route":"#/s/visited","title":"visited"}]))+");document.querySelector('.tm-close-conversation').click();document.querySelector('.tm-person').click();true"
         self.page({'eval':recent},{'until':"!!document.querySelector('"+menu+"')"})
-        got=self.page({'tapSelector':menu+" > summary"},{'until':"document.querySelector('"+menu+"').open"},
-                      {'eval':"(()=>{const m=document.querySelector('"+menu+"');return {agents:[...m.querySelectorAll('select option')].map(o=>o.value),value:m.querySelector('select').value,"
-                             "latest:m.querySelector('.tm-latest-thread').textContent,disabled:m.querySelector('.tm-latest-thread').disabled}})()"})
+        got=self.page({'eval':"document.querySelector('"+menu+"').open=true;true"},{'until':"document.querySelector('"+menu+"').open"},
+                      {'eval':"(()=>{const m=document.querySelector('"+menu+"'),r=[...m.querySelectorAll('.tm-agent-row')];return {agents:r.map(o=>o.value),titles:r.map(o=>o.textContent),value:r.find(o=>o.getAttribute('aria-checked')==='true')?.value,"
+                             "latest:m.querySelector('.tm-latest-thread').textContent,disabled:m.querySelector('.tm-latest-thread').disabled,"
+                             "covers:(()=>{const e=document.querySelector('.tm-earlier')?.getBoundingClientRect(),b=m.querySelector('.tm-handoff-menu').getBoundingClientRect();return !!e&&!(b.bottom<=e.top||b.top>=e.bottom||b.right<=e.left||b.left>=e.right)})()}})()"})
+        self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
         self.assertTrue(got[-2]['until'],got)
         got=got[-1]['eval']
         self.assertEqual(got['value'],'hub');self.assertIn('noe',got['agents']);self.assertIn('hub',got['agents']);self.assertNotIn('visited',got['agents'])
-        self.assertEqual((got['latest'],got['disabled']),('В последний тред: visited',False))
-        self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
+        self.assertIn('Хаб',got['titles']);self.assertIn('Noe',got['titles']);self.assertFalse(got['covers'],'The menu does not cover «Earlier messages»')
+        self.assertEqual((got['latest'],got['disabled']),('В последний тред: Счёт за свет',False))
         # choosing Noe sends nothing; «В работу» then prepares Noe's composer with the exact source quote
-        self.page({'eval':"(()=>{const s=document.querySelector('"+menu+" select');s.value='noe';s.dispatchEvent(new Event('change',{bubbles:true}));return true})()"})
+        self.page({'eval':"[...document.querySelectorAll('"+menu+" .tm-agent-row')].find(b=>b.value==='noe').click();true"})
         self.assertEqual(self.non_history_actions(),[])
-        self.assertIn('noe',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').getAttribute('title')+document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
+        self.page({'eval':"document.querySelector('"+menu+"').open=false;document.querySelector('.tm-close-conversation').click();document.querySelector('.tm-person').click();true"},{'until':"!!document.querySelector('"+menu+"')"})
+        self.assertIn('Noe',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
         self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').click();true"})
         got=self.page({'until':"location.hash==='#/s/noe' && document.getElementById('msg')?.value==='Разбери.'"},{'eval':"location.hash"})
         self.assertTrue(got[-2]['until'],got)
@@ -1245,7 +1249,7 @@ class InboxWebAcceptance(PageInChrome):
             time.sleep(.1);sent=[e for e in self.non_history_actions() if e['type']=='message.received']
         self.assertEqual(len(sent),1,sent)
         self.assertEqual(sent[0]['data'].get('to'),'visited',sent);self.assertEqual(sent[0]['data'].get('client_id') is not None,True,sent)
-        got=self.page({'until':"document.querySelector('.tm-handoff-status')?.textContent.includes('Передано в visited')"},
+        got=self.page({'until':"document.querySelector('.tm-handoff-status')?.textContent.includes('Передано в')"},
                       {'tapSelector':menu+" > summary"},{'eval':"document.querySelector('"+menu+" .tm-latest-thread').disabled"})
         self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-1]['eval'],'A queued handoff is not offered twice')
 
@@ -1301,13 +1305,6 @@ class InboxWebAcceptance(PageInChrome):
             got=self.recipient_line();self.assertTrue(got['visible'] and got['inside'] and got['channel'],(width,got));self.assertEqual(got['overflow'],0)
             self.p14_shot(f'teams-to-empty-{theme}-{width}',width)
             self.edit('Line one\nLine two\nLine three');self.p14_shot(f'teams-to-3lines-{theme}-{width}',width);self.edit('')
-        # attachments: the line stays above the chips
-        self.open_external_source('telegram')
-        self.attach_synthetic_file('review.txt')
-        got=self.page({"until":"!!document.querySelector('.tm-shared-compose .pending')"},{"eval":"(()=>{const l=document.querySelector('.tm-shared-compose .tm-to-line').getBoundingClientRect(),p=document.querySelector('.tm-shared-compose .pending').getBoundingClientRect();return l.bottom<=p.top+1})()"})
-        self.assertTrue(got[-2]['until'] and got[-1]['eval'],got)
-        self.assertEqual(self.recipient_line()['text'],'Кому Synthetic telegram · Telegram')
-        for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
         # mail and a long name: the end of the name is cut, the channel stays visible
         long='Fantix Tickets Customer Support Department of the Argentine Grand Prix'
         self.feed({'kind':'msg','id':'mail-long','contact':'synthetic/mail','src':'email','from':long,'text':'Ticket confirmation','reply':True,'at':datetime.now(timezone.utc).isoformat()})
@@ -1318,11 +1315,38 @@ class InboxWebAcceptance(PageInChrome):
             got=self.recipient_line();self.assertTrue(got['text'].startswith('Кому Fantix') and got['text'].endswith(' · Почта'),got)
             self.assertTrue(got['visible'] and got['inside'] and got['channel'],(width,got));self.assertEqual(got['overflow'],0)
             self.p14_shot(f'teams-to-mail-long-{theme}-{width}',width)
+        # attachments: the line stays above the chips
+        self.open_external_source('telegram')
+        self.attach_synthetic_file('review.txt')
+        got=self.page({"until":"!!document.querySelector('.tm-shared-compose .pending')"},{"eval":"(()=>{const l=document.querySelector('.tm-shared-compose .tm-to-line').getBoundingClientRect(),p=document.querySelector('.tm-shared-compose .pending').getBoundingClientRect();return l.bottom<=p.top+1})()"})
+        self.assertTrue(got[-2]['until'] and got[-1]['eval'],got)
+        self.assertEqual(self.recipient_line()['text'],'Кому Synthetic telegram · Telegram')
+        for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
         # Hub prompts carry no recipient line
         self.page({'eval':"document.querySelector('.tm-quick-trigger').click();true"},{'until':"document.querySelector('dialog.tm-quick')?.open"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-whole-prompt .tm-to-line, dialog.tm-quick .tm-to-line').length"})[-1]['eval'],0)
         sent=[json.loads(e['data']['text']).get('kind') for e in self.non_history_actions() if e['type']=='ext.post']
         self.assertFalse([k for k in sent if k in ('send','react')],sent)
+
+    def test_unread_dot_left_one_quick_button_and_phone_icons_name_themselves(self):
+        # ui-expert m572303: (4) unread dot in the left sign column, 9; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
+        self.seed_inbox(start_editing=False)
+        self.feed({'kind':'msg','id':'dot-b','contact':'synthetic/dot','src':'telegram','from':'Unread person','text':'Новое сообщение','reply':True,'at':datetime.now(timezone.utc).isoformat()})
+        got=self.page({'viewport':{'width':1240,'height':874}},{'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Unread person'))"},
+                      {'eval':"(()=>{const row=[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Unread person')),d=row.querySelector('.tm-unread').getBoundingClientRect(),n=row.querySelector('.tm-from').getBoundingClientRect();"
+                             "return {width:d.width,left:d.right<=n.left,sameLine:Math.abs((d.top+d.bottom)/2-(n.top+n.bottom)/2)<=3,quick:[...document.querySelectorAll('.tm-quick-trigger')].filter(q=>q.checkVisibility()).length,headQuick:[...document.querySelectorAll('.tm-thread > .tm-head > .tm-quick-trigger')].filter(q=>q.checkVisibility()).length,"
+                             "discard:getComputedStyle(document.querySelector('.tm-discard')).color===getComputedStyle(document.querySelector('.tm-header-source,.tm-conversation-source')).color}})()"})
+        self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
+        self.assertEqual(got['width'],9,got);self.assertTrue(got['left'] and got['sameLine'],got)
+        self.assertLessEqual(got['quick'],1,got);self.assertEqual(got['headQuick'],0,'One ⚡ on a wide screen: not a second one in the letter header');self.assertTrue(got['discard'],'The draft bin is secondary text, not red')
+        self.page({'viewport':{'width':402,'height':874}},{'touch':True},
+                  {'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]'),r=b.getBoundingClientRect();b.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',clientX:r.x+5,clientY:r.y+5,bubbles:true}));return true})()"},
+                  {'sleep':700})
+        got=self.page({'eval':"document.querySelector('.tm-tip')?.textContent || ''"})
+        self.assertEqual(got[-1]['eval'],'Черновик от хаба')
+        self.p14_shot('teams-hold-label-402',402)
+        self.page({'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]');b.dispatchEvent(new PointerEvent('pointerup',{pointerType:'touch',bubbles:true}));b.click();return true})()"},{'sleep':300},{'touch':False})
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='ask'],'A long press only names the icon')
 
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
@@ -3501,7 +3525,12 @@ class InboxWebAcceptance(PageInChrome):
     def p14_shot(self, name, width, height=874):
         if os.environ.get("HUB_INBOX_SCREENSHOTS") and width in (402, 1240):
             out = Path(os.environ["HUB_INBOX_SCREENSHOTS"]); out.mkdir(parents=True, exist_ok=True)
-            self.page({"viewport": {"width": width, "height": height}}, {"shot": str(out / f"{name}.png"), "width": width, "height": height})
+            theme = os.environ.get("HUB_INBOX_THEME")
+            if "light" in name or "dark" in name: theme = "dark" if "dark" in name else "light"   # the test chose the theme itself
+            elif theme: name = f"{name}-{theme}"
+            # the web-1 shell takes its appearance from the saved setting, not only from the media query
+            steps = [{"media": theme}, {"eval": "localStorage.setItem('hub.appearance'," + json.dumps(json.dumps(theme)) + ");import('/static/js/themes.js').then(m=>{m.applySavedTheme?.();return true}).catch(()=>true)"}] if theme else []
+            self.page({"viewport": {"width": width, "height": height}}, *steps, {"shot": str(out / f"{name}.png"), "width": width, "height": height})
 
     def force_lang(self, lang):
         """Page language as the shared T() reads it; survives later snapshots."""
