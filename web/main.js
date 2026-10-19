@@ -573,16 +573,18 @@ function ref(m, prev = []) {
 // подсветка подозрительного (владелец 09.10): не защита, подсказка заметить — грубые признаки инъекции
 // границы слов — через \p{L} (флаг u): \b в JS не видит границ русских слов
 const SUSPICIOUS = [
-  [/(?<!\p{L})(ignore|disregard|forget)(?!\p{L})[^.\n]{0,30}(?<!\p{L})(previous|prior|above|all)(?!\p{L})[^.\n]{0,30}(instruction|prompt|message|rule)|игнорируй|забудь[^.\n]{0,20}(предыдущ|инструкц|правил)|нов(ые|ая) инструкци|system prompt|системн\p{L}* промпт|you are now|(?<!\p{L})ты теперь(?!\p{L})/iu, "просит забыть прежние указания"],
+  [/(?<!\p{L})(ignore|disregard|forget)(?!\p{L})[^.\n]{0,30}(?<!\p{L})(previous|prior|above|all)(?!\p{L})[^.\n]{0,30}(instruction|prompt|message|rule)|игнорируй|забудь[^.\n]{0,20}(предыдущ|инструкц|правил)|нов(ые|ая) инструкци|system prompt|системн\p{L}* промпт|you are now|(?<!\p{L})ты теперь(?!\p{L})/iu, "просит забыть прежние указания", "asks to forget earlier instructions"],
   // прямое обращение с командой; упоминание «Claude Code» в подписи агентов коллег — не признак
-  [/(?<!\p{L})(claude|chatgpt|gpt|llm|assistant|ии|агент|ассистент|нейросеть|бот)[,:]?\s+(please\s+)?(выполни|сделай|запусти|отправь|перешли|удали|run|execute|send|delete|ignore)(?!\p{L})|(?<!\p{L})hub (send|task|post|restart|session)(?!\p{L})/iu, "обращается к ИИ или хабу"],
-  [/(владелец|владельца|owner|хозяин)[^.\n]{0,25}(разрешил|одобрил|дал добро|согласовал|approved)|(моё|мое) «?да»? уже|already approved|approved by/iu, "ссылается на разрешение"],
-  [/(пришли|отправь|перешли|скинь|выложи|покажи|send|share|post|paste)[^.\n]{0,40}(ключ|токен|пароль|секрет|token|password|secret|\.ssh|\.env|credential)/iu, "просит ключи или пароли"],
-  [/(curl|wget)[^\n]{0,120}\|\s*(sudo\s+)?(sh|bash|zsh|python)|rm\s+-rf\s|(?<!\p{L})sudo\s|base64\s+(-d|--decode)|chmod\s+\+x/iu, "опасная команда"],
+  [/(?<!\p{L})(claude|chatgpt|gpt|llm|assistant|ии|агент|ассистент|нейросеть|бот)[,:]?\s+(please\s+)?(выполни|сделай|запусти|отправь|перешли|удали|run|execute|send|delete|ignore)(?!\p{L})|(?<!\p{L})hub (send|task|post|restart|session)(?!\p{L})/iu, "обращается к ИИ или хабу", "addresses an AI or Hub"],
+  [/(владелец|владельца|owner|хозяин)[^.\n]{0,25}(разрешил|одобрил|дал добро|согласовал|approved)|(моё|мое) «?да»? уже|already approved|approved by/iu, "ссылается на разрешение", "cites a permission"],
+  [/(пришли|отправь|перешли|скинь|выложи|покажи|send|share|post|paste)[^.\n]{0,40}(ключ|токен|пароль|секрет|token|password|secret|\.ssh|\.env|credential)/iu, "просит ключи или пароли", "asks for keys or passwords"],
+  [/(curl|wget)[^\n]{0,120}\|\s*(sudo\s+)?(sh|bash|zsh|python)|rm\s+-rf\s|(?<!\p{L})sudo\s|base64\s+(-d|--decode)|chmod\s+\+x/iu, "опасная команда", "dangerous command"],
 ];
 export function suspicious(text) {
   return SUSPICIOUS.filter(([re]) => re.test(text || "")).map(([, why]) => why);
 }
+// те же признаки — подписью на языке страницы (хабу уходят русские, suspicious)
+const suspiciousLabels = (text) => SUSPICIOUS.filter(([re]) => re.test(text || "")).map(([, ru, en]) => T(ru, en));
 
 async function mark(kind, data) {
   const r = await hub.postFeed(JSON.stringify({ kind, ...data }));
@@ -714,18 +716,18 @@ function conversationOptions(m, title=null) {
   const focusMenu = () => [...ui.root.querySelectorAll('.tm-conversation-options')]
     .find(n=>n.checkVisibility() && n.dataset.optionKey===menu.dataset.optionKey)?.querySelector('summary')?.focus();
   const summary = el("summary", "btn quiet");
-  summary.setAttribute("aria-label", title===null ? "Conversation options" : `${title}: Conversation options`);
+  summary.setAttribute("aria-label", title===null ? T("Действия с перепиской","Conversation options") : `${title}: ${T("действия с перепиской","Conversation options")}`);
   if(title!==null)menu.classList.add('tm-title-options');
   if(title!==null && !nativeFooter())summary.append(el('b','tm-from',title));   // web-1 draws the name itself, as a direct child of the head
   else summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
-  const toggle = button(pins.has(id) ? "Unpin conversation" : "Pin conversation", "quiet", () => {
+  const toggle = button(pins.has(id) ? T("Открепить переписку","Unpin conversation") : T("Закрепить переписку","Pin conversation"), "quiet", () => {
     togglePin(m);
     menu.open = false; paint();
     focusMenu();
   });
   toggle.dataset.action = "pin-conversation";
-  const unread = button("Mark unread", "quiet", () => {
+  const unread = button(T("Отметить непрочитанным","Mark unread"), "quiet", () => {
     if (!markUnread(m)) { menu.open=false;paint();focusMenu();return; }
     menu.open=false;paint();
     const row=[...ui.root.querySelectorAll('.tm-person')].find(row=>row.checkVisibility() && row.dataset.conversation===conversationKey(m));
@@ -734,8 +736,8 @@ function conversationOptions(m, title=null) {
   unread.dataset.action="mark-unread";
   body.append(toggle,unread);
   if(providerReads.supported(m)) {
-    const state=providerReads.get(m),name={telegram:'Telegram',whatsapp:'WhatsApp',email:'Mail'}[m.src];
-    const label=state?.state==='read' ? `Read in ${name}` : state?.state==='pending' ? 'Check read status' : state?.state==='failed' ? 'Could not mark read' : state?.state==='unknown' ? 'Read status unknown' : state?.state==='blocked' ? 'Read history unavailable' : `Mark read in ${name}`;
+    const state=providerReads.get(m),name={telegram:'Telegram',whatsapp:'WhatsApp',email:T('почте','Mail')}[m.src];
+    const label=state?.state==='read' ? T(`Прочитано в ${name}`,`Read in ${name}`) : state?.state==='pending' ? T('Проверить прочтение','Check read status') : state?.state==='failed' ? T('Не удалось отметить прочитанным','Could not mark read') : state?.state==='unknown' ? T('Прочтение не подтверждено','Read status unknown') : state?.state==='blocked' ? T('История прочтения недоступна','Read history unavailable') : T(`Отметить прочитанным в ${name}`,`Mark read in ${name}`);
     const read=button(label,'quiet',async()=>{
       const current=msgs.get(m.id);
       if(!current || current.target!==m.target)return;
@@ -814,7 +816,7 @@ function mediaKind(m) {
   if (kind === "video" || m.mime?.startsWith("video/")) return "video";
   return "file";
 }
-const mediaLabel = (m) => ({image:"Photo",audio:"Voice message",video:"Video",file:"File"})[mediaKind(m)];
+const mediaLabel = (m) => ({image:T("Фото","Photo"),audio:T("Голосовое","Voice message"),video:T("Видео","Video"),file:T("Файл","File")})[mediaKind(m)];
 // Native LetterRow previews the first attachment, retaining transcripts and filenames.
 const listLine = text => String(text || "").split(/[\r\n]+/).filter(Boolean).join(" ");
 function listMediaLabel(m) {
@@ -913,11 +915,11 @@ function mediaBody(m) {
   for (const item of mediaList(m)) {
     const kind = mediaKind(item), url = item.thumb === true && kind !== "image" ? "" : mediaURL(item.url || item.path);
     const label = item.name || mediaLabel(item);
-    if (!url) { box.append(el("span", "tm-media-unavailable", `${label} · Unavailable`)); continue; }
+    if (!url) { box.append(el("span", "tm-media-unavailable", `${label} · ${T("недоступно","Unavailable")}`)); continue; }
     if (kind === "image") {
       const image = el("img"); image.src = url; image.alt = label; image.loading = "lazy";
       const photo = button("", "tm-photo", () => openLightbox([...box.querySelectorAll(".tm-photo img")], [...box.querySelectorAll(".tm-photo img")].indexOf(image), {reply:false}));
-      photo.setAttribute("aria-label", "View " + label); photo.append(image); box.append(photo);
+      photo.setAttribute("aria-label", T("Открыть: ","View ") + label); photo.append(image); box.append(photo);
     } else if(kind==="audio") {
       box.append(voicePlayer(item,url,label));
     } else if (kind === "video") {
@@ -1080,13 +1082,13 @@ function personRow(key, group) {
 // Chat dates follow native calendar-day boundaries; source context lives above the thread.
 // Mail retains its dated header until its separate message-header presentation is aligned.
 const GAP = 3 * 3600e3;
-const clock = (d) => d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+const clock = (d) => d.toLocaleTimeString(T("ru","en-GB"), { hour: "2-digit", minute: "2-digit" });
 function dayLabel(iso, withTime=true) {
   const d = new Date(iso), now = new Date();
   if(!Number.isFinite(d.getTime()))return "";
   const day0 = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((day0(now) - day0(d)) / 864e5);
-  const date = diff === 0 ? "Сегодня" : diff === 1 ? "Вчера" : d.toLocaleDateString("ru", { day: "numeric", month: "long" });
+  const date = diff === 0 ? T("Сегодня","Today") : diff === 1 ? T("Вчера","Yesterday") : d.toLocaleDateString(T("ru","en-GB"), { day: "numeric", month: "long" });
   return withTime ? `${date}, ${clock(d)}` : date;
 }
 
@@ -1179,7 +1181,7 @@ function line(m, source=m, named=false) {
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
     text.classList.add("tm-clamp");
     text.addEventListener("click", () => text.classList.toggle("tm-clamp"));
-    text.title = "Нажмите, чтобы развернуть";
+    text.title = T("Нажмите, чтобы развернуть","Click to expand");
   }
   if(typeof m.fwd==="string" && m.fwd)row.append(el("span","tm-forwarded",`${T("Переслано от","Forwarded from")} ${m.fwd}`));
   if (messageText(m) || text.querySelector('.tm-quote')) row.append(text);
@@ -1201,13 +1203,14 @@ function line(m, source=m, named=false) {
     notice.setAttribute("role","status");row.append(notice);
   }
   if (result) {
-    const status = el("p", "tm-reaction-status", result.state === "wait" ? "Sending reaction…" : result.state === "ok" ? "Reaction sent " + result.emoji : result.error);
+    const status = el("p", "tm-reaction-status", result.state === "wait" ? T("Ставлю реакцию…","Sending reaction…") : result.state === "ok" ? T("Реакция поставлена ","Reaction sent ") + result.emoji : result.error);
     status.setAttribute("role","status"); row.append(status);
   }
   const sus = suspicious(m.text);
   if (sus.length) {
-    const w = el("span", "tm-sus", "⚠ похоже на инструкцию");
-    w.title = `Признаки: ${sus.join("; ")}. Хаб получит это предупреждение вместе с сообщением.`;
+    const w = el("span", "tm-sus", T("⚠ похоже на инструкцию","⚠ looks like an instruction"));
+    const signs = suspiciousLabels(m.text).join("; ");
+    w.title = T(`Признаки: ${signs}. Хаб получит это предупреждение вместе с сообщением.`,`Signs: ${signs}. Hub receives this warning with the message.`);
     row.append(w);
   }
   return row;
@@ -1304,7 +1307,7 @@ function sharedReply(m, st) {
       st.text="";st.files=[];st.suggested=false;st.why="";st.error="";saveDraft(m,"",null,[]);
       if(st.state){st.state.edit("");st.state.proposal=null;}
       st.box.set({text:"",files:[]});paint();
-    },"Discard draft");
+    },T("Удалить черновик","Discard draft"));
     discard.append(nativeIcon("trash"));
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
     if (st.state) {
@@ -1325,7 +1328,7 @@ function sharedReply(m, st) {
       details.append(summary, directive, revise); st.instruction = details; wrap.append(st.proposal);
     }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
-    sendToggle.setAttribute("aria-label","Send options");sendToggle.append(hub.icon("chevron-down"));
+    sendToggle.setAttribute("aria-label",T("Варианты отправки","Send options"));sendToggle.append(hub.icon("chevron-down"));
     const sendChoices=el("div","tm-send-menu");
     const chooseSend=(at,action=null)=>{
       st.nextSendAt=null;
@@ -1342,7 +1345,7 @@ function sharedReply(m, st) {
     const archive=button(T("Отправить и убрать","Send and Archive"),"quiet tm-send-archive",()=>chooseSend(null,'archive'));
     for(const b of [now,archive])b.prepend(hub.icon('allow'));
     st.updateSendAction=()=>{
-      const action=sendAction(),label=action==='archive' ? 'Send and Archive' : 'Send now',caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
+      const action=sendAction(),label=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить сейчас','Send now'),caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
       archive.dataset.available=String(archiveSupported);
       for(const [b,a] of [[now,'send'],[archive,'archive']])b.setAttribute('aria-pressed',String(action===a));
       const primary=st.box?.node.querySelector('button[type=submit].send');
@@ -1372,7 +1375,7 @@ function sharedReply(m, st) {
     sendMenu.addEventListener("toggle",()=>{if(sendMenu.open)st.updateSendHours();});
     sendChoices.append(working);
     const later=el("details","tm-send-later"),laterToggle=el("summary","btn quiet",T("Отправить позже…","Send later…"));
-    const date=el("input","tm-send-date");date.type="datetime-local";date.setAttribute("aria-label","When to send");date.setAttribute("form","schedule-picker-"+requestId());
+    const date=el("input","tm-send-date");date.type="datetime-local";date.setAttribute("aria-label",T("Когда отправить","When to send"));date.setAttribute("form","schedule-picker-"+requestId());
     const schedule=()=>{
       const at=new Date(date.value).getTime();
       if(!Number.isFinite(at) || at<=Date.now()){date.setCustomValidity("Choose a future time.");date.reportValidity();return;}
@@ -1403,7 +1406,7 @@ function sharedReply(m, st) {
       finally{weekendPosting.delete(key);paint();}
     };
     weekendInput.addEventListener('change',changeWeekend);
-    const weekendRetry=button('Retry weekend change','quiet tm-weekend-retry',changeWeekend);
+    const weekendRetry=button(T('Повторить смену выходных','Retry weekend change'),'quiet tm-weekend-retry',changeWeekend);
     const weekendFeedback=el('p','tm-weekend-feedback');weekendFeedback.setAttribute('role','status');
     sendChoices.append(weekends,weekendRetry,weekendFeedback);
     sendMenu.append(sendToggle,sendChoices);
@@ -1418,7 +1421,7 @@ function sharedReply(m, st) {
     }
     if(!trailing)leading.append(sendMenu);
     const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m),
-      label: "Reply to " + (personName(m.from) || "recipient"), placeholder: T("Ответ…", "Reply…"), attachments: acceptsFiles(m), maxLength: 1500,
+      label: T("Ответ: ","Reply to ") + (personName(m.from) || T("собеседнику","recipient")), placeholder: T("Ответ…", "Reply…"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
       onChange(text) { text = withSignature(text,m); st.suggested=false; st.text = text; st.discard.hidden=!(replyBody(text,m).trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
@@ -1493,7 +1496,7 @@ function sharedReply(m, st) {
     st.updateSendAction();
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
-    const close = button("Close editor", "quiet", () => {
+    const close = button(T("Закрыть ответ","Close editor"), "quiet", () => {
       const menu=optionsBody.closest('.tm-conversation-options');if(menu)menu.open=false;
       if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
@@ -1558,10 +1561,10 @@ function composer(m) {
   ta.value = st.text;
   ta.rows = Math.min(8, Math.max(3, st.text.split("\n").length + 1));
   ta.maxLength = 1500;
-  ta.placeholder = `Ответ — ${personName(m.from) || "собеседнику"}`;
+  ta.placeholder = `${T("Ответ","Reply")} — ${personName(m.from) || T("собеседнику","recipient")}`;
   ta.dataset.compose = m.id;
-  ta.setAttribute("aria-label", `Ответ: ${personName(m.from)}`);
-  const go = button("Отправить", "primary", () => sendReply(m, ta.value));
+  ta.setAttribute("aria-label", `${T("Ответ","Reply")}: ${personName(m.from)}`);
+  const go = button(T("Отправить","Send"), "primary", () => sendReply(m, ta.value));
   go.disabled = !ta.value.trim();
   ta.addEventListener("input", () => { st.text = ta.value; saveDraft(m,ta.value); go.disabled = !ta.value.trim(); });
   ta.addEventListener("keydown", (e) => {
@@ -1570,8 +1573,8 @@ function composer(m) {
     else if (e.key === "Escape") { composing.delete(m.id); paint(); }
   });
   const foot = el("div", "tm-acts");
-  foot.append(go, button("Отмена", "quiet", () => { composing.delete(m.id); paint(); }),
-    el("span", "tm-hint", `Уйдёт в ${SRC_FROM(m)} от твоего имени`));
+  foot.append(go, button(T("Отмена","Cancel"), "quiet", () => { composing.delete(m.id); paint(); }),
+    el("span", "tm-hint", T(`Уйдёт в ${SRC_FROM(m)} от твоего имени`,`Sends to ${TEAMS_SRCS.includes(m.src) ? "Teams" : m.src} as you`)));
   wrap.append(ta);
   wrap.append(foot);
   return wrap;
@@ -1601,18 +1604,18 @@ export function whyLine(why) {
 
 function draftBlock(m, r) {
   const d = el("div", "tm-draft");
-  const by = el("div", "tm-draft-by", `Черновик ответа · ${r.by} · `);
+  const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${r.by} · `);
   by.append(stamp(r.ts));
   const { text, why } = splitDraft(r.text);
   d.append(by, replyText(el,text));
-  if (why) d.append(el("div", "tm-draft-why", `Почему: ${whyLine(why)}`));
+  if (why) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(why)}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
-    const send=button("Отправить", "primary", () => sendReply(m, signed(text, m)), `Отправить черновик: ${personName(m.from)}`);
+    const send=button(T("Отправить","Send"), "primary", () => sendReply(m, signed(text, m)), `${T("Отправить черновик","Send draft")}: ${personName(m.from)}`);
     send.disabled=deliveryPending(m);
     a.append(send,
-      button("Править", "", () => openCompose(m, signed(text, m), why), `Править черновик: ${personName(m.from)}`));
+      button(T("Править","Edit"), "", () => openCompose(m, signed(text, m), why), `${T("Править черновик","Edit draft")}: ${personName(m.from)}`));
     d.append(a);
   }
   return d;
@@ -1746,15 +1749,15 @@ function sentBlock(m, rid, x) {
   const chat=m.src!=="email";
   d.classList.toggle("tm-sent-chat",chat);
   const late = replyLate(x);
-  const stateText = x.state === "ok" ? "отправлено" : x.state === "fail" ? `не отправлено: ${x.error}`
-    : x.state === "unresolved" ? x.error || "Delivery needs reconciliation. Your draft is retained."
-    : x.state === "later" ? `отправится ${new Date(x.at).toLocaleString("ru", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
-    : late ? "плагин не ответил — проверьте, что он запущен" : "отправляю…";
+  const stateText = x.state === "ok" ? T("отправлено","sent") : x.state === "fail" ? `${T("не отправлено","not sent")}: ${x.error}`
+    : x.state === "unresolved" ? x.error || T("Доставка не подтверждена. Черновик сохранён.","Delivery needs reconciliation. Your draft is retained.")
+    : x.state === "later" ? `${T("отправится","sends")} ${new Date(x.at).toLocaleString(T("ru","en-GB"), { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}`
+    : late ? T("плагин не ответил — проверьте, что он запущен","the plugin did not answer — check that it is running") : T("отправляю…","sending…");
   // Successful owner replies match native: status then age. Automatic replies still name the Hub.
   const sent = x.state === "ok";
   const by = el("div", "tm-draft-by", sent
     ? (x.mine ? T("Отправлено ", "Sent ") : T("Хаб · Отправлено ", "Hub · Sent "))
-    : x.mine ? "Ты · " : "Хаб · ");
+    : x.mine ? T("Ты · ","You · ") : T("Хаб · ","Hub · "));
   by.append(stamp(sent ? x.deliveredTs ?? x.ts : x.ts));
   if (!sent) by.append(` · ${stateText}`);
   const body=replyText(el,x.text || "");
@@ -1773,14 +1776,14 @@ function sentBlock(m, rid, x) {
   }
   if(recoverableReply(m,rid)) {
     const attempt=replyRecoveries.get(rid);
-    const retry=button(attempt?.busy ? "Retrying original reply…" : "Retry original reply","quiet tm-retry-original",()=>retryOriginalReply(m,rid));
+    const retry=button(attempt?.busy ? T("Повторяю прежний ответ…","Retrying original reply…") : T("Повторить прежний ответ","Retry original reply"),"quiet tm-retry-original",()=>retryOriginalReply(m,rid));
     retry.disabled=!!attempt?.busy;d.append(retry);
     if(attempt?.error) { const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem); }
   }
   if ((x.state === "fail" || late)) {
     const a = el("div", "tm-acts");
     if(chat && x.state==="fail" && x.mine && canReply(m) && typeof x.text==="string" && (x.text.trim() || x.files?.length)) {
-      const attempt=replyRecoveries.get(rid),retry=button(attempt?.busy ? T("Повторяю…","Retrying…") : T("Повторить","Retry"),"quiet tm-retry-failed",()=>retryFailedReply(m,rid),"Retry: "+personName(m.from));
+      const attempt=replyRecoveries.get(rid),retry=button(attempt?.busy ? T("Повторяю…","Retrying…") : T("Повторить","Retry"),"quiet tm-retry-failed",()=>retryFailedReply(m,rid),T("Повторить: ","Retry: ")+personName(m.from));
       retry.disabled=!!attempt?.busy || deliveryPending(m);a.append(retry);
       if(attempt?.error){const problem=el("p","tm-retry-error",attempt.error);problem.setAttribute("role","status");d.append(problem);}
     }
@@ -1814,12 +1817,12 @@ async function reactTo(m, emoji) {
 }
 
 function reactionRow(m) {
-  const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label","Reaction");
+  const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label",T("Реакция","Reaction"));
   for (const emoji of QUICK_REACTIONS) {
-    const choice=button(emoji,"",()=>reactTo(m,emoji),"React " + emoji);
+    const choice=button(emoji,"",()=>reactTo(m,emoji),T("Реакция ","React ") + emoji);
     choice.disabled=!!m.target && !reactionTargetSupported;row.append(choice);
   }
-  const close=button("","quiet",()=>{reacting=null;paint();},"Close reactions");close.append(hub.icon("close"));row.append(close);
+  const close=button("","quiet",()=>{reacting=null;paint();},T("Закрыть реакции","Close reactions"));close.append(hub.icon("close"));row.append(close);
   return row;
 }
 
@@ -1905,7 +1908,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   };
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last)) {
-    const earlier = button(h?.loading ? "Loading history…" : h?.error ? "Retry history" : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
+    const earlier = button(h?.loading ? T("Загружаю историю…","Loading history…") : h?.error ? T("Повторить загрузку истории","Retry history") : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
       const state=historyState(last.id);
       if (!state.revealed && state.items) { state.revealed=true;paint();return; }
       state.revealed=true;
@@ -1931,10 +1934,10 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   for (const m of ms) appendMessage(m);
 
   const notes = [];
-  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? "Ты ответил в Teams" : "Прочитано или отвечено");
-  if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
-  if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
-  if (ms.every(isArchived)) notes.push("Скрыто");
+  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? T("Ты ответил в Teams","You replied in Teams") : T("Прочитано или отвечено","Read or answered"));
+  if (ms.some((m) => work.has(m.id))) notes.push(T("Передано хабу в работу","Handed to Hub"));
+  if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push(T("Хаб готовит черновик ответа","Hub is preparing a draft"));
+  if (ms.every(isArchived)) notes.push(T("Скрыто","Archived"));
   if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
 
   for (const m of ms) {
@@ -1948,26 +1951,26 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const busy = sending.has(last.id);
     const prevOpen = open.filter((m) => m !== last);
     const target = open.includes(last) ? last : open[open.length - 1];
-    if (canReply(target) && !composeFor) acts.append(button("Ответить", "", () => openCompose(target), `Ответить: ${personName(target.from)}`));
-    const go = action(busy ? T("Отправляю…","Sending…") : T("В работу хабу","Hand to Hub"), "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `В работу: сообщение ${personName(target.from)}`);
+    if (canReply(target) && !composeFor) acts.append(button(T("Ответить","Reply"), "", () => openCompose(target), `${T("Ответить","Reply")}: ${personName(target.from)}`));
+    const go = action(busy ? T("Отправляю…","Sending…") : T("В работу хабу","Hand to Hub"), "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `${T("В работу: сообщение","Hand to Hub: message from")} ${personName(target.from)}`);
     go.disabled = busy;
     if (!draft.has(target.id)) {
-      const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `Черновик ответа для ${personName(target.from)}`);
+      const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `${T("Черновик ответа для","Draft reply for")} ${personName(target.from)}`);
       dr.disabled = busy;
       acts.append(dr);
     }
     acts.append(go);
-    const react = action(T("Реакция","React"), "react", () => { reacting = target.id; paint(); }, "React to " + personName(target.from));
+    const react = action(T("Реакция","React"), "react", () => { reacting = target.id; paint(); }, `${T("Реакция для","React to")} ${personName(target.from)}`);
     react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
     if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
     acts.prepend(react);
-    acts.prepend(action(T("Убрать","Archive"), "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${personName(target.from)}`));
+    acts.prepend(action(T("Убрать","Archive"), "archive", () => hide(open.map((m) => m.id), true), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
-    acts.append(button("Вернуть", "quiet", () => hide(ms.map((m) => m.id), false), `Вернуть сообщения ${personName(last.from)}`));
+    acts.append(button(T("Вернуть","Restore"), "quiet", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));
   }
   if (safeLink(last.link)) {
     const a = el("a", "tm-link");
-    const label = last.src === "whatsapp" ? "Open in WhatsApp" : last.src === "telegram" ? "Open in Telegram" : last.src === "email" ? "Open email" : "Open in Teams";
+    const label = last.src === "whatsapp" ? T("Открыть в WhatsApp","Open in WhatsApp") : last.src === "telegram" ? T("Открыть в Telegram","Open in Telegram") : last.src === "email" ? T("Открыть письмо","Open email") : T("Открыть в Teams","Open in Teams");
     a.append(nativeIcon("open")); a.setAttribute("aria-label", label); a.title = label;
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
@@ -2174,7 +2177,7 @@ function paintAll() {
       : tab === "failed" ? T("Неудачных ответов нет.", "No failed replies.") : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
     const back = el("button", "btn quiet tm-close-conversation");
-    back.append(nativeIcon("back")); back.setAttribute("aria-label", "Back to Inbox");
+    back.append(nativeIcon("back")); back.setAttribute("aria-label", T("Назад к Inbox","Back to Inbox"));
     back.type = "button";
     back.addEventListener("click", () => { autoOpen = false; dmPerson = null; paint(); });
     const mine = items.filter((m) => conversationKey(m) === dmPerson).sort((a, b) => (a.at < b.at ? -1 : 1));
