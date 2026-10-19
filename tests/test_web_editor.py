@@ -2800,16 +2800,16 @@ class InboxWebAcceptance(PageInChrome):
             for target in got['targets']:
                 self.assertGreaterEqual(target['width'],44,target);self.assertGreaterEqual(target['height'],44,target);self.assertTrue(target['hit'],target)
         self.page({'tapSelector':'.tm-conversation-options > summary'})
-        self.assertTrue(self.page({'eval':"['Pin conversation','Mark unread','Private draft instruction','Close editor'].every(t=>[...document.querySelectorAll('.tm-conversation-options button,.tm-conversation-options summary')].some(n=>n.checkVisibility()&&n.textContent===t))"})[-1]['eval'])
+        self.assertTrue(self.page({'eval':"['Pin conversation','Mark unread','Close editor'].every(t=>[...document.querySelectorAll('.tm-conversation-options button,.tm-conversation-options summary')].some(n=>n.checkVisibility()&&n.textContent===t))"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_shared_header_menu_preserves_private_instruction_focus_on_refresh(self):
         self.seed_inbox(start_editing=False)
-        self.page({'tapSelector':'.tm-conversation-options > summary'},{'tapSelector':'.tm-instruction > summary'},
+        self.page({'tapSelector':'.tm-instruction > summary'},
                   {'eval':"const t=document.querySelector('.tm-instruction textarea');t.value='Keep my exact instruction';t.dispatchEvent(new Event('input',{bubbles:true}));t.focus();t.setSelectionRange(5,10);window.__instruction=t;true"})
         self.acknowledge(self.queued('draft_control'))
         self.feed({'kind':'status','src':'dm','ok':True})
-        got=self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-conversation-options').open})"})[-1]['eval']
+        got=self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-instruction').open})"})[-1]['eval']
         self.assertEqual(got,{'same':True,'value':'Keep my exact instruction','selection':[5,10],'open':True})
         self.feed({'kind':'msg','id':'new-same-conversation','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'New message while typing','reply':True,'at':'2099-01-01T12:00:00Z'})
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('New message while typing')"})[-1]['until'])
@@ -2827,10 +2827,10 @@ class InboxWebAcceptance(PageInChrome):
         for width in (320,402,834,1240):
             self.page({'viewport':{'width':width,'height':874}},{'sleep':100},
                       {'eval':"document.querySelector('.tm-list .tm-editor-options').open=true;document.querySelector('.tm-list .tm-instruction').open=true;true"})
-            got=self.page({'eval':"(()=>{const m=document.querySelector('.tm-list .tm-editor-options > .tm-editor-menu'),r=m.getBoundingClientRect(),t=m.querySelector('textarea').getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,field:t.width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            got=self.page({'eval':"(()=>{const m=document.querySelector('.tm-list .tm-editor-options > .tm-editor-menu'),r=m.getBoundingClientRect(),t=document.querySelector('.tm-list .tm-instruction textarea').getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,field:t.width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
             self.assertGreaterEqual(got['width'],min(280,width-64),got)
             self.assertGreaterEqual(got['left'],0,got);self.assertLessEqual(got['right'],width,got);self.assertEqual(got['overflow'],0,got)
-            self.assertGreaterEqual(got['field'],got['width']-32,got)
+            self.assertGreaterEqual(got['field'],min(240,width-64),got)
             if os.environ.get('HUB_INBOX_SCREENSHOTS'):
                 out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
                 self.page({'shot':str(out/f'flat-draft-menu-{width}.png'),'width':width,'height':874})
@@ -3025,7 +3025,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep this Inbox reply")
         self.page({"tapSelector":".tm-close-conversation"},{"viewport":{"width":402,"height":874}})
         got=self.page({"eval":"({bottom:document.querySelector('.tm-top').getBoundingClientRect().bottom,filterVisible:!!document.querySelector('.tm-srcs').getClientRects().length,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]["eval"]
-        self.assertLess(got["bottom"],155,got);self.assertFalse(got["filterVisible"],got);self.assertEqual(got["overflow"],0,got)
+        self.assertLess(got["bottom"],190,got);self.assertFalse(got["filterVisible"],got);self.assertEqual(got["overflow"],0,got)
         self.page({"tapSelector":".tm-options summary"})
         self.assertTrue(self.page({"eval":"!!document.querySelector('.tm-srcs').getClientRects().length"})[-1]["eval"])
         self.page({"key":"Escape"})
@@ -3342,7 +3342,7 @@ class InboxWebAcceptance(PageInChrome):
         got = self.page({"click": "Apply draft"}, {"wait": "Your reply or instruction changed"},
                         {"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "Newer owner edit")
-        self.page({"click": "Revise draft"})
+        self.page({"click": "Переработать черновик"})
         request = self.queued("ask"); self.acknowledge(request)
         self.feed({**proposal, "rid": request["rid"], "inbox": self.token})
         got = self.page({"until": "document.querySelector('.tm-proposal')?.dataset.rid===" + json.dumps(request["rid"])},

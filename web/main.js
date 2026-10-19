@@ -1261,7 +1261,7 @@ function replyLayout(st) {
     // Measure against the compact row, independent of the expanded entry width.
     // This keeps wrapping stable when expanding gives the text more room.
     const controls=[form.querySelector('.tm-discard'),form.querySelector(':scope > .attach'),form.querySelector('.tm-send-options > summary')];
-    const reserved=44+controls.reduce((n,b)=>n+(b?.checkVisibility()?b.getBoundingClientRect().width:0),0);
+    const reserved=(form.querySelector('button.send')?.getBoundingClientRect().width || 44)+controls.reduce((n,b)=>n+(b?.checkVisibility()?b.getBoundingClientRect().width:0),0);
     const available=form.clientWidth-parseFloat(frame.paddingLeft)-parseFloat(frame.paddingRight)-reserved;
     const expanded=!!field.value && (field.value.includes('\n') || measure.measureText(field.value).width>available);
     form.classList.toggle('tm-expanded-reply',expanded);
@@ -1295,7 +1295,7 @@ function sharedReply(m, st) {
         paint();
       });
       st.proposal = el("div", "tm-proposal");
-      details.append(summary, directive, revise); wrap.append(details, st.proposal);
+      details.append(summary, directive, revise); st.instruction = details; wrap.append(st.proposal);
     }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
     sendToggle.setAttribute("aria-label","Send options");sendToggle.append(hub.icon("chevron-down"));
@@ -1919,7 +1919,11 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if (reactionTarget) box.append(reactionRow(reactionTarget));
   else if (acts.childElementCount) box.append(acts);
   if (composeFor) {
-    box.append(composer(composeFor));
+    const reply = composer(composeFor);
+    // the private instruction is its own collapsed row above the reply field, not inside it
+    const instruction = hub.capabilities?.composerTransport === 1 && composing.get(composeFor.id)?.instruction;
+    if (instruction) box.append(instruction);
+    box.append(reply);
     const draftOptions=composing.get(composeFor.id)?.options;
     if(draftOptions){
       options.classList.add('tm-editor-options');options.querySelector(':scope > .tm-editor-menu').append(draftOptions);
@@ -1952,6 +1956,8 @@ function paint() {
     selection:menu.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA' ? [document.activeElement.selectionStart,document.activeElement.selectionEnd] : null}));
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+  const instructionFocus = ui.root.contains(document.activeElement) && document.activeElement.closest?.('.tm-instruction') ? document.activeElement : null;
+  const instructionSel = instructionFocus?.tagName==='TEXTAREA' ? [instructionFocus.selectionStart,instructionFocus.selectionEnd] : null;
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
   const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
@@ -1978,6 +1984,10 @@ function paint() {
     else ta.setSelectionRange(ta.value.length, ta.value.length);
   }
   if (!focusId && sendFocus?.isConnected && ui.root.contains(sendFocus))sendFocus.focus({preventScroll:true});
+  if (!focusId && instructionFocus?.isConnected && ui.root.contains(instructionFocus) && document.activeElement!==instructionFocus) {
+    instructionFocus.focus({preventScroll:true});
+    if (instructionSel)instructionFocus.setSelectionRange(...instructionSel);
+  }
   focusId = null;
 }
 
