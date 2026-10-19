@@ -237,8 +237,7 @@
 .tm-forwarded { color: var(--muted-foreground); padding-inline: 6px; }
 .tm-received-reactions { display: flex; gap: 4px; flex-wrap: wrap; }
 .tm-received-reactions > span { padding: 2px 7px; border-radius: 14px; background: var(--muted); }
-.tm-guidance { flex: none; border-top: 1px solid var(--border); padding-top: 12px; color: var(--muted-foreground); }
-.tm-guidance strong { display: block; margin-bottom: 4px; }
+.tm-guidance { flex: none; padding-top: 8px; color: var(--foreground); }
 .tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
 .tm-detail .tm-divider { justify-content: center; }
 .tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
@@ -248,7 +247,7 @@
 .tm-detail .tm-history { flex: 1; }
 .tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
 .tm-instruction { max-height: min(30dvh,240px); overflow: auto; }
-.tm-instruction summary { min-height: var(--control-size); cursor: pointer; align-content: center; }
+.tm-instruction summary { min-height: var(--control-size); cursor: pointer; align-content: center; color: var(--foreground); font-size: 16px; }
 .tm-instruction textarea { max-height: 132px; }
 .tm-proposal { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .tm-proposal:empty { display: none; }
@@ -256,7 +255,7 @@
 .tm-proposal p { margin: 0; }
 .tm-proposed-text { white-space: pre-wrap; }
 .tm-editor-feedback { margin: 0; font-size: var(--text-base); color: var(--foreground); overflow-wrap: anywhere; }
-.tm-whole-prompt { min-width: 0; display: grid; gap: var(--space-2); }
+.tm-whole-prompt { flex: 1 1 100%; min-width: 0; display: grid; gap: var(--space-2); }
 .tm-whole-prompt .composer, .tm-shared-compose .composer { margin: 0; width: 100%; }
 .tm-whole-prompt .composer textarea, .tm-shared-compose .composer textarea { font-size: max(16px, var(--text-base)); }
 .tm-shared-compose .composer:has(.attach:not(:is([hidden]))) { padding-right: var(--space-3); }
@@ -292,7 +291,7 @@
 .tm-action-label { white-space: nowrap; }
 .tm-thread > .tm-head .tm-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: auto; }
 .tm-thread { container: inbox-thread / inline-size; }
-@container inbox-thread (max-width: 620px) {
+@container inbox-thread (max-width: 560px) {
   .tm-thread > .tm-acts .tm-action { flex: 1; padding-inline: 0; }
   .tm-action-label { display: none; }
   .tm-action .tm-native-icon, .tm-action .icon { width: 28px; height: 28px; }
@@ -471,3 +470,12 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 .tm-rich-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-rich-text a { color: inherit; text-decoration: underline; }
+
+/* Send is a labelled capsule beside its menu chevron, as in the native composer. */
+.tm-shared-compose form.composer.has-leading:not(.rec) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) auto 44px; }
+.tm-shared-compose form.composer:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
+.tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) auto 44px; }
+.tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
+.tm-shared-compose form.composer .btn.round.send { width: auto; min-width: 44px; padding: 0 14px 0 10px; border: 0; border-radius: 22px; gap: 6px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.tm-shared-compose form.composer .btn.round.send[data-label]::after { content: attr(data-label); }

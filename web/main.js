@@ -1282,11 +1282,12 @@ function sharedReply(m, st) {
     discard.append(nativeIcon("trash"));
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
     if (st.state) {
-      const details = el("details", "tm-instruction"), summary = el("summary", null, "Private draft instruction");
+      const details = el("details", "tm-instruction"), summary = el("summary", null, T("Личное указание к черновику", "Private draft instruction"));
       const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
-      directive.setAttribute("aria-label", "Private draft instruction");
+      directive.placeholder = T("Расскажи ему о…", "Tell them about…");
+      directive.setAttribute("aria-label", T("Личное указание к черновику", "Private draft instruction"));
       directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
-      const revise = button("Revise draft", "quiet", async () => {
+      const revise = button(T("Переработать черновик", "Revise draft"), "quiet", async () => {
         const revision=st.state.revision;
         beginEditing(m, st);
         try { await waitForEditor(m,st,revision); const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
@@ -1294,7 +1295,7 @@ function sharedReply(m, st) {
         paint();
       });
       st.proposal = el("div", "tm-proposal");
-      details.append(summary, directive, revise); optionsBody.append(details); wrap.append(st.proposal);
+      details.append(summary, directive, revise); wrap.append(details, st.proposal);
     }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
     sendToggle.setAttribute("aria-label","Send options");sendToggle.append(hub.icon("chevron-down"));
@@ -1314,11 +1315,12 @@ function sharedReply(m, st) {
     const archive=button("Send and Archive","quiet tm-send-archive",()=>chooseSend(null,'archive'));
     for(const b of [now,archive])b.prepend(hub.icon('allow'));
     st.updateSendAction=()=>{
-      const action=sendAction(),label=action==='archive' ? 'Send and Archive' : 'Send now';
+      const action=sendAction(),label=action==='archive' ? 'Send and Archive' : 'Send now',caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
       archive.dataset.available=String(archiveSupported);
       for(const [b,a] of [[now,'send'],[archive,'archive']])b.setAttribute('aria-pressed',String(action===a));
       const primary=st.box?.node.querySelector('button[type=submit].send');
       if(primary && primary.getAttribute('aria-label')!==label) {primary.setAttribute('aria-label',label);primary.title=label+' (Enter)';}
+      if(primary && primary.dataset.label!==caption)primary.dataset.label=caption;
     };
     sendChoices.append(now,archive,el('hr'));
     const working=button("","quiet tm-send-working",()=>{
@@ -1885,19 +1887,19 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const prevOpen = open.filter((m) => m !== last);
     const target = open.includes(last) ? last : open[open.length - 1];
     if (canReply(target) && !composeFor) acts.append(button("Ответить", "", () => openCompose(target), `Ответить: ${personName(target.from)}`));
-    const go = action(busy ? "Отправляю…" : "В работу", "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `В работу: сообщение ${personName(target.from)}`);
+    const go = action(busy ? T("Отправляю…","Sending…") : T("В работу хабу","Hand to Hub"), "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `В работу: сообщение ${personName(target.from)}`);
     go.disabled = busy;
     if (!draft.has(target.id)) {
-      const dr = action("Черновик ответа", "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `Черновик ответа для ${personName(target.from)}`);
+      const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `Черновик ответа для ${personName(target.from)}`);
       dr.disabled = busy;
       acts.append(dr);
     }
     acts.append(go);
-    const react = action("React", "react", () => { reacting = target.id; paint(); }, "React to " + personName(target.from));
+    const react = action(T("Реакция","React"), "react", () => { reacting = target.id; paint(); }, "React to " + personName(target.from));
     react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
     if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
     acts.prepend(react);
-    acts.prepend(action("Скрыть", "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${personName(target.from)}`));
+    acts.prepend(action(T("Убрать","Archive"), "archive", () => hide(open.map((m) => m.id), true), `Скрыть сообщения ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
     acts.append(button("Вернуть", "quiet", () => hide(ms.map((m) => m.id), false), `Вернуть сообщения ${personName(last.from)}`));
   }
@@ -1911,7 +1913,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if(hub.input){const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));quick.append(nativeIcon('quick'));head.append(quick);}
   const guidance = composeFor && composing.get(composeFor.id)?.why;
   if (guidance) {
-    const explanation=el("div","tm-guidance");explanation.append(el("strong",null,T("Почему такой ответ","Why this reply")),el("div",null,guidance));box.append(explanation);
+    const explanation=el("div","tm-guidance");explanation.append(el("div",null,guidance));box.append(explanation);
   }
   const reactionTarget = ms.find(m=>m.id === reacting);
   if (reactionTarget) box.append(reactionRow(reactionTarget));
@@ -2227,7 +2229,7 @@ function build(root) {
   if (hub.capabilities?.composerTransport === 1) {
     prompt = el("div", "tm-whole-prompt");
     promptFeedback = el("p", "tm-editor-feedback"); promptFeedback.setAttribute("role", "status");
-    const input = hub.input({ key: "whole-inbox", to: hubName(), label: "Ask about your whole Inbox", placeholder: "Ask about your Inbox…",
+    const input = hub.input({ key: "whole-inbox", to: hubName(), label: T("Спросить про Inbox", "Ask about your whole Inbox"), placeholder: T("Спросить про Inbox", "Ask about Inbox"),
       attachments: false, maxLength: 1500, sentLabel: "Queued for Inbox review.",
       onChange(text) { promptState.text = text; },
       async send() {
@@ -2243,7 +2245,7 @@ function build(root) {
       },
       onSent() { input.set({text:promptState.text}); },
     });
-    prompt.append(input.node, promptFeedback); controls.append(prompt);
+    prompt.append(input.node, promptFeedback); head.append(prompt);
   }
   const listNode = el("div", "tm-list"), listPane = el("section", "tm-list-pane"), detail = el("section", "tm-detail");
   const emptyDetail = el("section", "tm-empty-detail");
