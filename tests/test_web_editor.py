@@ -377,8 +377,9 @@ class InboxWebAcceptance(PageInChrome):
         for theme in ('light','dark'):
             for width in (360,402,834,1240,1440):
                 self.page({'media':theme},{'viewport':{'width':width,'height':874}})
-                got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-conversation-search'),r=s.getBoundingClientRect();return {bar:!!s.closest('.view-toolbar'),visible:s.checkVisibility(),toggle:[...document.querySelectorAll('.tm-search-toggle')].some(n=>n.checkVisibility()),height:r.height,right:r.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                self.assertTrue(got['bar'] and got['visible'],(theme,width,got));self.assertFalse(got['toggle'],(theme,width,got))
+                got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-conversation-search'),t=document.querySelector('.tm-search-toggle'),n=s.checkVisibility()?s:t,r=n.getBoundingClientRect();return {bar:!!n.closest('.view-toolbar'),visible:s.checkVisibility(),toggle:t.checkVisibility(),column:[...document.querySelectorAll('.tm-container .tm-search-toggle, .tm-container .tm-conversation-search')].some(n=>n.checkVisibility()),height:r.height,right:r.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                # wide: the field in the header; phone: the icon in the header (ui-expert m578128); never inside the column
+                self.assertTrue(got['bar'] and not got['column'],(theme,width,got));self.assertEqual((got['visible'],got['toggle']),(width>=600,width<600),(theme,width,got))
                 self.assertGreaterEqual(got['height'],44 if width<600 else 32,(theme,width,got));self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
         self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='alignment-one';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
@@ -1263,7 +1264,17 @@ class InboxWebAcceptance(PageInChrome):
         field=".view-toolbar .tm-conversation-search input"
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3"})
         for width in (1240,402):
-            got=self.page({'viewport':{'width':width,'height':874}},{'until':"!!document.querySelector('"+field+"')?.checkVisibility()"},
+            self.page({'viewport':{'width':width,'height':874}})
+            if width<600:
+                # phone: an icon in the header; the field opens over the title (ui-expert m578128)
+                got=self.page({'until':"!!document.querySelector('.view-toolbar .tm-search-toggle')?.checkVisibility()"},{'eval':"document.querySelector('"+field+"').checkVisibility()"})
+                self.assertTrue(got[-2]['until'],got);self.assertFalse(got[-1]['eval'],'Closed on a phone: only the icon')
+                self.page({'eval':"document.querySelector('.view-toolbar .tm-search-toggle').click();true"})
+                got=self.page({'until':"document.activeElement===document.querySelector('"+field+"')"},
+                              {'eval':"(()=>{const s=document.querySelector('.view-toolbar .tm-conversation-search').getBoundingClientRect(),t=[...document.querySelectorAll('h1,h2,.view-title,.title')].find(n=>n.textContent.trim()==='Inbox'&&n.checkVisibility());"
+                                     "return {width:s.width,top:s.top,over:!t||(()=>{const r=t.getBoundingClientRect();return s.left<=r.left&&s.right>=r.right})()}})()"})
+                self.assertTrue(got[-2]['until'],got);self.assertGreaterEqual(got[-1]['eval']['width'],width-24,got);self.assertTrue(got[-1]['eval']['over'],got)
+            got=self.page({'until':"!!document.querySelector('"+field+"')?.checkVisibility()"},
                           {'eval':"({inside:[...document.querySelectorAll('.tm-container .tm-conversation-search,.tm-container .tm-search-toggle')].filter(n=>n.checkVisibility()).length,"
                                   "overflow:document.documentElement.scrollWidth-innerWidth,height:document.querySelector('"+field+"').getBoundingClientRect().height})"})
             self.assertTrue(got[-2]['until'],(width,got))
@@ -1272,9 +1283,13 @@ class InboxWebAcceptance(PageInChrome):
                           {'until':rows+"===1"},{'eval':"document.querySelector('.tm-list .tm-person .tm-from').textContent"})
             self.assertTrue(got[-2]['until'],(width,got));self.assertEqual(got[-1]['eval'],'Third person')
             self.p14_shot(f'teams-search-{width}',width)
-            got=self.page({'tapSelector':".view-toolbar .tm-conversation-search [aria-label='Clear conversation search']"},{'until':rows+"===3"},
+            got=self.page({'eval':"document.querySelector(\".view-toolbar .tm-conversation-search [aria-label='Clear conversation search']\").click();true"},{'until':rows+"===3"},
                           {'eval':"document.querySelector('"+field+"').value"})
             self.assertTrue(got[-2]['until'],(width,got));self.assertEqual(got[-1]['eval'],'')
+            if width<600:
+                got=self.page({'eval':"document.querySelector('"+field+"').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));true"},
+                              {'until':"!document.querySelector('"+field+"').checkVisibility() && document.querySelector('.view-toolbar .tm-search-toggle').checkVisibility()"})
+                self.assertTrue(got[-1]['until'],'Esc closes the field back to the icon')
         self.assertEqual(self.non_history_actions(),[])
 
     def recipient_line(self):
@@ -1293,6 +1308,12 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(got['font'],13);self.assertTrue(got['bold'],got)
         self.assertEqual(got['placeholder'],'Ответ');self.assertEqual(got['send'],'Отправить Review colleague')
         empty=got
+        for width in (402,1240):
+            self.page({'viewport':{'width':width,'height':874}})
+            line=self.page({'eval':"(()=>{const f=document.querySelector('.tm-shared-compose form.composer'),t=f.querySelector('textarea').getBoundingClientRect(),s=f.querySelector('button[type=submit]').getBoundingClientRect(),l=document.querySelector('.tm-to-line').getBoundingClientRect();return {same:s.top<t.bottom&&s.bottom>t.top,below:f.getBoundingClientRect().bottom-Math.max(t.bottom,s.bottom)}})()"})[-1]['eval']
+            self.assertTrue(line['same'],(width,line));self.assertLessEqual(line['below'],16,'Empty field: «Кому» and one input line, no extra row (ui-expert m578128)')
+        self.page({'viewport':{'width':1300,'height':900}})
+        empty=self.recipient_line()
         self.edit('A')
         got=self.recipient_line();self.assertEqual(got['height'],empty['height'],'The field does not jump on the first character')
         self.edit('Line one\nLine two\nLine three')
@@ -1315,18 +1336,20 @@ class InboxWebAcceptance(PageInChrome):
             got=self.recipient_line();self.assertTrue(got['text'].startswith('Кому Fantix') and got['text'].endswith(' · Почта'),got)
             self.assertTrue(got['visible'] and got['inside'] and got['channel'],(width,got));self.assertEqual(got['overflow'],0)
             self.p14_shot(f'teams-to-mail-long-{theme}-{width}',width)
-        # attachments: the line stays above the chips
-        self.open_external_source('telegram')
-        self.attach_synthetic_file('review.txt')
-        got=self.page({"until":"!!document.querySelector('.tm-shared-compose .pending')"},{"eval":"(()=>{const l=document.querySelector('.tm-shared-compose .tm-to-line').getBoundingClientRect(),p=document.querySelector('.tm-shared-compose .pending').getBoundingClientRect();return l.bottom<=p.top+1})()"})
-        self.assertTrue(got[-2]['until'] and got[-1]['eval'],got)
-        self.assertEqual(self.recipient_line()['text'],'Кому Synthetic telegram · Telegram')
-        for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
         # Hub prompts carry no recipient line
         self.page({'eval':"document.querySelector('.tm-quick-trigger').click();true"},{'until':"document.querySelector('dialog.tm-quick')?.open"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-whole-prompt .tm-to-line, dialog.tm-quick .tm-to-line').length"})[-1]['eval'],0)
         sent=[json.loads(e['data']['text']).get('kind') for e in self.non_history_actions() if e['type']=='ext.post']
         self.assertFalse([k for k in sent if k in ('send','react')],sent)
+        # attachments: the line stays above the chips
+        self.open_external_source('telegram')
+        if not self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval']:
+            return   # the web-1 core has no composerFiles: replies there take no attachments
+        self.attach_synthetic_file('review.txt')
+        got=self.page({"until":"!!document.querySelector('.tm-shared-compose .pending')"},{"eval":"(()=>{const l=document.querySelector('.tm-shared-compose .tm-to-line').getBoundingClientRect(),p=document.querySelector('.tm-shared-compose .pending').getBoundingClientRect();return l.bottom<=p.top+1})()"})
+        self.assertTrue(got[-2]['until'] and got[-1]['eval'],got)
+        self.assertEqual(self.recipient_line()['text'],'Кому Synthetic telegram · Telegram')
+        for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
 
     def test_unread_dot_left_one_quick_button_and_phone_icons_name_themselves(self):
         # ui-expert m572303: (4) unread dot in the left sign column, 9; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
@@ -3298,7 +3321,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({"eval":"document.activeElement.getAttribute('aria-label')"})[-1]["eval"],"Поиск по перепискам")
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"})
         for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
-            got=self.page({"media":theme},{"viewport":{"width":width,"height":874}}, {"eval":"(()=>{const r=document.querySelector('.tm-conversation-search').getBoundingClientRect(),p=document.querySelector('.tm-person').getBoundingClientRect();return {bottom:r.bottom,height:r.height,row:p.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
+            got=self.page({"media":theme},{"viewport":{"width":width,"height":874}}, {"eval":"(()=>{const s=document.querySelector('.tm-conversation-search'),r=(s.checkVisibility()?s:document.querySelector('.tm-search-toggle')).getBoundingClientRect(),p=document.querySelector('.tm-person').getBoundingClientRect();return {bottom:r.bottom,height:r.height,row:p.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
             # I-55: the header search is the native capsule (32) on wide screens and a 44 target on a phone
             self.assertLessEqual(got["bottom"],874,got);self.assertGreaterEqual(got["height"],44 if width<600 else 32,got);self.assertGreaterEqual(got["row"],44,got);self.assertEqual(got["overflow"],0,got)
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):

@@ -1791,7 +1791,8 @@ function sharedReply(m, st) {
     }
   }
   st.updateSendHours?.();
-  st.feedback.textContent = st.error || state?.error || (state?.control ? T("Подтверждаю правку…", "Confirming editor…") : "");
+  // подтверждение правки — служебное, его не показываем (ревью ui-expert m578128); отправка видна в треде «отправляю…»
+  st.feedback.textContent = st.error || state?.error || "";
   st.feedback.hidden = !st.feedback.textContent;
   return st.root;
 }
@@ -2142,15 +2143,22 @@ function quickButton() {
 }
 // I-55 (ui-expert m559769): поиск — в шапке страницы, где ядро даёт панель вида (на любой ширине), и фильтрует письма;
 // своего поля или кнопки поиска в колонке Inbox нет. Старое ядро без панели — прежнее поле над списком.
+// На телефоне (уже 600) поле в шапке не помещается рядом с заголовком: там значок, по нажатию поле раскрывается поверх
+// заголовка (ревью ui-expert m578128), пустое и без фокуса — снова значок.
 function placeSearch() {
   if (!ui?.search) return;
-  const inBar = hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
+  const inBar = hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot, compact = inBar && innerWidth < 600;
   const input = ui.search.querySelector("input");
   input.placeholder = inBar && innerWidth >= 900 ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search", "Buscar");
   if (inBar) { if (ui.search.parentNode !== toolbarRoot) toolbarRoot.append(ui.search); }
   else if (ui.search.parentNode === toolbarRoot) ui.listPane.insertBefore(ui.search, ui.list);
-  ui.searchToggle.hidden = inBar;
-  ui.search.hidden = inBar ? false : !(searchQuery || searchOpen);
+  if (compact) { if (ui.searchToggle.parentNode !== toolbarRoot) toolbarRoot.insertBefore(ui.searchToggle, ui.search); }
+  else if (ui.searchToggle.parentNode === toolbarRoot) ui.foot.prepend(ui.searchToggle);
+  if (inBar && !compact) searchOpen = false;   // на широком поле всегда видно — «открыто» нужно только телефону
+  const open = !!(searchQuery || searchOpen);
+  ui.searchToggle.hidden = inBar && !compact || compact && open;
+  ui.search.hidden = inBar && !compact ? false : !open;
+  ui.search.classList.toggle("tm-search-over", compact && open);
 }
 
 function quickSend() {
@@ -2684,11 +2692,14 @@ function build(root) {
     if (searchOpen) searchInput.focus(); else if (searchQuery) { searchQuery = ""; searchInput.value = ""; paint(); }
   }, T("Поиск", "Search", "Buscar"));
   searchToggle.append(hub.icon("search")); foot.append(searchToggle, options);
+  // раскрытое поверх заголовка поле закрывается, когда из него ушли без текста или нажали Esc
+  searchInput.addEventListener("blur", () => { if (!searchInput.value && searchOpen && search.classList.contains("tm-search-over")) setTimeout(() => { if (document.activeElement !== searchInput && !searchInput.value) { searchOpen = false; paint(); } }, 150); });
+  searchInput.addEventListener("keydown", (e) => { if (e.key === "Escape" && search.classList.contains("tm-search-over")) { e.preventDefault(); searchQuery = ""; searchInput.value = ""; searchOpen = false; paint(); searchToggle.focus(); } });
   search.hidden = !searchQuery;
   listPane.append(head, search, listNode, foot); detail.hidden = true;
   wrap.append(listPane, detail, emptyDetail);
   root.replaceChildren(wrap);
-  ui = { listPane, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { listPane, foot, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —

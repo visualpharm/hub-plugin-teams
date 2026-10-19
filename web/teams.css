@@ -580,3 +580,16 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   font-size: 13px; line-height: 18px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 12px rgb(0 0 0 / .2); }
 /* одна ⚡: на широком экране она в шапке страницы, в шапке письма — только на узком (ревью ui-expert m572303, п. 5) */
 :root:has(.view-toolbar > .tm-quick-trigger) .tm-container:not(.tm-narrow) .tm-thread > .tm-head > .tm-quick-trigger { display: none; }
+
+/* телефон: поиск в шапке — значком; раскрытое поле лежит поверх заголовка на всю ширину (ревью ui-expert m578128) */
+.view-toolbar > .tm-search-toggle { width: 44px; height: 44px; }
+.view-toolbar > .tm-conversation-search.tm-search-over { position: fixed; top: 6px; left: 8px; right: 8px; width: auto; max-width: none; z-index: 50; margin: 0;
+  min-height: 44px; background: var(--muted); box-shadow: 0 0 0 6px var(--background); }
+.view-toolbar > .tm-conversation-search.tm-search-over input { height: 44px; font-size: 16px; }
+
+/* web-1: пустое и однострочное поле ответа — одна строка ввода с кнопками справа; второй ряд кнопок — только когда текст
+   в несколько строк (kit/composer.md, ревью ui-expert m578128) */
+.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply):not(:has(.hint.has-result)) {
+  grid-template-areas: "reply reply reply" "pending pending pending" "entry attach actions" "error error error"; }
+.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions { flex-wrap: nowrap; align-self: center; }
+.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions > .spacer { display: none; }
