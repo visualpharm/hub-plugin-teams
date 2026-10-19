@@ -47,6 +47,13 @@ const draft = new Map();     // id → ts: черновик запрошен
 const replies = new Map();   // номер поста сообщения → [{by, text, ts}] — черновики от сессий
 let signature = "";         // подпись под черновиками хаба — настройка плагина (пост config), задаётся в приложениях
 // подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
+// web-1 draws the signature below the field (fixed, not editable): the field holds the body, the stored/sent text the whole reply
+const nativeFooter = () => !!ui?.root.classList.contains("tm-core-native");
+const replyBody = (text, m) => {
+  const value = String(text || "");
+  return nativeFooter() && signature && m?.sign && value.trim().endsWith(signature) ? value.trim().slice(0, -signature.length).trimEnd() : value;
+};
+const withSignature = (text, m) => nativeFooter() && String(text || "").trim() ? signed(text, m) : text;
 const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
@@ -214,7 +221,8 @@ const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_
 const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
 const histories = new Map();
 const messageTargets = new Map();
-let messageMenu = null;
+let messageMenu = null, rowMenu = null;
+const rowTargets = new Map();   // conversation key → items of its row context menu (Pin / Mark unread, as in the native list)
 function historyState(id) {
   if (!histories.has(id)) histories.set(id,{items:null,parts:new Map(),loading:false,error:"",more:false,revealed:false,before:null});
   return histories.get(id);
@@ -688,6 +696,17 @@ const providerReads = providerReadState(hubName);
 const readingRequests = new Set();
 const readTransportErrors = new Map();
 const readRequestKey = m => JSON.stringify([hubName(),m.id,m.target]);
+function togglePin(m) {
+  if (!pins.toggle(pinKey(m))) { error = "Could not save the pin. Try again."; }
+  else if (error === "Could not save the pin. Try again.") error = "";
+}
+function markUnread(m) {
+  const id = pinKey(m), group = [...msgs.values()].filter(message=>pinKey(message)===id);
+  if (!reads.set(group,true)) { error="Could not save unread state. Your draft is retained."; return false; }
+  if(error==="Could not save unread state. Your draft is retained.")error="";
+  if(dmPerson===conversationKey(m))dmPerson=null;
+  return true;
+}
 function conversationOptions(m, title=null) {
   const id = pinKey(m), menu = el("details", "tm-conversation-options");
   menu.dataset.pinKey = id;
@@ -696,21 +715,17 @@ function conversationOptions(m, title=null) {
     .find(n=>n.checkVisibility() && n.dataset.optionKey===menu.dataset.optionKey)?.querySelector('summary')?.focus();
   const summary = el("summary", "btn quiet");
   summary.setAttribute("aria-label", title===null ? "Conversation options" : `${title}: Conversation options`);
-  if(title!==null){menu.classList.add('tm-title-options');summary.append(el('b','tm-from',title));}
-  else summary.append(hub.icon("menu"));
+  if(title!==null)menu.classList.add('tm-title-options');
+  summary.append(hub.icon("menu"));
   const body = el("div", "tm-editor-menu");
   const toggle = button(pins.has(id) ? "Unpin conversation" : "Pin conversation", "quiet", () => {
-    if (!pins.toggle(id)) { error = "Could not save the pin. Try again."; }
-    else if (error === "Could not save the pin. Try again.") error = "";
+    togglePin(m);
     menu.open = false; paint();
     focusMenu();
   });
   toggle.dataset.action = "pin-conversation";
   const unread = button("Mark unread", "quiet", () => {
-    const group = [...msgs.values()].filter(message=>pinKey(message)===id);
-    if (!reads.set(group,true)) { error="Could not save unread state. Your draft is retained."; menu.open=false;paint();focusMenu();return; }
-    if(error==="Could not save unread state. Your draft is retained.")error="";
-    if(dmPerson===conversationKey(m))dmPerson=null;
+    if (!markUnread(m)) { menu.open=false;paint();focusMenu();return; }
     menu.open=false;paint();
     const row=[...ui.root.querySelectorAll('.tm-person')].find(row=>row.checkVisibility() && row.dataset.conversation===conversationKey(m));
     if(row)row.focus();else focusMenu();
@@ -1019,6 +1034,10 @@ function personRow(key, group) {
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
   row.dataset.conversation=key;
+  rowTargets.set(key,{identity:key,items:[
+    {label:pins.has(pinKey(latest)) ? T("Открепить","Unpin") : T("Закрепить","Pin"),icon:nativeIcon("pin"),run:()=>{togglePin(latest);paint();}},
+    {label:T("Отметить непрочитанным","Mark unread"),icon:nativeIcon("double-tick"),run:()=>{markUnread(latest);paint();}},
+  ]});
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
   if (tab === "new" && pins.has(pinKey(latest))) {
@@ -1258,6 +1277,8 @@ function replyLayout(st) {
     st.layoutFrame=null;
     const form=st.box?.node, field=form?.querySelector('textarea');
     if (!field?.checkVisibility() || !form.clientWidth) return;
+    // the shared field may have been sized while hidden or narrower: grow it to its real content
+    if (field.scrollHeight>field.clientHeight+1 && field.clientHeight<innerHeight*0.4) { field.style.height='auto'; field.style.height=Math.min(field.scrollHeight,innerHeight*0.4)+'px'; }
     const style=getComputedStyle(field), frame=getComputedStyle(form);
     const measure=(st.measure ||= document.createElement('canvas').getContext('2d'));
     if (!measure) return;
@@ -1389,18 +1410,25 @@ function sharedReply(m, st) {
     sendMenu.addEventListener("focusout",e=>{if(e.relatedTarget && !sendMenu.contains(e.relatedTarget))sendMenu.open=false;});
     // The installed plugin also serves frozen core pages without a trailing slot.
     const trailing=hub.capabilities?.composerTrailing===1;
-    const leading=el("div","tm-send-leading");if(hub.capabilities?.composerActions)leading.append(discard);if(!trailing)leading.append(sendMenu);
-    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: st.text,
+    const leading=el("div","tm-send-leading");
+    if(hub.capabilities?.composerActions) {
+      if(nativeFooter()){const footer=el("div","tm-native-footer");st.signatureNode=el("span","tm-signature");footer.append(st.signatureNode,discard);leading.append(footer);}
+      else leading.append(discard);
+    }
+    if(!trailing)leading.append(sendMenu);
+    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m),
       label: "Reply to " + (personName(m.from) || "recipient"), placeholder: T("Ответ…", "Reply…"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
-      onChange(text) { st.suggested=false; st.text = text; st.discard.hidden=!(text.trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
+      onChange(text) { text = withSignature(text,m); st.suggested=false; st.text = text; st.discard.hidden=!(replyBody(text,m).trim() || st.files?.length || st.uploading); if (!saveDraft(m,text,null,st.files)) st.error="This browser could not save the draft. Keep this page open."; st.state?.edit(text); beginEditing(m, st); },
       onFilesChange({files,text,uploading}) {
+        text = withSignature(text,m);
         st.files=files;st.uploading=uploading;st.text=text;st.suggested=false;
         st.discard.hidden=!(text.trim() || files.length || uploading);
         if (!saveDraft(m,text,null,files)) st.error="This browser could not save the draft. Keep this page open.";
       },
       async send({ text, attachments }) {
+        text = withSignature(text,m);
         const sendAt=st.nextSendAt;st.nextSendAt=null;
         let archiveIds;
         try {if(!sendAt && sendAction()==='archive')archiveIds=archiveSelection(m);}
@@ -1454,7 +1482,7 @@ function sharedReply(m, st) {
         }
         paint(); return {};
       },
-      onSent() { if (composing.get(m.id) === st) box.set({text:st.text,...(!st.uploading ? {files:st.files} : {})}); },
+      onSent() { if (composing.get(m.id) === st) box.set({text:replyBody(st.text,m),...(!st.uploading ? {files:st.files} : {})}); },
     });
     if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
     // The shared composer refreshes its send/microphone action independently.
@@ -1475,7 +1503,8 @@ function sharedReply(m, st) {
   st.box.set({});
   replyLayout(st);
   const state = st.state, p = state?.proposal;
-  st.discard.hidden=!(st.text.trim() || st.files?.length || st.uploading);st.discard.disabled=!!(state?.control || state?.delivery);
+  if (st.signatureNode) { st.signatureNode.textContent = signature.replace(/_([^_]+)_/g, "$1"); st.signatureNode.hidden = !(signature && m.sign); }
+  st.discard.hidden=!(replyBody(st.text,m).trim() || st.files?.length || st.uploading);st.discard.disabled=!!(state?.control || state?.delivery);
   if (st.proposal) {
     st.proposal.dataset.rid = p?.rid || "";
     const sig = JSON.stringify([p, state.revision]);
@@ -1485,7 +1514,7 @@ function sharedReply(m, st) {
         const body = el("div", "tm-proposal-body");
         body.append(replyText(el,p.text,"tm-proposed-text","p"), el("p", null, p.context), el("p", null, p.next_action));
         st.proposal.append(body, button("Apply draft", "", () => {
-            try { const applied = state.apply(); st.text = applied.text; saveDraft(m,st.text); st.box.set({text:st.text}); st.error = ""; }
+            try { const applied = state.apply(); st.text = withSignature(applied.text,m); saveDraft(m,st.text); st.box.set({text:replyBody(st.text,m)}); st.error = ""; }
             catch (e) { st.error = e.message; }
             paint();
           }));
@@ -1786,6 +1815,24 @@ function reactionRow(m) {
 }
 
 const quickDialogs=new Map();
+// ⚡ and the conversation search live in the page toolbar when the core offers one (viewToolbar); otherwise in the thread head / list.
+let toolbarRoot = null;
+const toolbarReady = () => hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
+function quickButton() {
+  const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));
+  quick.append(nativeIcon('quick'));return quick;
+}
+function placeSearch() {
+  if (!ui?.search) return;
+  const inBar = toolbarReady() && innerWidth >= 900;
+  const input = ui.search.querySelector("input");
+  input.placeholder = inBar ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search");
+  if (inBar) { if (ui.search.parentNode !== toolbarRoot) toolbarRoot.append(ui.search); }
+  else if (ui.search.parentNode === toolbarRoot) ui.listPane.insertBefore(ui.search, ui.list);
+  ui.searchToggle.hidden = inBar;
+  ui.search.hidden = inBar ? false : !(searchQuery || searchOpen);
+}
+
 function quickSend() {
   const to=hubName(),key='hub.inbox.quick.v1:'+to;
   let quick=quickDialogs.get(to);
@@ -1816,7 +1863,7 @@ function quickSend() {
     function canClose(){if(!box.node.classList.contains('rec'))return true;notice.textContent=T('Останови запись, прежде чем закрыть.','Stop the recording before closing.');notice.hidden=false;return false;}
     dialog.append(head,box.node,notice);document.body.append(dialog);
     dialog.addEventListener('cancel',event=>{if(!canClose())event.preventDefault();});
-    dialog.addEventListener('close',()=>ui?.root.querySelector('.tm-quick-trigger')?.focus());
+    dialog.addEventListener('close',()=>document.querySelector('.tm-quick-trigger')?.focus());
     quick={dialog,box,canClose};quickDialogs.set(to,quick);
   }
   if(!quick.dialog.open)quick.dialog.showModal();quick.box.focus();
@@ -1828,9 +1875,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const box = el("article", "tm-card tm-thread" + (!open.length ? " tm-done" : ""));
   const head = el("div", "tm-head");
   const sourceLabel=conversationSources(ms);
-  const headerSource=el("span","tm-header-source",sourceLabel);headerSource.title=sourceLabel;
+  const headerSource=el("span","tm-header-source tm-head-source",sourceLabel);headerSource.title=sourceLabel;
   const name=personName(last.from) || "—", options=conversationOptions(last,detail ? name : null);
-  if(detail)head.append(options,headerSource);
+  if(detail)head.append(el("b","tm-from",name),headerSource,options);
   else head.append(el("b","tm-from",name),headerSource,options);
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
@@ -1915,7 +1962,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
   }
-  if(hub.input){const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));quick.append(nativeIcon('quick'));head.append(quick);}
+  if(hub.input && !toolbarReady()){const quick=quickButton();head.append(quick);}
   const guidance = composeFor && composing.get(composeFor.id)?.why;
   if (guidance) {
     const explanation=el("div","tm-guidance");explanation.append(el("div",null,guidance));box.append(explanation);
@@ -1966,7 +2013,7 @@ function paint() {
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
   const scroll=oldHistory?.scrollTop, follow=toBottom;
   paintAll();
-  messageMenu?.validate();
+  messageMenu?.validate();rowMenu?.validate();
   for (const options of ui.root.querySelectorAll('.tm-conversation-options')) {
     if (!options.checkVisibility()) continue;
     const state = optionStates.find(s=>s.key===options.dataset.optionKey);
@@ -2032,7 +2079,7 @@ function updateConversation(next,back,key) {
 }
 
 function paintAll() {
-  messageTargets.clear();
+  messageTargets.clear();rowTargets.clear();
   ui.sort.hidden=tab!=="new";
   ui.sort.querySelector('summary').title=`Sort: ${sortOrder==="importance"?"Importance":"Time"}`;
   for(const b of ui.sort.querySelectorAll('[data-sort]')) b.setAttribute('aria-checked',String(b.dataset.sort===sortOrder));
@@ -2063,7 +2110,7 @@ function paintAll() {
   const rows = () => matching.length ? matching.map(([key, group]) => personRow(key, group))
     : [noSearchResults()];
   ui.clearSearch.hidden = !searchQuery;
-  ui.search.hidden = !(searchQuery || searchOpen);
+  placeSearch();
   ui.searchToggle.setAttribute("aria-pressed", String(!ui.search.hidden));
   ui.bulk.replaceChildren();
   if (tab === "new" && items.length > 1) {
@@ -2205,12 +2252,16 @@ function panel() {
 }
 
 function build(root) {
-  messageMenu?.destroy();
+  messageMenu?.destroy();rowMenu?.destroy();
   messageMenu=messageMenus(root,id=>messageTargets.get(id),problem=>{error=problem;paint();});
+  rowMenu=messageMenus(root,key=>rowTargets.get(key),problem=>{error=problem;paint();},{selector:'.tm-person',attribute:'conversation',label:T('Действия с перепиской','Conversation actions')});
   ui?.resize?.disconnect();
   root.classList.add("tm-container");
+  // web-1 style the plugin's classes itself (.app .tm-* in native.css); the plugin's own native-looking rules then step aside
+  root.classList.toggle("tm-core-native", !!getComputedStyle(document.documentElement).getPropertyValue("--native-font-13").trim());
   const resize = new ResizeObserver(entries=>{
     root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900);
+    placeSearch();
     for (const st of composing.values()) replyLayout(st);
   });
   resize.observe(root);
@@ -2290,7 +2341,7 @@ function build(root) {
   listPane.append(head, search, listNode, foot); detail.hidden = true;
   wrap.append(listPane, detail, emptyDetail);
   root.replaceChildren(wrap);
-  ui = { search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { listPane, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
@@ -2308,6 +2359,11 @@ function registerView() {
     pin: true,   // API 1.13: пункт выше «Расписания» (владелец 12.10)
     badge: badgeShown,
     full: true,
+    toolbar(root) {
+      toolbarRoot = root;
+      if (hub.input && !root.querySelector(":scope > .tm-quick-trigger")) root.prepend(quickButton());
+      placeSearch();
+    },
     async render(root, snap) {
       for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
       if (!ui || ui.root !== root) { build(root); paint(); }
@@ -2330,6 +2386,7 @@ export default function register(h) {
   newComposer = newMessage(h);
   window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();});
+  document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");

@@ -434,22 +434,22 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 /* The selected native folder fills available space; extra web options stay reachable. */
 .tm-icon-inbox { --tm-icon: url("./icons/inbox.svg"); }
-.tm .tm-folder[aria-pressed="true"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
+.tm-container:not(.tm-core-native) .tm .tm-folder[aria-pressed="true"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
 .tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
 .tm-folders:has([data-folder="failed"]) .tm-folder-label { display: none; }
 
 /* Native 32px capsules sit inside the web's 44px touch targets. */
-.tm .tm-bar :is(.tm-folder, .tm-new-trigger), .tm .tm-bar > details > summary {
+.tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger), .tm-container:not(.tm-core-native) .tm .tm-bar > details > summary {
   position: relative; isolation: isolate; background: transparent;
 }
-.tm .tm-bar :is(.tm-folder, .tm-new-trigger)::before, .tm .tm-bar > details > summary::before {
+.tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger)::before, .tm-container:not(.tm-core-native) .tm .tm-bar > details > summary::before {
   content: ""; position: absolute; inset: 6px 2px; border-radius: 999px;
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
   z-index: -1; pointer-events: none;
 }
-.tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--primary); }
-.tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
-.tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 16px; height: 16px; }
+.tm-container:not(.tm-core-native) .tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--primary); }
+.tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
+.tm-container:not(.tm-core-native) .tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 16px; height: 16px; }
 
 /* The conversation name owns its menu; source and Hub remain the trailing actions. */
 .tm-detail .tm-title-options { min-width: 0; }
@@ -500,3 +500,22 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
 .tm .tm-earlier { background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); }
+
+/* Page toolbar (⚡ and search), as in the native header. */
+.view-toolbar > .tm-quick-trigger { width: 34px; height: 34px; border: 0; border-radius: 17px; background: var(--card); padding: 9px; cursor: pointer; }
+.view-toolbar > .tm-conversation-search { width: min(306px, 40vw); min-height: 32px; margin: 0 8px; padding-left: 10px; border-radius: 10px; background: var(--muted); }
+.view-toolbar > .tm-conversation-search input { height: 32px; font-size: 13px; }
+.view-toolbar > .tm-conversation-search .btn { width: 28px; height: 28px; min-height: 28px; padding: 4px; }
+
+/* Signature below the field, fixed (web-1): the reply body stays editable, the signature is appended on send. */
+.tm-native-footer { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; }
+.tm-signature { flex: 1; min-width: 0; font-style: italic; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-signature[hidden] { display: none; }
+.tm-native-footer .tm-discard { flex: none; margin-left: auto; }
+@media (max-width: 899px) {
+  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; width: 100%; grid-column: 1 / -1; }
+  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > * { grid-area: auto; }
+  .app .tm-shared-compose .tm-native-footer, .tm-native-footer { grid-column: 1 / -1; grid-row: 1; }
+  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .send { grid-row: 2; grid-column: 2; }
+  .app .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions .tm-send-options { grid-row: 2; grid-column: 3; grid-area: auto; }
+}

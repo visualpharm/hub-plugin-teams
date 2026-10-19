@@ -2,10 +2,10 @@ import { T } from "/static/js/ui-text.js";
 
 // One contextual menu for every message row. The resolver supplies current identity,
 // so an open menu can never act on a rebound conversation or a changed history row.
-export function messageMenus(root, resolve, report) {
+export function messageMenus(root, resolve, report, {selector='.tm-line', attribute='message', label=null}={}) {
   const controller=new AbortController(), options={signal:controller.signal};
   let menu=null, anchor=null, selected=null, timer=null, touch=null, previousFocus=null;
-  const liveRow=id=>[...root.querySelectorAll('.tm-line')].find(row=>row.dataset.message===id);
+  const liveRow=id=>[...root.querySelectorAll(selector)].find(row=>row.dataset[attribute]===id);
   function close(focus=false) {
     clearTimeout(timer);timer=null;touch=null;
     const target=previousFocus?.isConnected && previousFocus!==document.body ? previousFocus
@@ -16,13 +16,13 @@ export function messageMenus(root, resolve, report) {
   }
   const current=()=>selected && resolve(selected.id)?.identity===selected.identity;
   function open(row,x,y) {
-    row=liveRow(row.dataset.message);
-    const found=row && resolve(row.dataset.message);if(!found?.items.length){close();return;}
+    row=liveRow(row.dataset[attribute]);
+    const found=row && resolve(row.dataset[attribute]);if(!found?.items.length){close();return;}
     const prior=menu?.contains(document.activeElement) ? previousFocus : document.activeElement;
-    close();anchor=row;selected={id:row.dataset.message,identity:found.identity};
+    close();anchor=row;selected={id:row.dataset[attribute],identity:found.identity};
     previousFocus=prior;
     menu=document.createElement('div');menu.className='menu tm-message-menu';
-    menu.setAttribute('role','menu');menu.setAttribute('aria-label',T('Действия с сообщением','Message actions'));
+    menu.setAttribute('role','menu');menu.setAttribute('aria-label',label || T('Действия с сообщением','Message actions'));
     menu.setAttribute('popover','manual');
     const buttons=found.items.map(item=>{
       const b=document.createElement('button');b.type='button';b.className='menu-item';b.tabIndex=-1;
@@ -47,7 +47,7 @@ export function messageMenus(root, resolve, report) {
   }
   function rowFor(e) {
     if(e.target.closest('button,a,input,textarea,video,audio'))return null;
-    const row=e.target.closest('.tm-line');return row && root.contains(row) ? row : null;
+    const row=e.target.closest(selector);return row && root.contains(row) ? row : null;
   }
   root.addEventListener('contextmenu',e=>{const row=rowFor(e);if(!row)return;e.preventDefault();open(row,e.clientX,e.clientY);},options);
   root.addEventListener('keydown',e=>{
