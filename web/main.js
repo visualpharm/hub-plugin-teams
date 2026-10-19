@@ -1964,7 +1964,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     a.href = safeLink(last.link); a.target = "_blank"; a.rel = "noopener";
     head.append(a);
   }
-  if(hub.input && !toolbarReady()){const quick=quickButton();head.append(quick);}
+  if(hub.input){const quick=quickButton();head.append(quick);}   // web-1 hides it in the head from 900px, where the toolbar has its own
   const guidance = composeFor && composing.get(composeFor.id)?.why;
   if (guidance) {
     const explanation=el("div","tm-guidance");explanation.append(el("div",null,guidance));box.append(explanation);
