@@ -1534,7 +1534,7 @@ function composer(m) {
   });
   const foot = el("div", "tm-acts");
   foot.append(go, button("Отмена", "quiet", () => { composing.delete(m.id); paint(); }),
-    el("span", "tm-hint", `Уйдёт в ${SRC_FROM(m)} от вашего имени`));
+    el("span", "tm-hint", `Уйдёт в ${SRC_FROM(m)} от твоего имени`));
   wrap.append(ta);
   wrap.append(foot);
   return wrap;
@@ -1709,7 +1709,7 @@ function sentBlock(m, rid, x) {
   const sent = x.state === "ok";
   const by = el("div", "tm-draft-by", sent
     ? (x.mine ? T("Отправлено ", "Sent ") : T("Хаб · Отправлено ", "Hub · Sent "))
-    : x.mine ? "Вы · " : "Хаб · ");
+    : x.mine ? "Ты · " : "Хаб · ");
   by.append(stamp(sent ? x.deliveredTs ?? x.ts : x.ts));
   if (!sent) by.append(` · ${stateText}`);
   const body=replyText(el,x.text || "");
@@ -1867,7 +1867,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   for (const m of ms) appendMessage(m);
 
   const notes = [];
-  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? "Вы ответили в Teams" : "Прочитано или отвечено");
+  if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? "Ты ответил в Teams" : "Прочитано или отвечено");
   if (ms.some((m) => work.has(m.id))) notes.push("Передано хабу в работу");
   if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push("Хаб готовит черновик ответа");
   if (ms.every(isArchived)) notes.push("Скрыто");
@@ -2137,7 +2137,7 @@ function panel() {
   p.dataset.sig = directory ? directory.items.length + ":" + directory.items[0]?.[0] : "";
   p.replaceChildren();
   p.append(el("p", "tm-panel-hint", "Из отмеченных каналов во вкладку приходит первое сообщение каждого треда; ответы "
-    + "внутри треда — только если вас упомянули. Упоминания из остальных каналов приходят всегда."));
+    + "внутри треда — только если тебя упомянули. Упоминания из остальных каналов приходят всегда."));
   if (!directory) {
     p.append(el("p", "tm-empty", "Список каналов появится, когда сборщик прочитает Teams — в течение минуты после запуска."));
     return;

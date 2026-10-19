@@ -1962,7 +1962,7 @@ class InboxWebAcceptance(PageInChrome):
             with self.subTest(source=source):
                 self.open_external_source(source);self.edit('Exact outgoing reply')
                 self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
-                self.assertTrue(self.page({'eval':"document.querySelector('.tm-mine .tm-draft-by').textContent.startsWith('Вы · ')"})[-1]['eval'])
+                self.assertTrue(self.page({'eval':"document.querySelector('.tm-mine .tm-draft-by').textContent.startsWith('Ты · ')"})[-1]['eval'])
                 self.assertEqual(self.page({'eval':"document.querySelector('.tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Sending')
                 self.assertIn('send-now.svg',self.page({'eval':"getComputedStyle(document.querySelector('.tm-row-status')).maskImage"})[-1]['eval'])
                 self.feed({'kind':'scheduled','id':q['id'],'rid':q['rid'],'at':'2030-01-01T12:00:00Z'})
@@ -2054,7 +2054,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-history').textContent.includes('Automatic exact reply') && !document.querySelector('.tm-history').textContent.includes('Invalid Date')"})[-1]['eval'])
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'source-a','rid':'owner-later','text':'Owner exact reply'}))
         self.feed({'kind':'scheduled','id':'source-a','rid':'owner-later','at':'2030-01-02T12:00:00Z'})
-        got=self.page({'until':"[...document.querySelectorAll('.tm-draft-by')].some(n=>n.textContent.startsWith('Вы · '))"})
+        got=self.page({'until':"[...document.querySelectorAll('.tm-draft-by')].some(n=>n.textContent.startsWith('Ты · '))"})
         self.assertTrue(got[-1]['until'],got)
         rows=self.page({'eval':"[...document.querySelectorAll('.tm-draft-by')].map(n=>({by:n.textContent,text:n.parentNode.querySelector('.tm-draft-text').textContent}))"})[-1]['eval']
         self.assertEqual([(r['by'].split(' · ')[0],r['text']) for r in rows],[('Хаб','Automatic exact reply'),('Вы','Owner exact reply')])
@@ -3199,7 +3199,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
         got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-reaction-status'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
         self.assertTrue(got["attached"],got)
-        self.assertNotIn("Вы ответили",got["notice"])
+        self.assertNotIn("Ты ответил",got["notice"])
         self.shot("reaction-confirmed-draft-retained")
         self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('[aria-label=\"Sent conversations\"]')"},{"tapSelector":"[aria-label='Sent conversations']"},
                   {"until":"!!document.querySelector('.tm-person')"},{"tapSelector":".tm-person"},{"wait":"Reaction sent"})
