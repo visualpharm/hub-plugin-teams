@@ -2305,7 +2305,7 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval'])
                 self.attach_synthetic_file(source+'.txt')
                 layout=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),a=c.querySelector('.attach').getBoundingClientRect(),b=c.querySelector('button[type=submit]').getBoundingClientRect();return {height:c.getBoundingClientRect().height,offset:Math.abs(a.top-b.top)}})()"})[-1]['eval']
-                self.assertLessEqual(layout['height'],96,layout);self.assertLessEqual(layout['offset'],2,layout)
+                self.assertLessEqual(layout['height'],124,layout)   # 96 + the recipient line (m571766);self.assertLessEqual(layout['offset'],2,layout)
                 if source=='whatsapp' and os.environ.get('HUB_INBOX_SCREENSHOTS'):
                     out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
                     for width,theme in ((402,'light'),(402,'dark'),(1240,'light'),(1240,'dark')):
@@ -2538,7 +2538,7 @@ class InboxWebAcceptance(PageInChrome):
             for text in ('','Short reply'):
                 self.edit(text)
                 got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.composer-actions > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                self.assertLessEqual(got['height'],50,(width,text,got));self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
+                self.assertLessEqual(got['height'],78,(width,text,got))   # one row + the recipient line (m571766);self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
 
     def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
         self.seed_inbox(start_editing=False)

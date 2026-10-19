@@ -2603,6 +2603,9 @@ function build(root) {
   root.classList.add("tm-container");
   // web-1 style the plugin's classes itself (.app .tm-* in native.css); the plugin's own native-looking rules then step aside
   root.classList.toggle("tm-core-native", !!getComputedStyle(document.documentElement).getPropertyValue("--native-font-13").trim());
+  // оболочка web-1 (integrate/web-1, P4d) сама раскладывает поле ответа (native.css/header.css): свои правила композера плагин
+  // тогда снимает (компаньон P4d); на ядре без неё они остаются
+  root.classList.toggle("tm-web1", !!getComputedStyle(document.documentElement).getPropertyValue("--header-search-font").trim());
   const resize = new ResizeObserver(entries=>{
     root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900);
     placeSearch();
