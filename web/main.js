@@ -26,6 +26,9 @@ const SRCS = { dm: "Личка", mention: "Упоминания", channel: "Ка
 const TEAMS_SRCS = ["dm", "mention", "channel"];   // WhatsApp и почта — вкладки только у включённых каналов (sources.py)
 const NAMES = { teams: "Teams", whatsapp: "WhatsApp", telegram: "Telegram", get email() { return T("Почта", "Mail", "Correo"); } };   // чьё чтение: пост status с полем source
 const statuses = new Map();   // источник → последний status процесса
+// карточки ботов (Workflows) — не сообщения людей (владелец tolaysha 12.10: «из воркфлоу не надо показывать»); сборщик их
+// больше не постит, фильтр — для уже запощенных
+const BOTS = new Set(["Workflows", "Power Automate"]);
 let hub = null;
 let newComposer = null;
 const el = (...a) => hub.el(...a);
@@ -442,6 +445,7 @@ async function sync() {
       since = Math.max(since, Number(p.id.slice(1)));
       let d = null;
       try { d = JSON.parse(p.text); } catch { /* не JSON — черновик текстом */ }
+      if (p.by === AUTHOR && d?.kind === "msg" && BOTS.has(d.from)) continue;
       if (d?.rid && detachedSends.has(d.rid)) continue;
       if (p.by === AUTHOR && d?.rid && sends.has(d.rid) && d.id && sends.get(d.rid).id!==d.id) continue;
       if (p.by === AUTHOR && d?.rid && ["sent","scheduled","canceled","send_failed","send_blocked","send_uncertain","send_duplicate"].includes(d.kind)) {
@@ -741,6 +745,7 @@ async function toHub(m, kind, prev = []) {
   const r = await hub.post("/api/send", { session: hubName(), text });
   if (r.error) { sending.delete(m.id); error = r.error; paint(); return; }
   (kind === "work" ? work : draft).set(m.id, Date.now() / 1000);
+  if (kind === "work") settle(m.id, Date.now() / 1000);
   error = "";
   await mark(kind, { id: m.id });
   sending.delete(m.id);
@@ -2740,6 +2745,17 @@ function registerView() {
   });
 }
 
+// число новых в боковой панели — и когда вкладка закрыта (tolaysha 12.10): render вида зовётся, только пока он открыт,
+// поэтому канал читаем сами, когда в снимке есть новые посты (snap.feeds.teams — номер последнего)
+async function poll() {
+  const last = hub.snapshot()?.feeds?.teams || 0;
+  if (!loaded || last > since) {
+    if (await sync()) paint();
+  }
+  if (loaded && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); }
+}
+let badgeTimer = null;
+
 export default function register(h) {
   hub = h;
   newComposer = newMessage(h);
@@ -2758,4 +2774,7 @@ export default function register(h) {
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility()) recheck(); }, 15000);
   registerView();
+  poll();
+  if (badgeTimer !== null) clearInterval(badgeTimer);
+  badgeTimer = setInterval(poll, 5000);
 }
