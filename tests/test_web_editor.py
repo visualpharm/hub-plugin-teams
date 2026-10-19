@@ -373,13 +373,13 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
         self.page({'tapSelector':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===2"})[-1]['until'])
-        self.page({'eval':"document.querySelector('.tm-search-toggle').click();true"})   # the search field opens from the list footer
+        # I-55: the search is in the page header at every width (not a field or button inside the Inbox column)
         for theme in ('light','dark'):
             for width in (360,402,834,1240,1440):
                 self.page({'media':theme},{'viewport':{'width':width,'height':874}})
-                got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-list > .tm-thread').getBoundingClientRect(),s=document.querySelector('.tm-conversation-search').getBoundingClientRect(),i=document.querySelector('.tm-conversation-search > .icon').getBoundingClientRect();return {left:s.left-c.left,right:s.right-c.right,icon:i.left-c.left,height:s.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                for key in ('left','right','icon'):self.assertLessEqual(abs(got[key]),1,(theme,width,got))
-                self.assertGreaterEqual(got['height'],44);self.assertEqual(got['overflow'],0)
+                got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-conversation-search'),r=s.getBoundingClientRect();return {bar:!!s.closest('.view-toolbar'),visible:s.checkVisibility(),toggle:[...document.querySelectorAll('.tm-search-toggle')].some(n=>n.checkVisibility()),height:r.height,right:r.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                self.assertTrue(got['bar'] and got['visible'],(theme,width,got));self.assertFalse(got['toggle'],(theme,width,got))
+                self.assertGreaterEqual(got['height'],44 if width<600 else 32,(theme,width,got));self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
         self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='alignment-one';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
         self.page({'tapSelector':'[aria-label="Clear conversation search"]'})
@@ -1248,6 +1248,30 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':"document.querySelector('.tm-handoff-status')?.textContent.includes('Передано в visited')"},
                       {'tapSelector':menu+" > summary"},{'eval':"document.querySelector('"+menu+" .tm-latest-thread').disabled"})
         self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-1]['eval'],'A queued handoff is not offered twice')
+
+    def test_header_search_filters_inbox_and_clearing_restores_it(self):
+        # I-55 (ui-expert m559769): the search lives in the page header and filters the letters; no own search inside the Inbox column
+        self.seed_inbox(start_editing=False)
+        now=datetime.now(timezone.utc).isoformat()
+        for contact,name,text in [('b','Second person','Invoice for October'),('c','Third person','Garden lights')]:
+            self.feed({'kind':'msg','id':'search-'+contact,'contact':'synthetic/'+contact,'src':'telegram','from':name,'text':text,'reply':True,'at':now})
+        rows="[...document.querySelectorAll('.tm-list .tm-person')].filter(n=>n.checkVisibility()).length"
+        field=".view-toolbar .tm-conversation-search input"
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3"})
+        for width in (1240,402):
+            got=self.page({'viewport':{'width':width,'height':874}},{'until':"!!document.querySelector('"+field+"')?.checkVisibility()"},
+                          {'eval':"({inside:[...document.querySelectorAll('.tm-container .tm-conversation-search,.tm-container .tm-search-toggle')].filter(n=>n.checkVisibility()).length,"
+                                  "overflow:document.documentElement.scrollWidth-innerWidth,height:document.querySelector('"+field+"').getBoundingClientRect().height})"})
+            self.assertTrue(got[-2]['until'],(width,got))
+            self.assertEqual(got[-1]['eval']['inside'],0,(width,got));self.assertEqual(got[-1]['eval']['overflow'],0,(width,got))
+            got=self.page({'eval':"(()=>{const q=document.querySelector('"+field+"');q.focus();q.value='garden';q.dispatchEvent(new Event('input',{bubbles:true}));return true})()"},
+                          {'until':rows+"===1"},{'eval':"document.querySelector('.tm-list .tm-person .tm-from').textContent"})
+            self.assertTrue(got[-2]['until'],(width,got));self.assertEqual(got[-1]['eval'],'Third person')
+            self.p14_shot(f'teams-search-{width}',width)
+            got=self.page({'tapSelector':".view-toolbar .tm-conversation-search [aria-label='Clear conversation search']"},{'until':rows+"===3"},
+                          {'eval':"document.querySelector('"+field+"').value"})
+            self.assertTrue(got[-2]['until'],(width,got));self.assertEqual(got[-1]['eval'],'')
+        self.assertEqual(self.non_history_actions(),[])
 
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
@@ -3200,7 +3224,8 @@ class InboxWebAcceptance(PageInChrome):
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"})
         for width,theme in ((360,"light"),(402,"dark"),(834,"light"),(1440,"dark")):
             got=self.page({"media":theme},{"viewport":{"width":width,"height":874}}, {"eval":"(()=>{const r=document.querySelector('.tm-conversation-search').getBoundingClientRect(),p=document.querySelector('.tm-person').getBoundingClientRect();return {bottom:r.bottom,height:r.height,row:p.height,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
-            self.assertLessEqual(got["bottom"],874,got);self.assertGreaterEqual(got["height"],44,got);self.assertGreaterEqual(got["row"],44,got);self.assertEqual(got["overflow"],0,got)
+            # I-55: the header search is the native capsule (32) on wide screens and a 44 target on a phone
+            self.assertLessEqual(got["bottom"],874,got);self.assertGreaterEqual(got["height"],44 if width<600 else 32,got);self.assertGreaterEqual(got["row"],44,got);self.assertEqual(got["overflow"],0,got)
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):
                 self.page({"media":theme},{"shot":str(Path(os.environ["HUB_INBOX_SCREENSHOTS"])/f"list-{theme}-{width}.png"),"width":width,"height":874})
 

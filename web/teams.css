@@ -528,6 +528,12 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .view-toolbar > .tm-conversation-search { width: min(306px, 40vw); min-height: 32px; margin: 0 8px; padding-left: 10px; border-radius: 10px; background: var(--muted); }
 .view-toolbar > .tm-conversation-search input { height: 32px; font-size: 13px; }
 .view-toolbar > .tm-conversation-search .btn { width: 28px; height: 28px; min-height: 28px; padding: 4px; }
+.view-toolbar > .tm-conversation-search[hidden] { display: none; }
+@media (max-width: 599px) {
+  .view-toolbar > .tm-conversation-search { width: 168px; flex: 0 1 168px; min-width: 0; min-height: 44px; margin: 0 4px; }
+  .view-toolbar > .tm-conversation-search input { height: 44px; font-size: 16px; }
+  .view-toolbar > .tm-conversation-search .btn { width: 36px; height: 36px; min-height: 36px; }
+}
 
 /* Signature below the field, fixed (web-1): the reply body stays editable, the signature is appended on send. */
 .tm-native-footer { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; }

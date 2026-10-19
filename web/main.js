@@ -2083,11 +2083,13 @@ function quickButton() {
   const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));
   quick.append(nativeIcon('quick'));return quick;
 }
+// I-55 (ui-expert m559769): поиск — в шапке страницы, где ядро даёт панель вида (на любой ширине), и фильтрует письма;
+// своего поля или кнопки поиска в колонке Inbox нет. Старое ядро без панели — прежнее поле над списком.
 function placeSearch() {
   if (!ui?.search) return;
-  const inBar = toolbarReady() && innerWidth >= 900;
+  const inBar = hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
   const input = ui.search.querySelector("input");
-  input.placeholder = inBar ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search");
+  input.placeholder = inBar && innerWidth >= 900 ? T("Поиск ⌘F", "Search ⌘F") : T("Поиск", "Search");
   if (inBar) { if (ui.search.parentNode !== toolbarRoot) toolbarRoot.append(ui.search); }
   else if (ui.search.parentNode === toolbarRoot) ui.listPane.insertBefore(ui.search, ui.list);
   ui.searchToggle.hidden = inBar;
