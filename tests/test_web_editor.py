@@ -1177,6 +1177,38 @@ class InboxWebAcceptance(PageInChrome):
         self.p14_shot('teams-draft-new-402',402)
         self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[])
 
+    def test_inbox_count_matches_rows_and_offline_keeps_the_cached_list(self):
+        # I-46: the count equals the conversations shown; without a connection the cached list stays with a clear status
+        cut="(()=>{const f=window.fetch;window.fetch=(u,o)=>String(u).includes('/api/feed?') && sessionStorage.getItem('p14off') ? Promise.reject(new TypeError('Failed to fetch')) : f(u,o);return true})()"
+        self.seed_inbox(start_editing=False)
+        self.page({'eval':cut})
+        now=datetime.now(timezone.utc).isoformat()
+        for i,(contact,name) in enumerate([('b','Second person'),('b','Second person'),('c','Third person')]):
+            self.feed({'kind':'msg','id':f'count-{i}','contact':'synthetic/'+contact,'src':'telegram','from':name,'text':f'Synthetic {i}','reply':True,'at':now})
+        rows="document.querySelectorAll('.tm-list .tm-person').length"
+        badge="import('/static/js/ext.js').then(m=>m.viewInfo('inbox').badge)"
+        got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3"},{'eval':rows},{'eval':badge},
+                      {'eval':"document.querySelector('.tm-bulk')?.textContent || ''"})
+        self.assertTrue(got[-4]['until'],got)
+        self.assertEqual((got[-3]['eval'],got[-2]['eval']),(3,3),'4 messages in 3 conversations: the count is what the list shows')
+        self.assertIn('(3)',got[-1]['eval'])
+        status="document.querySelector('.tm-offline')?.textContent || ''"
+        self.assertEqual(self.page({'eval':status})[-1]['eval'],'')
+        # the hub stops answering: the list stays, a status says so; the connection returns: the status goes
+        got=self.page({'eval':"sessionStorage.setItem('p14off','1');dispatchEvent(new Event('offline'));true"},{'until':"("+status+").includes('Нет связи')"},{'eval':rows})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
+        self.p14_shot('teams-offline-402',402);self.p14_shot('teams-offline-1240',1240)
+        got=self.page({'eval':"sessionStorage.removeItem('p14off');dispatchEvent(new Event('online'));true"},{'until':"!document.querySelector('.tm-offline')"},{'eval':rows})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
+        # a reload without a connection to the feed opens the cached list, not an endless loader
+        got=self.page({'eval':"sessionStorage.setItem('p14off','1');true"},{'go':'about:blank'},{'init':cut},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+                      {'until':rows+"===3 && ("+status+").includes('Нет связи')","ms":15000},{'eval':"[...document.querySelectorAll('.tm-list .tm-person .tm-from')].map(n=>n.textContent).sort()"})
+        self.assertTrue(got[-2]['until'],got)
+        self.assertEqual(got[-1]['eval'],['Review colleague','Second person','Third person'])
+        got=self.page({'eval':"sessionStorage.removeItem('p14off');dispatchEvent(new Event('online'));true"},{'until':"!document.querySelector('.tm-offline') && "+rows+"===3","ms":15000},{'eval':badge})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
+        self.assertEqual(self.non_history_actions(),[])
+
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',

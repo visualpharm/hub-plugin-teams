@@ -10,6 +10,8 @@
 .tm-bulk { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .tm-confirm { font-size: var(--text-sm); }
 .tm-alerts:empty { display: none; }
+/* I-46: «нет связи» и «обновляю» — состояние, не ошибка: обычный текст на нейтральном фоне */
+.tm-alert.tm-offline, .tm-updating { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--muted); color: var(--foreground); font-size: 15px; }
 .tm-alert { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); font-size: var(--text-sm);
   background: color-mix(in oklch, var(--destructive) 10%, var(--card)); color: var(--destructive); }
 

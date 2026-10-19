@@ -307,6 +307,38 @@ let directory = null;        // последний целый: {items: [[клю�
 let watch = null;            // выбор владельца (ключи каналов); null — ещё не выбирал, читаются каналы по умолчанию
 let picking = null;          // открыта панель «Каналы»: Set отмеченных до «Сохранить»
 let since = 0, loading = false, loaded = false, failed = "";
+// I-46: последний список — в браузере; без связи (или пока сборщик не ответил) показываем его, со статусом
+let offline = null;          // {at} — с какого времени список, когда хаб не ответил
+let cachedView = false;      // в списке пункты из кэша: первая удачная загрузка заменит их целиком
+let retryTimer = null, pollTimer = null;
+const CACHE_MAX = 300;
+const cacheKey = () => "hub.inbox.cache.v1:" + hubName();
+function saveCache() {
+  if (cachedView) return;
+  try {
+    let items = [...msgs.values()].filter((m) => !done(m)).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, CACHE_MAX);
+    let data = JSON.stringify({ at: Date.now(), items });
+    while (data.length > 1500000 && items.length > 10) { items = items.slice(0, Math.floor(items.length / 2)); data = JSON.stringify({ at: Date.now(), items }); }
+    localStorage.setItem(cacheKey(), data);
+  } catch { /* кэш — удобство: без места в хранилище список просто не переживёт обрыв */ }
+}
+function restoreCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(cacheKey()) || "null");
+    if (!c || !Array.isArray(c.items) || !Number.isFinite(c.at)) return false;
+    for (const m of c.items) if (m && typeof m.id === "string" && typeof m.post === "string" && !msgs.has(m.id)) msgs.set(m.id, { ...m, cached: true });
+    if (!msgs.size) return false;
+    cachedView = true; loaded = true; cacheAt = c.at;
+    return true;
+  } catch { return false; }
+}
+let cacheAt = 0;
+// без связи — повтор каждые 5 с; на связи — проверка раз в 15 с, пока Inbox открыт: снимков ядра без хаба не будет
+function watchConnection() {
+  clearTimeout(retryTimer); retryTimer = null;
+  if (offline) retryTimer = setTimeout(async () => { retryTimer = null; if (ui?.root.isConnected && (await sync())) paint(); }, 5000);
+}
+const inboxCount = () => byPerson([...msgs.values()].filter((m) => !done(m))).size;
 let tab = "new", src = "all", confirmAll = false, error = "";
 let searchQuery = "";
 let sortOrder="importance";
@@ -355,6 +387,8 @@ async function sync() {
   loading = true;
   try {
     const posts = await hub.feed(since);
+    if (cachedView) { msgs.clear(); cachedView = false; }   // кэш заменяет первая удачная загрузка целиком
+    const wasOffline = !!offline; offline = null; watchConnection();
     for (const p of posts) {
       since = Math.max(since, Number(p.id.slice(1)));
       let d = null;
@@ -524,9 +558,14 @@ async function sync() {
     }
     failed = "";
     loaded = true;
-    return posts.length > 0;
+    if (posts.length || wasOffline) saveCache();
+    return posts.length > 0 || wasOffline;
   } catch {
-    failed = "Не удалось загрузить сообщения. Обновите страницу; если не поможет — проверьте, что процесс расширения teams запущен.";
+    if (!loaded) restoreCache();
+    offline = { at: cacheAt || (loaded ? Date.now() : 0) };
+    if (!loaded) failed = T("Не удалось загрузить сообщения. Обновите страницу; если не поможет — проверьте, что процесс расширения teams запущен.",
+      "Could not load messages. Refresh the page; if that does not help, check that the teams extension is running.");
+    watchConnection();
     return true;
   } finally {
     loading = false;
@@ -2172,12 +2211,13 @@ function paintAll() {
   placeSearch();
   ui.searchToggle.setAttribute("aria-pressed", String(!ui.search.hidden));
   ui.bulk.replaceChildren();
+  const shown = byPerson(items).size;   // число — то, что показано списком (переписки), не сообщения внутри них
   if (tab === "new" && items.length > 1) {
-    if (!confirmAll) ui.bulk.append(button(`Скрыть все (${items.length})`, "quiet", () => { confirmAll = true; paint(); }));
+    if (!confirmAll) ui.bulk.append(button(`${T("Убрать все","Archive all")} (${shown})`, "quiet", () => { confirmAll = true; paint(); }));
     else {
-      ui.bulk.append(el("span", "tm-confirm", `Скрыть ${items.length} сообщений?`),
-        button("Скрыть", "danger", () => hide(items.map((m) => m.id), true)),
-        button("Отмена", "quiet", () => { confirmAll = false; paint(); }));
+      ui.bulk.append(el("span", "tm-confirm", T(`Убрать переписки: ${shown}?`,`Archive ${shown} conversations?`)),
+        button(T("Убрать","Archive"), "danger", () => hide(items.map((m) => m.id), true)),
+        button(T("Отмена","Cancel"), "quiet", () => { confirmAll = false; paint(); }));
     }
   }
 
@@ -2187,7 +2227,15 @@ function paintAll() {
   if (picking && ui.panel.dataset.sig !== String(directory ? directory.items.length + ":" + directory.items[0]?.[0] : "")) panel();
 
   const banner = [];
-  if (failed) banner.push(el("p", "tm-alert", failed));
+  if (offline && loaded) {
+    const when = offline.at ? new Date(offline.at).toLocaleTimeString(T("ru","en-GB"), { hour: "2-digit", minute: "2-digit" }) : "";
+    const note = el("p", "tm-alert tm-offline", when ? T(`Нет связи с хабом — список на ${when}. Обновится сам, когда связь вернётся.`, `No connection to Hub — the list is from ${when}. It refreshes when the connection returns.`)
+      : T("Нет связи с хабом. Список обновится сам, когда связь вернётся.", "No connection to Hub. The list refreshes when the connection returns."));
+    banner.push(note);
+  } else if (cachedView) {
+    const note = el("p", "tm-updating", T("Обновляю список…", "Updating the list…")); note.setAttribute("aria-busy", "true"); banner.push(note);
+  }
+  else if (failed) banner.push(el("p", "tm-alert", failed));
   for (const [name, d] of statuses) {
     if (!d.ok) banner.push(el("p", "tm-alert", `Не могу прочитать ${NAMES[name] || name}: ${d.error || "ошибка"}.`
       + (name === "teams" ? " Возможно, истёк вход ms365 — новые сообщения сюда не приходят." : " Новые сообщения оттуда сюда не приходят.")));
@@ -2215,7 +2263,7 @@ function paintAll() {
   ui.detail.hidden = !(grouped && dmPerson);
   ui.emptyDetail.hidden = !grouped || !!dmPerson;
   ui.detail.dataset.conversation=grouped && dmPerson || "";
-  if (!loaded) ui.list.replaceChildren(el("p", "tm-empty", "Загружаю…"));
+  if (!loaded) { const wait = el("p", "tm-empty tm-loading", offline ? T("Нет связи с хабом. Повторю сам.", "No connection to Hub. Retrying.") : T("Загружаю…", "Loading…")); wait.setAttribute("role", "status"); wait.setAttribute("aria-busy", String(!offline)); ui.list.replaceChildren(wait); }
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"
       ? (msgs.size ? "Новых сообщений нет. Разобранные — во вкладке рядом." : emptyNote())
@@ -2409,7 +2457,7 @@ function build(root) {
 // что звать её заново на каждом render — безопасно и дёшево
 let badgeShown = -1;
 function registerView() {
-  badgeShown = count((m) => !done(m));
+  badgeShown = inboxCount();
   hub.addView({
     id: "inbox",   // адрес #/x/inbox; канал плагина по-прежнему teams (hub feed teams)
     title: "Inbox",
@@ -2425,7 +2473,7 @@ function registerView() {
     },
     async render(root, snap) {
       for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
-      if (!ui || ui.root !== root) { build(root); paint(); }
+      if (!ui || ui.root !== root) { build(root); if (!loaded) restoreCache(); paint(); }
       const last = snap?.feeds?.teams || 0;
       if (!loaded || last > since) {
         const first = !loaded;
@@ -2435,7 +2483,7 @@ function registerView() {
       refreshListAges();
       // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
       // заново зарегистрированному виду новый узел, и поле ответа теряло курсор
-      if (count((m) => !done(m)) !== badgeShown) registerView();
+      if (inboxCount() !== badgeShown) registerView();
     },
   });
 }
@@ -2451,5 +2499,11 @@ export default function register(h) {
   hub.addStyle("web/teams.css");
   if(agesTimer!==null)clearInterval(agesTimer);
   agesTimer=setInterval(refreshListAges,30000);
+  // связь: браузер сообщил — проверяем сразу; иначе раз в 15 с, пока Inbox на экране (I-46)
+  const recheck = async () => { if (ui?.root.isConnected && (await sync())) paint(); else if (offline) paint(); };
+  window.addEventListener("online", recheck);
+  window.addEventListener("offline", recheck);
+  if (pollTimer !== null) clearInterval(pollTimer);
+  pollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility()) recheck(); }, 15000);
   registerView();
 }
