@@ -1816,6 +1816,19 @@ async function reactTo(m, emoji) {
   paint();
 }
 
+// I-12: хаб посоветовал реакцию вместо текста (👍 на «посмотрю») — в треде рядом с советом, одним нажатием, как «Поставить» на iPhone/Mac
+function suggestedReaction(m) {
+  const emoji = splitDraft((replies.get(m.post) || []).at(-1)?.text || "").text.trim();
+  if (!QUICK_REACTIONS.includes(emoji) || !m.react || done(m) || deliveredReactions.has(m.id) || ["wait","ok"].includes(reactionSends.get(m.id)?.state)) return null;
+  const row = el("div", "tm-suggested-reaction");
+  const label = el("span", "tm-suggested-label", T("Хаб советует реакцию", "Hub suggests a reaction"));
+  const send = button(`${T("Поставить", "Send")} ${emoji}`, "primary tm-send-reaction", () => reactTo(m, emoji), `${T("Поставить реакцию", "Send reaction")} ${emoji}: ${personName(m.from)}`);
+  send.disabled = !!m.target && !reactionTargetSupported;
+  if (send.disabled) send.title = REACTION_UNAVAILABLE_NOTICE;
+  row.append(label, send);
+  return row;
+}
+
 function reactionRow(m) {
   const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label",T("Реакция","Reaction"));
   for (const emoji of QUICK_REACTIONS) {
@@ -1980,6 +1993,8 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if (guidance) {
     const explanation=el("div","tm-guidance");explanation.append(el("div",null,whyLine(guidance)));box.append(explanation);
   }
+  const suggestion = open.length ? suggestedReaction(open.includes(last) ? last : open[open.length - 1]) : null;
+  if (suggestion) box.append(suggestion);
   const reactionTarget = ms.find(m=>m.id === reacting);
   if (reactionTarget) box.append(reactionRow(reactionTarget));
   else if (acts.childElementCount) box.append(acts);

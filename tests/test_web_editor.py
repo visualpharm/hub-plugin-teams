@@ -1111,7 +1111,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertIn('["telegram","raw-contact"]',posts)
         self.page({'tapSelector':'.tm-person'},{'until':"!!document.querySelector('.tm-shared-compose textarea')"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-thread > .tm-head .tm-from').textContent"})[-1]['eval'],'Oleg Nov')
-        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').getAttribute('aria-label')"})[-1]['eval'],'Reply to Oleg Nov')
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').getAttribute('aria-label')"})[-1]['eval'],'Ответ: Oleg Nov')
         self.edit('Retained exact draft')
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-person .tm-row-status').getAttribute('aria-label')"})[-1]['eval'],'Draft')
@@ -1127,6 +1127,30 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'until':"!!document.querySelector('[aria-label=\"Suggested reaction: 👍\"]')"})
         self.assertTrue(self.page({'eval':"!!document.querySelector('[aria-label=\"Suggested reaction: 👍\"]')"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
+
+    def test_suggested_reaction_is_sent_with_one_tap_from_the_thread(self):
+        # I-12: the hub suggests 👍 instead of a text reply — the thread offers it next to the suggestion, one tap sends it
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nWhy: He only promised to look; a reaction is enough.',reply_to=post)
+        got=self.page({'until':"!!document.querySelector('.tm-thread .tm-suggested-reaction')"},
+                      {'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction'),b=s.querySelector('button.tm-send-reaction'),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();"
+                             "return {text:s.textContent,button:b.textContent,label:b.getAttribute('aria-label'),above:s.getBoundingClientRect().bottom<=a.top+1,reply:document.querySelector('.tm-shared-compose textarea').value}})()"})
+        self.assertTrue(got[-2]['until'],got)
+        got=got[-1]['eval']
+        self.assertIn('👍',got['button']);self.assertIn('Хаб советует реакцию',got['text']);self.assertTrue(got['above'],got)
+        self.assertEqual(got['reply'],'',got)
+        self.p14_shot('teams-reaction-402',402);self.p14_shot('teams-reaction-1240',1240)
+        self.page({'viewport':{'width':402,'height':874}},{'tapSelector':'.tm-thread .tm-suggested-reaction button.tm-send-reaction'})
+        react=self.queued('react')
+        self.assertEqual((react['id'],react['emoji']),('source-a','👍'))
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent.includes('Ставлю реакцию')"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(react))
+        self.feed({'kind':'reacted','id':'source-a','rid':react['rid'],'emoji':'👍'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent==='Реакция поставлена 👍'"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
+        self.p14_shot('teams-reaction-sent-402',402)
 
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)

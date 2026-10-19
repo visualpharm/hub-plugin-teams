@@ -291,6 +291,9 @@
 .tm-action-label { white-space: nowrap; }
 .tm-thread > .tm-head .tm-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: auto; }
 .tm-thread { container: inbox-thread / inline-size; }
+.tm-suggested-reaction { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0 0 8px; }
+.tm-suggested-label { color: var(--muted-foreground); }
+.tm-suggested-reaction .tm-send-reaction { min-height: 44px; border-radius: 22px; padding-inline: 16px; }
 /* d433431: one row above the composer — icons on a phone (the name stays in aria-label and title), words where they fit */
 @container inbox-thread (max-width: 560px) {
   .tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action { flex: 1 1 0; min-width: 44px; padding-inline: 0; }
