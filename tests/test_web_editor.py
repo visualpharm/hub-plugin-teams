@@ -889,7 +889,8 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_reply_wrap_boundary_tracks_edits_at_actual_compact_capacity(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
-        for width in (320,360,402,834,1240):
+        # 320 px: the labelled send capsule leaves no compact capacity beside discard, attach and the menu.
+        for width in (360,402,834,1240):
             self.page({'viewport':{'width':width,'height':874}});self.edit('OK')
             self.assertTrue(self.page({'until':"!document.querySelector('.tm-expanded-reply')"})[-1]['until'])
             fit=self.page({'eval':"(()=>{const t=document.querySelector('.tm-shared-compose textarea'),s=getComputedStyle(t),c=document.createElement('canvas').getContext('2d');c.font=`${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;let text='W';while(c.measureText(text+'W').width<=t.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight))text+='W';return text})()"})[-1]['eval']
@@ -2057,7 +2058,7 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':"[...document.querySelectorAll('.tm-draft-by')].some(n=>n.textContent.startsWith('Ты · '))"})
         self.assertTrue(got[-1]['until'],got)
         rows=self.page({'eval':"[...document.querySelectorAll('.tm-draft-by')].map(n=>({by:n.textContent,text:n.parentNode.querySelector('.tm-draft-text').textContent}))"})[-1]['eval']
-        self.assertEqual([(r['by'].split(' · ')[0],r['text']) for r in rows],[('Хаб','Automatic exact reply'),('Вы','Owner exact reply')])
+        self.assertEqual([(r['by'].split(' · ')[0],r['text']) for r in rows],[('Хаб','Automatic exact reply'),('Ты','Owner exact reply')])
 
     def open_external_source(self, source, token=False, target=None):
         self.feed({'kind':'config','v':3,'inbox_protocol':{'version':1,'editor_cas':True}})
@@ -2813,7 +2814,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(got,{'same':True,'value':'Keep my exact instruction','selection':[5,10],'open':True})
         self.feed({'kind':'msg','id':'new-same-conversation','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'New message while typing','reply':True,'at':'2099-01-01T12:00:00Z'})
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history').textContent.includes('New message while typing')"})[-1]['until'])
-        self.assertEqual(self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-conversation-options').open})"})[-1]['eval'],got)
+        self.assertEqual(self.page({'eval':"({same:document.activeElement===__instruction,value:__instruction.value,selection:[__instruction.selectionStart,__instruction.selectionEnd],open:document.querySelector('.tm-instruction').open})"})[-1]['eval'],got)
         self.page({'key':'Escape'})
         self.assertTrue(self.page({'eval':"!document.querySelector('.tm-conversation-options').open && document.activeElement===document.querySelector('.tm-conversation-options > summary')"})[-1]['eval'])
         self.assertEqual(self.non_history_actions(),[])
