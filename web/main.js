@@ -2748,6 +2748,7 @@ function registerView() {
 // число новых в боковой панели — и когда вкладка закрыта (tolaysha 12.10): render вида зовётся, только пока он открыт,
 // поэтому канал читаем сами, когда в снимке есть новые посты (snap.feeds.teams — номер последнего)
 async function poll() {
+  if (ui?.root.isConnected) return;   // открытую вкладку ведёт render; опрос не трогает поле ответа
   const last = hub.snapshot()?.feeds?.teams || 0;
   if (!loaded || last > since) {
     if (await sync()) paint();
