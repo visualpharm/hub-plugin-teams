@@ -10,6 +10,32 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_list_media_matches_native_labels_icons_and_thumbnails(self):
+        self.seed_inbox(start_editing=False)
+        cases=[('Photo',{'kind':'image','url':'/api/file?path=photo.png'},''),
+               ('Voice',{'kind':'voice','duration':65},''),
+               ('Transcript',{'kind':'audio','text':'Spoken preview '*40},''),
+               ('Video',{'kind':'video','thumb':'/api/file?path=video.png'},''),
+               ('File',{'kind':'file','name':'Review.pdf'},''),
+               ('Caption',{'kind':'image','url':'/api/file?path=photo.png'},'First line\nSecond line')]
+        for name,media,caption in cases:
+            self.feed({'kind':'msg','id':'media-'+name,'contact':'synthetic/media/'+name,'src':'telegram','from':name,'text':caption or '[media]','reply':True,'at':datetime.now(timezone.utc).isoformat(),'media':[media]})
+        self.page({'tapSelector':'.tm-close-conversation'},{'until':"document.querySelectorAll('.tm-person').length===7"})
+        for width,theme in [(360,'light'),(402,'dark'),(768,'light'),(1240,'dark')]:
+            got=self.page({'viewport':{'width':width,'height':874}},{'media':theme},{'eval':"Object.fromEntries([...document.querySelectorAll('.tm-person')].map(n=>{const i=n.querySelector('.tm-media-label .tm-native-icon'),p=n.querySelector('.tm-preview img'),r=p?.getBoundingClientRect();return [n.querySelector('.tm-from').textContent,{text:n.querySelector('.tm-preview').textContent,icon:i?.className,iconSize:i?.getBoundingClientRect().width,mask:i&&getComputedStyle(i).maskImage,thumb:r&&[r.width,r.height]}]}))"})[-1]['eval']
+            for name,icon in [('Photo','image'),('Voice','mic'),('Transcript','mic'),('Video','video'),('File','doc')]:
+                self.assertIn('tm-icon-'+icon,got[name].get('icon',''),got)
+                self.assertEqual(got[name]['iconSize'],14,got[name]);self.assertIn('/icons/'+icon+'.svg',got[name]['mask'])
+            self.assertIn('1:05',got['Voice']['text']);self.assertEqual(got['Transcript']['text'],'Spoken preview '*40);self.assertEqual(got['File']['text'],'Review.pdf')
+            clamps=self.page({'eval':"[...document.querySelectorAll('.tm-media-label > .tm-clamp')].map(n=>({height:n.getBoundingClientRect().height,line:parseFloat(getComputedStyle(n).lineHeight)}))"})[-1]['eval']
+            self.assertTrue(all(n['height']<=n['line']*2+1 for n in clamps),clamps)
+            self.assertEqual(got['Caption']['text'],'First line Second line');self.assertNotIn('icon',got['Caption'])
+            for name in ('Photo','Video','Caption'):self.assertEqual(got[name]['thumb'],[44,44],got[name])
+            self.assertEqual(self.page({'eval':'document.documentElement.scrollWidth-innerWidth'})[-1]['eval'],0)
+            if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+                self.page({'shot':str(Path(os.environ['HUB_INBOX_SCREENSHOTS'])/f'media-{width}-{theme}.png'),'width':width,'height':874})
+        self.assertFalse(self.non_history_actions())
+
     def test_list_ages_are_compact_and_refresh_without_repainting_a_draft(self):
         self.seed_inbox(start_editing=False)
         self.page({'eval':"window.__listNow=Date.parse('2026-10-17T11:17:00Z');Date.now=()=>__listNow;true"})

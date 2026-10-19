@@ -341,3 +341,6 @@ The detail menu key follows the exact conversation rather than its newest messag
 
 ## Compact list timestamps without core interference
 The core updates every `.ago` node to a verbose relative string. Compact Inbox list labels therefore use `.tm-age` and their own 30-second text-only refresh, also refreshed on view rendering. Keep delivery timestamps on the original core path. Calendar yesterday is computed by local date arithmetic, not a fixed 24-hour subtraction, and applies only after six elapsed hours, matching the native client. Tests cover boundaries, DST, invalid/missing dates, old years, exact-date tooltips and focus remaining in the same draft node across the timer tick.
+
+## Media-only list previews
+A generic concatenated media-kind string loses voice transcripts and filenames. Match native LetterRow: first attachment label then a14px type glyph, real caption text without a glyph,44px thumbnail with8px gap. Keep detail attachment labels/player behavior separate. Test photo/voice/transcript/video/file/caption rows and navigation without provider reads; capture explicit theme palettes, since browser media emulation alone does not override saved Hub themes.

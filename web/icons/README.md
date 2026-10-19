@@ -13,3 +13,5 @@ conversation rows. Phone and desktop light/dark checks confirm a visible,
 muted pin beside the timestamp; the pin toggle keeps a44px menu target.
 
 Inbox tray is the unchanged native0597a826 icon-nav-inbox asset, displayed with its label in the folder control. The accessible label remains when the extra Failed folder requires compact icon-only presentation.
+
+Media list glyphs image, mic, video and doc reuse the unchanged native0597a826 Icons8 SF Regular assets. They follow the text label at14px; thumbnails use44px squares. These glyphs describe content and are not action buttons.
