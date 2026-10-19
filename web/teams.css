@@ -292,8 +292,9 @@
 .tm-thread > .tm-head .tm-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: auto; }
 .tm-thread { container: inbox-thread / inline-size; }
 @container inbox-thread (max-width: 560px) {
-  .tm-thread > .tm-acts { display: grid; grid-template-columns: 1fr 1fr; }
-  .tm-thread > .tm-acts .tm-action { padding-inline: 14px; justify-content: flex-start; }
+  .tm-thread > .tm-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tm-thread > .tm-acts .tm-action { min-width: 0; padding-inline: 12px; gap: 6px; justify-content: flex-start; }
+  .tm-thread > .tm-acts .tm-action-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
 
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
