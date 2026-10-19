@@ -745,7 +745,6 @@ async function toHub(m, kind, prev = []) {
   const r = await hub.post("/api/send", { session: hubName(), text });
   if (r.error) { sending.delete(m.id); error = r.error; paint(); return; }
   (kind === "work" ? work : draft).set(m.id, Date.now() / 1000);
-  if (kind === "work") settle(m.id, Date.now() / 1000);
   error = "";
   await mark(kind, { id: m.id });
   sending.delete(m.id);
