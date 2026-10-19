@@ -448,6 +448,8 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "unhide") for (const id of d.ids || []) {hidden.delete(id);replyArchived.delete(id);}
       else if (p.by === "owner" && d?.kind === "work") work.set(d.id, p.ts);
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
+      // ✨ из треда и меню сообщения: время просьбы по журналу — черновик старше неё устарел (I-16)
+      else if (p.by === "owner" && d?.kind === "ask" && d.what === "draft" && typeof d.post === "string") { for (const m of msgs.values()) if (m.post === d.post) draft.set(m.id, p.ts); }
       else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",sequence:Number(p.id.slice(1)),...(sends.get(d.rid) || {}) });
       else if (p.by === AUTHOR && d?.kind === "archived") acceptArchive(d);
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
@@ -1219,21 +1221,21 @@ function line(m, source=m, named=false) {
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
 function openCompose(m, text, why = "", focus = true) {
-  let suggested = false;
+  let suggested = false, offerTs;
   if (text === undefined) {
     const saved=savedDraft(m);
     if (saved!==undefined) text = saved.text;
     else {
-      const offer = splitDraft((replies.get(m.post) || []).at(-1)?.text || "");
+      const latest = (replies.get(m.post) || []).at(-1), offer = splitDraft(latest?.text || "");
       text = offer.text && !QUICK_REACTIONS.includes(offer.text.trim()) ? signed(offer.text,m) : "";
-      why = offer.why; suggested = !!text;
+      why = offer.why; suggested = !!text; offerTs = latest?.ts;
     }
   }
   const state = guardedReply(m) ? new InboxEditor(m, editorIdentity(), text) : null;
   const pending=pendingReply(m);
   if(state && pending?.q?.inbox)state.delivery={rid:pending.q.rid,token:pending.q.inbox,text:pending.q.text,target:pending.q.target,state:"unresolved"};
   if (state) editorStates.set(m.id, state);
-  const st = { text, why, state, suggested, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
+  const st = { text, why, state, suggested, offerTs, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
   composing.set(m.id, st);
   if (focus) focusId = m.id;
   paint();
@@ -1602,8 +1604,34 @@ export function whyLine(why) {
   return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p)).map((p, i) => (i < parts.length - 1 ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
 }
 
+// повтор ✨ позже последнего черновика: черновик устарел, пока хаб не положит новый
+const draftStale = (m) => { const latest = (replies.get(m.post) || []).at(-1); return !!latest && (draft.get(m.id) || 0) > latest.ts; };
+const staleMark = () => el("p", "tm-draft-stale", T("Прежний черновик устарел — хаб готовит новый", "The previous draft is out of date — Hub is preparing a new one"));
+
+async function askDraft(m) {
+  let q;
+  try { q = boundedRequest({ kind: "ask", what: "draft", rid: requestId(), post: m.post }); }
+  catch (e) { error = e.message; paint(); return; }
+  draft.set(m.id, Date.now() / 1000); paint();
+  if (!(await mark(q.kind, q))) { paint(); return; }
+  paint();
+}
+
+// новый черновик хаба приходит в открытое поле, только если там прежний нетронутый совет или пусто
+function adoptOffer(m, st, latest) {
+  if (st.offerTs === latest.ts || st.files?.length || st.uploading || st.state?.control || st.state?.delivery) return;
+  if (!st.suggested && replyBody(st.text, m).trim()) return;
+  const offer = splitDraft(latest.text);
+  if (!offer.text || QUICK_REACTIONS.includes(offer.text.trim())) return;
+  st.text = signed(offer.text, m); st.why = offer.why; st.suggested = true; st.offerTs = latest.ts;
+  st.state?.edit(st.text);
+  st.box?.set({ text: replyBody(st.text, m) });
+}
+
 function draftBlock(m, r) {
-  const d = el("div", "tm-draft");
+  const stale = draftStale(m) && (replies.get(m.post) || []).at(-1) === r;
+  const d = el("div", "tm-draft" + (stale ? " tm-draft-old" : ""));
+  if (stale) d.append(staleMark());
   const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${r.by} · `);
   by.append(stamp(r.ts));
   const { text, why } = splitDraft(r.text);
@@ -1954,7 +1982,11 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
 
   for (const m of ms) {
-    if (!composing.has(m.id)) for (const r of replies.get(m.post) || []) history.append(draftBlock(m, r));
+    // один черновик — последний; прежние заменены им (I-16: повтор ✨ не задваивает)
+    const latest = (replies.get(m.post) || []).at(-1), st = composing.get(m.id);
+    if (latest && st) adoptOffer(m, st, latest);
+    if (latest && (!st || st.offerTs !== latest.ts)) history.append(draftBlock(m, latest));
+    else if (latest && draftStale(m)) history.append(staleMark());
     for (const [rid, x] of sends) if (x.id === m.id) history.append(sentBlock(m, rid, x));
   }
   const composeFor = ms.find((m) => composing.has(m.id));
@@ -1967,11 +1999,10 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     if (canReply(target) && !composeFor) acts.append(button(T("Ответить","Reply"), "", () => openCompose(target), `${T("Ответить","Reply")}: ${personName(target.from)}`));
     const go = action(busy ? T("Отправляю…","Sending…") : T("В работу хабу","Hand to Hub"), "work", () => toHub(target, "work", prevOpen.filter((m) => m !== target)), `${T("В работу: сообщение","Hand to Hub: message from")} ${personName(target.from)}`);
     go.disabled = busy;
-    if (!draft.has(target.id)) {
-      const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => toHub(target, "draft", prevOpen.filter((m) => m !== target)), `${T("Черновик ответа для","Draft reply for")} ${personName(target.from)}`);
-      dr.disabled = busy;
-      acts.append(dr);
-    }
+    // I-16: не прячется после первого запроса — повтор просит хаб переделать (например, сменился день)
+    const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => askDraft(target), `${T("Черновик ответа для","Draft reply for")} ${personName(target.from)}`);
+    dr.disabled = busy || !/^p\d+$/.test(target.post || "");
+    acts.append(dr);
     acts.append(go);
     const react = action(T("Реакция","React"), "react", () => { reacting = target.id; paint(); }, `${T("Реакция для","React to")} ${personName(target.from)}`);
     react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";

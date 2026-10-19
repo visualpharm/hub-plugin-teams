@@ -1152,6 +1152,31 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
         self.p14_shot('teams-reaction-sent-402',402)
 
+    def test_draft_by_hub_again_regenerates_and_retires_the_old_draft(self):
+        # I-16: ✨ again (e.g. the day changed) asks for a new draft; the old one is marked stale and never doubled
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='See you tomorrow.\n---\nWhy: Written yesterday.')
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='See you tomorrow.'"})[-1]['until'])
+        ask="document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]')"
+        self.assertTrue(self.page({'eval':"!!"+ask})[-1]['eval'])
+        self.page({'eval':ask+".click();true"})
+        first=self.queued('ask');self.assertEqual((first['what'],first['post']),('draft',post))
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(first))
+        got=self.page({'until':"!!document.querySelector('.tm-thread .tm-draft-stale')"},{'eval':"[document.querySelector('.tm-thread .tm-draft-stale')?.textContent,!!"+ask+"]"})
+        self.assertTrue(got[-2]['until'],got);self.assertIn('устарел',got[-1]['eval'][0]);self.assertTrue(got[-1]['eval'][1],'The button stays for another request')
+        self.p14_shot('teams-draft-stale-402',402);self.p14_shot('teams-draft-stale-1240',1240)
+        self.page({'sleep':50},{'eval':ask+".click();true"})
+        second=self.queued('ask');self.assertNotEqual(second['rid'],first['rid']);self.assertEqual(second['post'],post)
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(second))
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='See you today at 5.\n---\nWhy: The day changed.')
+        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='See you today at 5.'"},
+                      {'eval':"({stale:!!document.querySelector('.tm-draft-stale'),old:document.querySelector('.tm-detail').textContent.includes('See you tomorrow'),drafts:document.querySelectorAll('.tm-detail .tm-draft').length})"})
+        self.assertTrue(got[-2]['until'],got)
+        self.assertEqual(got[-1]['eval'],{'stale':False,'old':False,'drafts':0})
+        self.p14_shot('teams-draft-new-402',402)
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[])
+
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',

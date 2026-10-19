@@ -2,6 +2,7 @@
 расширения, PYTHONPATH — код хаба)."""
 import json
 import os
+import time
 import sys
 import unittest
 from datetime import datetime, timezone
@@ -494,6 +495,9 @@ class Later(unittest.TestCase):
         self.assertIn("p12", told[0])
         self.assertNotIn("заново", told[0])
         self.assertIn("заново", told[1])
+        # I-16: повтор — с учётом нового дня: сегодняшняя дата в просьбе, относительные сроки пересчитать
+        self.assertIn(time.strftime("%Y-%m-%d", time.localtime(1100)), told[1])
+        self.assertIn("сегодня", told[1])
         self.assertEqual([p["rid"] for p in out], ["a1", "a5"])
 
     def test_dismiss_from_the_triage_plugin_closes_the_item_once(self):
