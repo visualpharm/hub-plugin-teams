@@ -670,6 +670,16 @@ class ContactFlags(unittest.TestCase):
             self.assertFalse(sources.send_knows(os.path.join(d, "missing"), "--who"))
             self.assertFalse(os.path.exists(os.path.join(d, "log")))
 
+    def test_open_items_posted_before_get_name_and_topic_but_keep_address(self):
+        import main
+        old = {"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send", "msg": "m1"}
+        refs = {"k1": dict(old), "k2": dict(old)}
+        items = [{"key": "k1", "ref": {**old, "msg": "m2", **sources.contact_of("Juan", "Hola")}},
+                 {"key": "k2", "ref": {**old, **sources.contact_of("Ana", "x")}}]
+        main.contact_refresh(refs, items, {"k1": ["wa:x", "t"]})
+        self.assertEqual(refs["k1"], {**old, "who": "Juan", "about": "Hola"})   # msg прежний: адрес не трогаем
+        self.assertEqual(refs["k2"], old)   # закрытый пункт — как был
+
     def test_contact_fields_do_not_change_the_address_print(self):
         import main
         ref = {"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send"}

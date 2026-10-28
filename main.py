@@ -508,6 +508,18 @@ def target_of(ref):
     return hashlib.sha1(json.dumps(ref, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 
 
+def contact_refresh(refs, items, opened):
+    """Имя и тема для карточки контакта (send --who/--about, 20.10) — и у пунктов, открытых до этого: только поля
+    sources.CONTACT_KEYS, адрес ref не меняется (target_of их не учитывает)."""
+    for i in items:
+        ref, have = i.get("ref") or {}, refs.get(i.get("key"))
+        if have is None or i["key"] not in opened:
+            continue
+        upd = {k: ref[k] for k in sources.CONTACT_KEYS if k in ref}
+        if any(have.get(k) != v for k, v in upd.items()):
+            refs[i["key"]] = {**have, **upd}
+
+
 def msg_post(i, done, rules):
     return {"kind": "msg", "id": i["key"], "answered": done, **({"reply": True, "target": target_of(i["ref"])} if i.get("ref") else {}),
             **({"react": True} if collect.can_react(i.get("ref")) else {}),
@@ -592,6 +604,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
     late = [i for i in items if i.get("ref") and i["key"] in opened and i["key"] not in refs]
     for i in late:   # открытое сообщение, запощенное до того, как на его канал научились отвечать
         refs[i["key"]] = i["ref"]
+    contact_refresh(refs, items, opened)
     if late:
         put({"kind": "reply", "ids": [i["key"] for i in late][:60],
              "react": [i["key"] for i in late if collect.can_react(i["ref"])][:60]})
