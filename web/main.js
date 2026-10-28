@@ -1207,6 +1207,12 @@ function messageText(m) {
 
 const previewCache=new Map();
 let playingAudio=null;
+function durationSeconds(v){
+  if(typeof v==="number")return Number.isFinite(v)&&v>0?v:0;
+  if(typeof v!=="string"||!v.trim())return 0;
+  const parts=v.trim().split(":");if(parts.length>3||parts.some(x=>!/^\d+(\.\d+)?$/.test(x)))return 0;
+  return parts.reduce((a,x)=>a*60+Number(x),0);
+}
 const voiceClock=n=>`${Math.floor(n/60)}:${String(Math.floor(n%60)).padStart(2,"0")}`;
 function voicePlayer(item,url,label) {
   const box=el("div","tm-voice"),player=el("audio"),controls=el("div","tm-voice-controls");
@@ -1220,7 +1226,7 @@ function voicePlayer(item,url,label) {
   const glyph=el("span","tm-voice-glyph");glyph.setAttribute("aria-hidden","true");play.append(glyph);
   const seek=el("input","tm-voice-seek");seek.type="range";seek.min="0";seek.step="1";seek.value="0";seek.setAttribute("aria-label",T("Позиция записи","Playback position"));
   const time=el("span","tm-voice-time"),error=el("p","tm-media-error",T("Не удалось воспроизвести. Попробуйте ещё раз.","Could not play. Try again."));error.hidden=true;error.setAttribute("role","status");
-  const duration=()=>{const n=Number.isFinite(player.duration) && player.duration>0 ? player.duration : Number(item.dur || item.duration);return Number.isFinite(n) && n>0 ? n : 0;};
+  const duration=()=>{const n=Number.isFinite(player.duration) && player.duration>0 ? player.duration : durationSeconds(item.dur || item.duration);return n>0 ? n : 0;};
   function update(){
     const length=Math.max(0,duration()),position=Number.isFinite(player.currentTime) ? player.currentTime : 0;
     play.setAttribute("aria-label",player.paused ? T("Воспроизвести","Play") : T("Пауза","Pause"));play.classList.toggle("tm-playing",!player.paused);
@@ -1275,6 +1281,14 @@ function mediaBody(m) {
       photo.setAttribute("aria-label", T("Открыть: ","View ") + label); photo.append(image); box.append(photo);
     } else if(kind==="audio") {
       box.append(voicePlayer(item,url,label));
+    } else if (kind === "video" && typeof item.thumb !== "string") {
+      const file = el("a", "tm-media-file"); file.href = url; file.target = "_blank"; file.rel = "noopener noreferrer";
+      const icon=el("span","tm-file-icon");icon.setAttribute("aria-hidden","true");
+      const info=el("span","tm-file-info");info.append(el("span","tm-file-name",item.name || label));
+      const meta=[durationSeconds(item.dur || item.duration) ? voiceClock(durationSeconds(item.dur || item.duration)) : "",fileSize(item.size)].filter(Boolean).join(" · ");
+      if(meta)info.append(el("span","tm-file-size",meta));
+      file.append(icon,info);box.append(file);
+      if (item.text || item.transcript) box.append(el("p", "tm-transcript", item.text || item.transcript));
     } else if (kind === "video") {
       const player = el(kind); player.src = url; player.controls = true; player.preload = "metadata";
       player.setAttribute("aria-label", label);

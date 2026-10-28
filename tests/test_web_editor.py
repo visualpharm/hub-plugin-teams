@@ -2707,6 +2707,15 @@ class InboxWebAcceptance(PageInChrome):
         self.assertIn('Retain this transcript',got['text']);self.assertTrue(got['native']);self.assertIn(got['label'],('Play','Воспроизвести'));self.assertGreaterEqual(got['width'],44);self.assertGreaterEqual(got['height'],44)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
+    def test_old_string_voice_duration_and_video_without_cover_is_a_plate(self):
+        self.seed_inbox(start_editing=False)
+        self.queued('history')
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'media','text':'','media':[
+            {'kind':'voice','url':'/api/file?path=missing-voice.wav','dur':'0:32'},
+            {'kind':'video','name':'clip.mp4','url':'/api/file?path=secret%2Fclip.mp4','dur':75,'size':2500000}]}]})
+        got=self.page({'until':"!!document.querySelector('.tm-voice .tm-voice-time') && !!document.querySelector('.tm-media-file')"},{'eval':"(()=>({time:document.querySelector('.tm-voice-time').textContent,plate:document.querySelector('.tm-media-file').textContent,video:!!document.querySelector('.tm-media video'),html:document.querySelector('.tm-history').textContent.includes('secret')}))()"})[-1]['eval']
+        self.assertEqual(got['time'],'0:32');self.assertIn('clip.mp4',got['plate']);self.assertIn('1:15',got['plate']);self.assertFalse(got['video']);self.assertFalse(got['html'])
+
     def test_reply_composer_keeps_one_row_with_or_without_discard(self):
         self.seed_inbox(start_editing=False)
         for width in (360,402,834,1240):
