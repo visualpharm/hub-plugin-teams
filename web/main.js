@@ -231,6 +231,8 @@ const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable 
 // For a text-only destination the plugin hides it and stops files before the field's own listeners (textarea, form).
 const textInput = opts => {
   const box = hub.input(opts);
+  // ядро flagman начального text в hub.input не берёт — без этого черновик хаба не вставал в поле; кладём его через set (API 1.28)
+  if (opts.text && box?.set && box.draft && !box.draft().text) box.set({ text: opts.text });
   if (opts.attachments !== false || hub.capabilities?.composerFiles || !box?.node) return box;
   const node = box.node, attach = node.querySelector(':scope > .attach');
   if (attach) attach.hidden = true;
@@ -1593,6 +1595,12 @@ function line(m, source=m, named=false) {
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
 function openCompose(m, text, why = "", focus = true) {
+  startCompose(m, text, why, focus);
+  paint();
+}
+
+// Поле ответа без перерисовки: черновик хаба встаёт в поле и при отрисовке переписки (thread)
+function startCompose(m, text, why = "", focus = true) {
   let suggested = false, offerTs;
   if (text === undefined) {
     const saved=savedDraft(m);
@@ -1610,7 +1618,16 @@ function openCompose(m, text, why = "", focus = true) {
   const st = { text, why, state, suggested, offerTs, files: acceptsFiles(m) ? savedDraft(m)?.files || [] : [] };
   composing.set(m.id, st);
   if (focus) focusId = m.id;
-  paint();
+}
+
+// Черновик хаба — только в поле ответа (Иван через web-parity m1053809, как натив fill/discard): закрытое владельцем поле
+// с этим черновиком само не открывается, пока хаб не пришлёт новый
+const dismissedDrafts = new Map();
+const dismissDraft = (m) => { const latest = latestDraft(m); if (latest) dismissedDrafts.set(m.id, latest.ts); };
+function draftToField(m) {
+  const latest = latestDraft(m);
+  return !!latest && canReply(m) && !deliveryPending(m) && dismissedDrafts.get(m.id) !== latest.ts
+    && ![...sends.values()].some((x) => x.id === m.id && x.state !== "fail");
 }
 
 function beginEditing(m, st) {
@@ -1901,6 +1918,7 @@ function sharedReply(m, st) {
     box.node.querySelector("textarea").dataset.compose = m.id;
     box.node.querySelector("textarea").addEventListener("focus", e => { if(st.suggested) { e.target.select(); st.suggested=false; } });
     const close = button(T("Закрыть ответ","Close editor"), "quiet", () => {
+      dismissDraft(m);
       const menu=optionsBody.closest('.tm-conversation-options');if(menu)menu.open=false;
       if (st.state && (st.started || st.state.token?.holder === st.state.editor)) confirmEditor(m, st, "release");
       else { composing.delete(m.id); paint(); }
@@ -2052,10 +2070,10 @@ function composer(m) {
   ta.addEventListener("keydown", (e) => {
     // как во всех полях хаба (14.10, ui-expert/владелец): Enter — отправить, Shift+Enter — новая строка
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (ta.value.trim()) sendReply(m, ta.value); }
-    else if (e.key === "Escape") { composing.delete(m.id); paint(); }
+    else if (e.key === "Escape") { dismissDraft(m); composing.delete(m.id); paint(); }
   });
   const foot = el("div", "tm-acts");
-  foot.append(go, button(T("Отмена","Cancel"), "quiet", () => { composing.delete(m.id); paint(); }),
+  foot.append(go, button(T("Отмена","Cancel"), "quiet", () => { dismissDraft(m); composing.delete(m.id); paint(); }),
     el("span", "tm-hint", T(`Уйдёт в ${SRC_FROM(m)} от твоего имени`,`Sends to ${TEAMS_SRCS.includes(m.src) ? "Teams" : m.src} as you`)));
   wrap.append(ta);
   wrap.append(foot);
@@ -2179,32 +2197,6 @@ function adoptOffer(m, st, latest) {
   st.text = signed(offer.text, m); st.why = offer.why; st.suggested = true; st.offerTs = latest.ts;
   st.state?.edit(st.text);
   st.box?.set({ text: replyBody(st.text, m) });
-}
-
-function draftBlock(m, r) {
-  const stale = draftStale(m) && latestDraft(m) === r;
-  const d = el("div", "tm-draft" + (stale ? " tm-draft-old" : ""));
-  if (stale) d.append(staleMark());
-  // автор — только сессия хаба; служебное имя плагина («plugin proactivity») владельцу не показываем. Черновик, который уже
-  // нельзя отправить (переписка скрыта или закрыта), — только текст и время, без заметки «Почему»
-  const quiet = !canReply(m), author = agentTitle((hub.snapshot().sessions || []).find((s) => s.name === r.by));
-  const by = el("div", "tm-draft-by", quiet ? "" : `${T("Черновик ответа","Draft reply")} · ${author ? author + " · " : ""}`);
-  by.append(stamp(r.ts));
-  const { text, why: note, carried } = splitDraft(r.text), moved = (carried || hubDrafts(m).carried) && !!text;
-  const why = moved ? carriedWhy(note) : note;
-  d.append(by, decorateValues(el, replyText(el,text)));
-  if (moved && !quiet) d.append(el("div", "tm-draft-why tm-draft-carried", carriedLine()));
-  if (note && !quiet) d.append(valueElement(el, "div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
-  const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
-  if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
-    const a = el("div", "tm-acts");
-    const send=button(T("Отправить","Send"), "primary", () => sendReply(m, signed(text, m)), `${T("Отправить черновик","Send draft")}: ${personName(m.from)}`);
-    send.disabled=deliveryPending(m);
-    a.append(send,
-      button(T("Править","Edit"), "", () => openCompose(m, signed(text, m), why), `${T("Править черновик","Edit draft")}: ${personName(m.from)}`));
-    d.append(a);
-  }
-  return d;
 }
 
 async function unschedule(m,rid) {
@@ -2558,14 +2550,24 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if (drafting !== null) history.append(draftingRow(drafting));
 
   for (const m of ms) {
-    // один черновик — последний; прежние заменены им (I-16: повтор ✨ не задваивает)
+    // один черновик — последний; прежние заменены им (I-16: повтор ✨ не задваивает). Отдельной карточки черновика нет:
+    // он в поле ответа (нетронутый прежний уступает новому — adoptOffer)
     const latest = latestDraft(m), st = composing.get(m.id);
     if (latest && st) adoptOffer(m, st, latest);
-    if (latest && (!st || st.offerTs !== latest.ts)) history.append(draftBlock(m, latest));
-    else if (latest && draftStale(m)) history.append(staleMark());
+    if (latest && draftStale(m)) history.append(staleMark());
     for (const [rid, x] of sends) if (x.id === m.id) history.append(sentBlock(m, rid, x));
   }
+  // открытая переписка с черновиком хаба — поле ответа раскрыто с ним (без фокуса: клавиатуру телефона не поднимаем)
+  if (detail && !ms.some((m) => composing.has(m.id))) {
+    const drafted = [...open].reverse().find(draftToField);
+    if (drafted) startCompose(drafted, undefined, "", false);
+  }
   const composeFor = ms.find((m) => composing.has(m.id));
+  // заметка разбора хаба — плашкой первым блоком переписки, прокручивается с ней и видна при открытом поле (как натив
+  // InboxNoteLine, Иван m1046050/m1046159); пока хаб переделывает черновик, заметка прежнего не показывается
+  const noted = [...ms].reverse().find((m) => latestDraft(m));
+  const noteLine = noted && canReply(noted) && !draftStale(noted) && whyLine(hubOffer(noted).why);
+  if (noteLine) history.querySelector(":scope > .tm-conversation-source").after(whyNote(noted, noteLine));
 
   const acts = el("div", "tm-acts");
   if (open.length) {
@@ -2600,11 +2602,6 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     head.append(a);
   }
   if(hub.input){const quick=quickButton();head.append(quick);}   // web-1 hides it in the head from 900px, where the toolbar has its own
-  // пояснение относится к прежнему черновику: пока хаб готовит новый, его не показываем (ревью ui-expert m572303)
-  const guidance = composeFor && !draftStale(composeFor) && composing.get(composeFor.id)?.why;
-  if (guidance) {
-    const explanation=el("div","tm-guidance");explanation.append(valueElement(el,"div",null,whyLine(guidance)));box.append(explanation);
-  }
   const suggestion = open.length ? suggestedReaction(open.includes(last) ? last : open[open.length - 1]) : null;
   if (suggestion) box.append(suggestion);
   // передача в тред: итог — строкой над действиями, по точному посту

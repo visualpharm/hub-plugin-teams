@@ -47,6 +47,17 @@ f = field();
 make({ capabilities: { composerFiles: 1 }, input: () => ({ node: f.node }) })({ attachments: false });
 assert.equal(f.attach.hidden, false); assert.equal(f.listeners.length, 0);
 
+// начальный текст (черновик хаба в поле, web-parity m1053809): ядро flagman text в hub.input не берёт — плагин кладёт его set;
+// ядро, что взяло текст само, и пустое поле set не получают
+const stub = (initial) => { const calls = []; let value = initial; return { calls, box: { node: field().node, draft: () => ({ text: value, files: [] }), set: (n) => { calls.push(n); if (n.text !== undefined) value = n.text; } } }; };
+let s = stub(""); make({ capabilities: {}, input: () => s.box })({ text: "Черновик хаба" });
+assert.deepEqual(s.calls, [{ text: "Черновик хаба" }], "flagman: текст черновика через set");
+s = stub("Черновик хаба"); make({ capabilities: {}, input: () => s.box })({ text: "Черновик хаба" });
+assert.deepEqual(s.calls, [], "ядро взяло текст само — set не нужен");
+s = stub(""); make({ capabilities: {}, input: () => s.box })({ text: "" });
+assert.deepEqual(s.calls, [], "пустой текст — поле не трогаем");
+make({ capabilities: {}, input: () => ({ node: field().node }) })({ text: "x" });   // старое ядро без set/draft — не падает
+
 // все текстовые поля плагина идут через textInput
 assert.ok(src.includes('st.box = textInput({ key: "reply:"'));
 assert.ok(src.includes('st.instructBox = textInput({ key: "instruction:"'));

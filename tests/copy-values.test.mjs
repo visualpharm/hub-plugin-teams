@@ -138,14 +138,12 @@ await copyText("b2", { navigator: {}, document: doc });
 assert.deepEqual(got, ["a1", "copy:b2", "removed"]);
 await assert.rejects(copyText("c3", { navigator: {}, document: {} }));
 
-// main.js: значки в предложении, черновике, пояснении «Почему», ✨ над полем и строке разбора; лента реплик — без них.
+// main.js: значки в предложении, заметке «Почему здесь» и строке разбора; черновик — в поле ответа, лента реплик — без них.
 assert.match(src, /import \{ decorateValues, valueElement \} from "\.\/copy-values\.js";/);
 assert.match(src, /decorateValues\(el, replyText\(el,p\.text,"tm-proposed-text","p"\)\), valueElement\(el, "p", null, p\.context\), valueElement\(el, "p", null, p\.next_action\)/);
-assert.match(src, /d\.append\(by, decorateValues\(el, replyText\(el,text\)\)\)/);
 assert.match(src, /valueElement\(el, "div", "tm-draft-why"/);
-assert.match(src, /valueElement\(el,"div",null,whyLine\(guidance\)\)/);
 assert.match(src, /valueElement\(el, "div", "tm-verdict", analysed\)/);
-assert.equal((src.match(/decorateValues\(|valueElement\(/g) || []).length, 7, "ровно 7 мест");
+assert.equal((src.match(/decorateValues\(|valueElement\(/g) || []).length, 5, "ровно 5 мест");
 const css = readFileSync(new URL("../web/teams.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 for (const [, selector] of css.matchAll(/([^{}]+)\{[^}]*user-select\s*:\s*none[^}]*\}/g))
   assert.equal(selector.trim(), ".tm-copy-at", "плагин выключает выделение только у самого значка");

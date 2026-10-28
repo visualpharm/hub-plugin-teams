@@ -1233,7 +1233,7 @@ class InboxWebAcceptance(PageInChrome):
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(first))
         got=self.page({'until':"!!document.querySelector('.tm-thread .tm-draft-stale')"},{'eval':"[document.querySelector('.tm-thread .tm-draft-stale')?.textContent,!!"+ask+"]"})
         self.assertTrue(got[-2]['until'],got);self.assertIn('устарел',got[-1]['eval'][0]);self.assertTrue(got[-1]['eval'][1],'The button stays for another request')
-        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-guidance')"})[-1]['eval'],'The old explanation is hidden while the draft is redone')
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-note-box')"})[-1]['eval'],'The old explanation is hidden while the draft is redone')
         self.p14_shot('teams-draft-stale-402',402);self.p14_shot('teams-draft-stale-1240',1240)
         self.page({'sleep':50},{'eval':ask+".click();true"})
         second=self.queued('ask');self.assertNotEqual(second['rid'],first['rid']);self.assertEqual(second['post'],post)
@@ -1265,7 +1265,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-2]['until'],got[-1]['eval'])
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Да, посмотрю сегодня.\n---\nПочему: просит проверить навигацию')
         got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Да, посмотрю сегодня.'"},
-                      {'eval':"document.querySelector('.tm-guidance')?.textContent||''"},{'eval':detail})
+                      {'eval':"document.querySelector('.tm-detail .tm-note-body')?.textContent||''"},{'eval':detail})
         self.assertTrue(got[-3]['until'],got[-1]['eval'])
         self.assertEqual(got[-2]['eval'],'Черновик к прежнему сообщению — сверь с новым. Просит проверить навигацию')
         self.assertNotIn('Хаб пишет черновик',got[-1]['eval'])
@@ -1273,7 +1273,7 @@ class InboxWebAcceptance(PageInChrome):
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post_b,
                 text=f'Да, посмотрю сегодня вечером.\n---\nПеренесён из {post}: черновик к прежнему сообщению этой переписки — сверь с новым.\nПочему: просит проверить навигацию')
         got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Да, посмотрю сегодня вечером.'"},
-                      {'eval':"document.querySelector('.tm-guidance')?.textContent||''"},{'eval':"document.body.innerText"})
+                      {'eval':"document.querySelector('.tm-detail .tm-note-body')?.textContent||''"},{'eval':"document.body.innerText"})
         self.assertTrue(got[-3]['until'],got[-1]['eval'])
         self.assertEqual(got[-2]['eval'],'Черновик к прежнему сообщению — сверь с новым. Просит проверить навигацию')
         self.assertNotIn('Перенесён',got[-1]['eval']);self.assertNotIn(post,got[-1]['eval'])
@@ -2101,17 +2101,17 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
 
     def test_suggested_reply_lost_acknowledgement_cannot_create_second_delivery(self):
+        # the hub draft lives in the reply field (web-parity m1053809): its send obeys the same lost-acknowledgement boundary
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Exact suggested reply')
-        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'},
-          {'until':"!!document.querySelector('.tm-draft button.primary')"},
+        self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Exact suggested reply'"},
           {'eval':"window.__fetch=window.fetch;window.fetch=async(url,opts)=>{const r=await __fetch(url,opts);if(String(url).endsWith('/api/feed/post')&&JSON.parse(opts?.body||'{}').text?.includes('\\\"kind\\\":\\\"send\\\"'))throw new Error('Synthetic lost acknowledgment after acceptance');return r};true"},
-          {'tapSelector':'.tm-draft button.primary'},{'sleep':200})
+          {'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':200})
         q=self.queued('send');self.assertEqual(q['text'],'Exact suggested reply')
-        got=self.page({'eval':"({unknown:!!document.querySelector('.tm-mine-unresolved'),blocked:!document.querySelector('.tm-draft button.primary') || document.querySelector('.tm-draft button.primary').disabled})"})[-1]['eval']
-        self.assertEqual(got,{'unknown':True,'blocked':True})
-        self.page({'eval':"window.fetch=__fetch;document.querySelector('.tm-draft button.primary')?.click();true"},{'sleep':100})
+        got=self.page({'until':"!!document.querySelector('.tm-mine-unresolved')"},{'eval':"document.querySelectorAll('.tm-draft').length"})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],0)
+        self.page({'eval':"window.fetch=__fetch;document.querySelector('.tm-shared-compose button[type=submit]')?.click();true"},{'sleep':150})
         self.assertEqual(self.non_history_actions(),[])
         self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
         self.page({'tapSelector':"[aria-label='Sent conversations']"},
@@ -2123,15 +2123,16 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100});q=self.queued('send')
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Different suggested reply https://example.test/draft')
-        self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'},
-          {'until':"!!document.querySelector('.tm-draft button.primary')"})
-        self.assertTrue(self.page({'eval':"document.querySelector('.tm-draft button.primary').disabled"})[-1]['eval'])
-        self.assertEqual(self.page({'eval':"document.querySelector('.tm-draft-text a').href"})[-1]['eval'],'https://example.test/draft')
+        # no separate draft card offers a second send while the first is pending; the field's submit is held too
+        got=self.page({'sleep':600},{'eval':"({cards:document.querySelectorAll('.tm-draft').length,field:document.querySelector('.tm-shared-compose textarea')?.value??null})"})[-1]['eval']
+        self.assertEqual(got['cards'],0,got)
+        self.page({'eval':"document.querySelector('.tm-shared-compose button[type=submit]')?.click();true"},{'sleep':150})
         self.assertEqual(self.non_history_actions(),[])
         self.feed({'kind':'send_failed','id':q['id'],'rid':q['rid'],'error':'Definitive refusal'})
-        got=self.page({'until':"!document.querySelector('.tm-draft button.primary').disabled"});self.assertTrue(got[-1]['until'],got)
-        self.page({'tapSelector':'.tm-draft button.primary'},{'sleep':100})
-        retry=self.queued('send');self.assertEqual(retry['text'],'Different suggested reply https://example.test/draft');self.assertEqual(retry['id'],q['id'])
+        got=self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')&&!document.querySelector('.tm-shared-compose button[type=submit]')?.disabled"},{'eval':"document.querySelector('.tm-shared-compose textarea').value"})
+        self.assertTrue(got[-2]['until'],got)
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'},{'sleep':100})
+        retry=self.queued('send');self.assertEqual(retry['id'],q['id']);self.assertEqual(retry['text'],got[-1]['eval'].strip())
 
     def test_canceled_reply_cannot_follow_a_rebound_source(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram');self.edit('Reply only for original contact')
@@ -2840,18 +2841,19 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(send['hit'],got);self.assertEqual(send['width'],36,got);self.assertEqual(send['round'],'50%',got)
         self.assertLessEqual(abs(send['bottom']-got['bottomSlot']),2,got)   # ↑ takes the slot beside ✨
 
-    def test_hidden_draft_is_its_text_and_time_only(self):
-        # ui-expert m727340 п.10: no «plugin proactivity · N ago», no «Почему / Missing» paragraph under a hidden draft
+    def test_hidden_draft_shows_no_card_note_or_field(self):
+        # web-parity m1053809: hub draft lives only in the reply field; a hidden conversation has no field, so neither the
+        # draft card nor «Почему здесь» appears (ui-expert m727340 п.10: never «plugin proactivity» or a Missing paragraph)
         self.seed_inbox(start_editing=False)
         for mid in ('archive-a','archive-b'):
             self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
         post=self.page({'until':"document.querySelectorAll('.tm-person').length>=2"},{'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='archive-a'}catch{return false}}).id)"})[-1]['eval']
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Hidden draft text\n---\nПочему: объяснение.\nMissing: цена')
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['archive-a','archive-b']}))
-        self.page({'tapSelector':'[data-folder=archive]'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('archive-a')).click();true"},{'until':"!!document.querySelector('.tm-detail .tm-draft')"})
-        got=self.page({'eval':"(()=>{const d=document.querySelector('.tm-detail .tm-draft');return {text:d.textContent,why:!!d.querySelector('.tm-draft-why'),time:!!d.querySelector('.tm-draft-by .ago')}})()"})[-1]['eval']
-        self.assertEqual(got['text'].split('Hidden draft text')[0].strip(),'только что',got);self.assertIn('Hidden draft text',got['text']);self.assertNotIn('Missing',got['text']);self.assertNotIn('Почему',got['text'])
-        self.assertFalse(got['why'],got);self.assertTrue(got['time'],got)
+        self.page({'tapSelector':'[data-folder=archive]'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('archive-a')).click();true"},{'until':"(document.querySelector('.tm-detail')?.textContent||'').includes('Incoming archive-a')"})
+        got=self.page({'sleep':300},{'eval':"(()=>{const d=document.querySelector('.tm-detail');return {text:d.textContent,card:!!d.querySelector('.tm-draft'),note:!!d.querySelector('.tm-note-box'),field:!!d.querySelector('.tm-shared-compose textarea')}})()"})[-1]['eval']
+        self.assertEqual((got['card'],got['note'],got['field']),(False,False,False),got)
+        for word in ('Hidden draft text','Missing','Почему','proactivity'): self.assertNotIn(word,got['text'],got)
 
     def test_restore_is_a_button_with_an_icon_and_the_word(self):
         self.seed_inbox(start_editing=False)
@@ -3448,11 +3450,13 @@ class InboxWebAcceptance(PageInChrome):
         post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         self.page({"tapSelector":".tm-editor-options > summary"},{"click":"Закрыть ответ"})
         self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply\n---\nWhy: Keep this explanation separate")
-        self.page({"wait":"Suggested exact reply"},{"eval":"document.querySelector('.tm-close-conversation').click();true"},{"tapSelector":".tm-person"})
+        # черновик пришёл после «Закрыть ответ» — поле снова раскрыто с ним (web-parity m1053809)
+        got=self.page({"until":"document.querySelector('.tm-shared-compose textarea')?.value==='Suggested exact reply'"});self.assertTrue(got[-1]['until'],got)
+        self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"},{"tapSelector":".tm-person"})
         got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
         self.assertEqual(got,{"text":"Suggested exact reply","start":0,"end":21},got)
-        order=self.page({"eval":"(()=>{const g=document.querySelector('.tm-guidance').getBoundingClientRect(),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();return {guide:g.bottom,actions:a.top,count:document.querySelectorAll('.tm-guidance').length}})()"})[-1]['eval']
-        self.assertLessEqual(order['guide'],order['actions'],order);self.assertEqual(order['count'],1)
+        order=self.page({"eval":"(()=>{const g=document.querySelector('.tm-note-box').getBoundingClientRect(),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();return {guide:g.bottom,actions:a.top,count:document.querySelectorAll('.tm-note-box').length,cards:document.querySelectorAll('.tm-draft').length}})()"})[-1]['eval']
+        self.assertLessEqual(order['guide'],order['actions'],order);self.assertEqual(order['count'],1);self.assertEqual(order['cards'],0,order)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
     def test_archive_is_scoped_to_original_target_and_survives_replay(self):
@@ -4027,16 +4031,16 @@ class InboxWebAcceptance(PageInChrome):
 
 
     def test_copy_icons_follow_values_in_draft_why_and_verdict(self):
-        # hub-ios kit/copy-value.md (как web-look 0.3.73): значок «скопировать» за значением в разборе, пояснении над полем,
-        # черновике и его «Почему»; в ссылке — нет; текст тот же; нажатие кладёт значение в буфер и на 1,5 с даёт галочку
+        # hub-ios kit/copy-value.md (как web-look 0.3.73): значок «скопировать» за значением в разборе и заметке «Почему здесь»;
+        # черновик — в поле ответа; нажатие кладёт значение в буфер и на 1,5 с даёт галочку
         self.seed_inbox(start_editing=False,open_editor=False)
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         draft='Bundle ID app.agentshub.client.proto, SKU hub-proto. https://example.test/m800001 ~/.claude/artifacts/hub/pinamar/smoke-run-2026-10-25.log'
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text=draft+'\n---\nПочему: Влито 66cb2db0, лог ~/.claude/x.log')
         self.ev('ext.post',None,plugin='proactivity',channel='session',sender='hub',text=json.dumps({'kind':'item','post':post,'s':'draft','why':'Задача d837401 ждёт ответа.'}))
         values="(sel=>[...document.querySelectorAll(sel+' .tm-copy-at')].map(n=>((n.parentNode.previousSibling?.textContent||'')+n.previousSibling.textContent).split(/\\s/).at(-1)))"
-        got=self.page({'until':"!!document.querySelector('.tm-guidance .tm-copy-at')&&!!document.querySelector('.tm-verdict .tm-copy-at')"},
-                      {'eval':"(()=>{const v="+values+";return {guidance:v('.tm-guidance'),verdict:v('.tm-verdict'),labels:[...document.querySelectorAll('.tm-copy-value')].map(b=>b.getAttribute('aria-label'))}})()"})
+        got=self.page({'until':"!!document.querySelector('.tm-note-body .tm-copy-at')&&!!document.querySelector('.tm-verdict .tm-copy-at')"},
+                      {'eval':"(()=>{const v="+values+";return {guidance:v('.tm-note-body'),verdict:v('.tm-verdict'),labels:[...document.querySelectorAll('.tm-copy-value')].map(b=>b.getAttribute('aria-label'))}})()"})
         self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
         self.assertEqual(got['guidance'],['66cb2db0','~/.claude/x.log'],got)
         self.assertEqual(got['verdict'],['d837401'],got)
@@ -4054,18 +4058,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(got['label'],'Скопировано',got);self.assertIn('check.svg',got['mask'])
         got=self.page({'until':"document.querySelector('.tm-verdict .tm-copy-value').dataset.copied==='false'"})
         self.assertTrue(got[-1]['until'],got)
-        # поле закрыто — черновик карточкой: значки в тексте и «Почему», текст тот же, в ссылке — нет
-        got=self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'},{'until':"!!document.querySelector('.tm-detail .tm-draft .tm-draft-text .tm-copy-at')"},
-                      {'eval':"(()=>{const v="+values+",t=document.querySelector('.tm-detail .tm-draft .tm-draft-text');return {draft:v('.tm-detail .tm-draft .tm-draft-text'),why:v('.tm-detail .tm-draft-why'),text:t.textContent,link:t.querySelector('a').querySelectorAll('.tm-copy-at').length}})()"})
-        self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
-        self.assertEqual(got['draft'],['app.agentshub.client.proto','hub-proto','~/.claude/artifacts/hub/pinamar/smoke-run-2026-10-25.log'],got)
-        self.assertEqual(got['why'],['66cb2db0','~/.claude/x.log'],got)
-        self.assertEqual(got['text'],draft,'значки не добавляют текста');self.assertEqual(got['link'],0,got)
-        # длинный путь на телефоне переносится по сегментам; значок — на строке с последним сегментом, не один
-        for width in (360,390):
-            got=self.page({'viewport':{'width':width,'height':844}},{'eval':"(()=>{const ats=[...document.querySelectorAll('.tm-detail .tm-draft .tm-draft-text .tm-copy-at')],t=ats.at(-1),tie=t.parentNode,r=document.createRange();r.selectNodeContents(tie.firstChild);"
-                           "const tail=r.getBoundingClientRect(),icon=t.getBoundingClientRect(),box=document.querySelector('.tm-detail .tm-draft .tm-draft-text').getBoundingClientRect();return {sameLine:Math.abs((tail.top+tail.bottom)/2-(icon.top+icon.bottom)/2)<6,inside:icon.right<=box.right+1,tail:tie.firstChild.textContent}})()"})[-1]['eval']
-            self.assertTrue(got['sameLine'],(width,got));self.assertTrue(got['inside'],(width,got));self.assertEqual(got['tail'],'25.log',got)
+        # черновик — только в поле ответа (web-parity m1053809): текст тот же, карточки со значками нет
+        got=self.page({'eval':"({field:document.querySelector('.tm-shared-compose textarea')?.value,cards:document.querySelectorAll('.tm-draft').length})"})[-1]['eval']
+        self.assertEqual(got,{'field':draft,'cards':0},got)
 
 def load_tests(loader, suite, pattern):
     suite = unittest.TestSuite(InboxWebAcceptance(n) for n in InboxWebAcceptance.__dict__ if n.startswith("test_"))
