@@ -7,7 +7,7 @@
 // «В работу» и «Черновик ответа» — сообщение хабу (/api/send); черновик хаб кладёт ответом на пост сообщения
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
-import { T } from "/static/js/ui-text.js";
+import { T, bindHub } from "./ui-text.js";
 import { replyText } from "./reply-text.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
@@ -2758,6 +2758,7 @@ let badgeTimer = null;
 
 export default function register(h) {
   hub = h;
+  bindHub(h);
   newComposer = newMessage(h);
   window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});

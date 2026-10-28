@@ -1,5 +1,5 @@
 // The collector owns contact lookup and delivery. Closing/reloading never sends.
-import { T } from "/static/js/ui-text.js";
+import { T } from "./ui-text.js";
 import { replyText } from "./reply-text.js";
 
 export function newMessage(hub) {

@@ -1,4 +1,4 @@
-import { T } from "/static/js/ui-text.js";
+import { T } from "./ui-text.js";
 
 // One contextual menu for every message row. The resolver supplies current identity,
 // so an open menu can never act on a rebound conversation or a changed history row.
