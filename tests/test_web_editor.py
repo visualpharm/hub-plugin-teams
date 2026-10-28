@@ -2909,7 +2909,9 @@ class InboxWebAcceptance(PageInChrome):
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'})
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Untouched suggestion')
-        self.page({'wait':'Untouched suggestion'},{'eval':"document.querySelector('.tm-close-conversation').click();true"},{'tapSelector':'.tm-person'})
+        # a new hub draft opens the closed field with it (web-parity m1053809)
+        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Untouched suggestion'"});self.assertTrue(got[-1]['until'],got)
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'tapSelector':'.tm-person'})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
         self.page({'tapSelector':'.tm-shared-compose .composer button[type=submit]'})
         self.acknowledge(self.queued('draft_control'))
