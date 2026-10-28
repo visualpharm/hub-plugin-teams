@@ -57,7 +57,7 @@ FAIL_AFTER = 3
 SEEN_MAX = 3000
 POST_MAX = 2000
 PROMPT_MAX = 2000                  # знаков: указания владельца по разбору входящих
-OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|reopen|draft_control|revision_result|manage)\\"')   # посты владельца, которые читает процесс
+OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|surface|reopen|draft_control|revision_result|manage)\\"')   # посты владельца, которые читает процесс
 DIR_EVERY = 6 * 3600               # список каналов команд перечитываем и заново постим раз в 6 часов: канал плагина
                                    # хранит 500 последних постов, старые списки вытесняются сообщениями
 SCAN_EVERY = 10 * 60               # раз в 10 минут перечитываем чаты за сутки: ответ или реакция владельца на уже
@@ -174,7 +174,7 @@ class Choice:
             own_correction = (d.get("channel") == "plugin" and sender == NAME
                               and isinstance(body, dict) and body.get("kind") == "reopen")
             if not (own_correction or who and d.get("channel") == "plugin" and sender == who and isinstance(body, dict)
-                    and body.get("kind") in ("send", "cancel", "dismiss")):
+                    and body.get("kind") in ("send", "cancel", "dismiss", "surface")):
                 return
         if isinstance(body, dict) and body.get("kind") in ("send", "send_new") and "text_file" in body:
             long = text_file(body.get("text_file"))
@@ -261,6 +261,8 @@ class Choice:
         elif isinstance(body, dict) and body.get("kind") == "dismiss" and isinstance(body.get("id"), str):
             # разбор решил «ответ не нужен» — пункт уходит из Inbox, как отвеченный (не «Не показывать»: собеседник не скрыт)
             self.sends.append({"dismiss": body["id"][:300]})
+        elif isinstance(body, dict) and body.get("kind") == "surface" and isinstance(body.get("id"), str):
+            self.sends.append({"surface": body["id"][:300]})
         elif isinstance(body, dict) and body.get("kind") == "settings":
             self.settings = {"signature": str(body.get("signature") or "")[:300],
                              "autodraft": body.get("autodraft") is not False,
@@ -524,6 +526,42 @@ def contact_refresh(refs, items, opened):
             refs[i["key"]] = {**have, **upd}
 
 
+# Подпись агента коллеги в тексте сообщения (Teams-аккаунт человека, пишет его агент). Слово «агент» без подписи — живой человек.
+# Список держим в одном виде с proactivity (rules.AGENT_SIG).
+AGENT_SIG = re.compile(r"(?:—|-|–)\s*🤖\s*агент\b|\[агент [^\]]+\]|написано агентом|sent via claude code|\(агент хаба\)|агент \w+, (?:от имени|хаб )",
+                       re.IGNORECASE)
+AGENT_HELD_MAX = 200   # сколько агентских сообщений ждут решения разбора (потом самые старые забываются)
+
+
+def is_agent(i, rules):
+    """Межагентная переписка (коллега + подпись агента) в Inbox владельца не публикуется: kind agent_msg клиенты
+    пропускают, proactivity читает; в Inbox пункт попадает, только когда разбор решил, что нужен владелец (surface)."""
+    return bool(AGENT_SIG.search(str(i.get("text") or ""))) and colleague(i, rules)
+
+
+def publish_msg(put, st, i, done, rules, extra=None):
+    post_ = {**msg_post(i, done, rules), **(extra or {})}
+    if is_agent(i, rules) and i["key"] not in st.get("agent_surfaced", []):
+        held = st.setdefault("agent_held", {})
+        held.pop(i["key"], None)
+        held[i["key"]] = post_
+        while len(held) > AGENT_HELD_MAX:
+            del held[next(iter(held))]
+        post_ = {**post_, "kind": "agent_msg"}
+    put(post_)
+
+
+def surface(key, st, put):
+    """Разбор решил, что агентское сообщение нужно владельцу: публикуем сохранённое как обычный msg."""
+    post_ = (st.get("agent_held") or {}).pop(key, None)
+    if post_ is None:
+        return False
+    st.setdefault("agent_surfaced", []).append(key)
+    del st["agent_surfaced"][:-AGENT_HELD_MAX]
+    put({**post_, "kind": "msg"})
+    return True
+
+
 def msg_post(i, done, rules):
     return {"kind": "msg", "id": i["key"], "answered": done, **({"reply": True, "target": target_of(i["ref"])} if i.get("ref") else {}),
             **({"react": True} if collect.can_react(i.get("ref")) else {}),
@@ -571,7 +609,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
     for i in again:
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
-        put({**msg_post(i, False, rules), **({'inbox':token} if token else {})})
+        publish_msg(put, st, i, False, rules, {'inbox': token} if token else None)
         texts[i["key"]] = i.get("text") or ""
         pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
     for i in fresh:
@@ -584,7 +622,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
                     put({"kind": "answered", "id": k})
                     del opened[k]
         done = (bool(i.get("box")) and owner_last.get(i["box"], "") > i["at"]) or i["key"] in reacted   # уже ответил
-        put({**msg_post(i, done, rules), **({'inbox':token} if token else {})})
+        publish_msg(put, st, i, done, rules, {'inbox': token} if token else None)
         texts[i["key"]] = i.get("text") or ""
         pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
         st.setdefault("who", {})[i["key"]] = {"contact": contact(i), "from": i.get("from"), "src": i.get("src"),
@@ -1236,6 +1274,10 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if "ask" in q:
             ask_hub(st, q, put)
+            continue
+        if "surface" in q:
+            if surface(q["surface"], st, put):
+                save(st)
             continue
         if "dismiss" in q:
             # снятый пункт уносит отложенный автоответ разбора (17.10: «приглашение не ушло» ждало понедельника, а
