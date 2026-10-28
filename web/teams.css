@@ -439,6 +439,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-options > summary::-webkit-details-marker { display: none; }
 .tm-send-options > summary .icon { width: 18px; height: 18px; }
 .tm-send-options:not([open]) > .tm-send-menu { display: none; }
+/* ядро без слота leading у hub.input: кнопка стоит в углу поля справа от значка отправки/микрофона, строка с ними уступает ей место */
+.tm-to-field > .tm-send-options { position: absolute; right: 4px; bottom: 6px; z-index: 4; grid-area: auto; }
+.tm-to-field > .tm-send-options > summary { width: 32px; height: 40px; }
+.tm-to-field:has(> .tm-send-options:not(.tm-mode-off)) > form.composer:not(.rec) > .bar { padding-right: 32px; }
+.tm-to-field:has(> form.composer.rec) > .tm-send-options { display: none; }
 .tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
 .tm .tm-send-menu > .btn, .tm .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; font-size:16px; }
 .tm-send-now > svg, .tm-send-archive > svg { width:20px; height:20px; flex-shrink:0; color:var(--primary); }

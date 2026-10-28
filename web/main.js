@@ -1857,6 +1857,9 @@ function sharedReply(m, st) {
     // не прокручивается с текстом; в полях хаба её нет. Слота в общем композере нет — строка лежит поверх его верхнего поля
     const field = el("div", "tm-to-field"), to = st.toLine = el("div", "tm-to-line");
     field.append(to, box.node);
+    // hub.input на этом ядре может не рисовать слот leading/trailing — тогда «Варианты отправки» рядом с полем ставим сами;
+    // где слот рисуется (кнопка уже внутри поля), второй не добавляем
+    if (!box.node.contains(sendMenu)) field.append(sendMenu);
     if (st.state) {
       // Private instruction to the Hub — a mode of the same field, not a row of its own (Иван m646880 п.2): the corner
       // icon switches the field between the reply to the contact and the instruction; Enter / send revises the draft,
@@ -1913,6 +1916,8 @@ function sharedReply(m, st) {
     st.box.node.classList.toggle("tm-mode-off", !!st.instructing);
     st.instructBox.node.classList.toggle("tm-mode-off", !st.instructing);
     st.toggle.setAttribute("aria-pressed", String(!!st.instructing));
+    // личное указание хабу не уходит собеседнику — вариантов отправки у него нет
+    st.sendMenu.classList.toggle("tm-mode-off", !!st.instructing);
     st.toggle.classList.toggle("tm-has-instruction", !st.instructing && !!st.state?.instruction?.trim());
     const revise = st.instructBox.node.querySelector("button[type=submit]"), label = T("Переработать черновик", "Revise draft");
     if (revise && revise.getAttribute("aria-label") !== label) { revise.setAttribute("aria-label", label); revise.title = label; }
