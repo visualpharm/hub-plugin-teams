@@ -151,7 +151,10 @@ original post; that path still requires its independently verified current sourc
 
 Before submission, the existing connected Graph reader verifies current user and
 the exact text-only chat source against the latest ordered message page; newer
-incoming or outgoing facts reject it. Source errors block before transport. This
+incoming or outgoing facts reject it. Source errors block before transport.
+The `send_blocked` event names the cause in `reason` (`newer_messages`,
+`source_unreadable`, `source_changed`, `unknown`) next to a distinct `error`
+phrase; nothing reached transport for any of them. This
 candidate currently protects text-only Teams chat replies. Channel/media replies
 and other adapters lack the required verified source/account/receipt contract and
 remain blocked on this automatic path. No credential or transport fallback is added.

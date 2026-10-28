@@ -1663,10 +1663,10 @@ def send_guarded(st, reader, q, put=post, now=None):
         return
     try:
         preflight_guarded(st,reader,q)
-    except Exception as e:  # noqa: BLE001 — владельцу общая фраза, в лог — настоящая причина
+    except Exception as e:  # noqa: BLE001 — владельцу причина кодом и фразой, в лог — подробность
         print(f"teams: сверка источника {q.get('id')} {q.get('rid')}: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
-        reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],
-             'error':'Current source verification unavailable or changed; reply retained'})
+        reason=getattr(e,'reason',None) if isinstance(e,SourceGuard) else 'unknown'
+        reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],'reason':reason,'error':GUARD_PHRASES[reason]})
         return
     try:
         claim=inbox_delivery.claim(st,q)  # source/editor may change during a slow read
@@ -1719,47 +1719,75 @@ def media_attachments(message):
     return [a for a in message.get('attachments') or [] if a.get('contentType') != 'messageReference']
 
 
+class SourceGuard(ValueError):
+    """Сверка источника перед отправкой не прошла; reason — код для send_blocked (GUARD_PHRASES).
+    Отправка до deliver не доходила — «не ушло» верно для любого кода."""
+    def __init__(self, reason, detail):
+        super().__init__(detail)
+        self.reason = reason
+
+
+# Код причины → фраза владельцу (поле error остаётся строкой для старых клиентов; reason — добавка, hub-core m637023).
+GUARD_PHRASES = {
+    'newer_messages': 'A newer message arrived in the chat; reply not sent. Review it and send again',
+    'source_unreadable': 'Could not read the chat to verify it; reply not sent. Try again later',
+    'source_changed': 'The chat, its message or the account changed; reply not sent. Review it and send again',
+    'unknown': 'Source check failed; reply not sent. Review the chat and send again',
+}
+
+
 def preflight_guarded(st,reader,q):
     """Read current account and exact Graph source immediately before claiming.
     No connection/credential fallback is created for a blocked collector.
+    Every refusal is a SourceGuard with a reason code (newer_messages / source_unreadable / source_changed / unknown).
     """
     if not getattr(reader,'mcp',None):
-        raise ValueError('Current source reader unavailable; reply retained')
+        raise SourceGuard('source_unreadable','Current source reader unavailable; reply retained')
+    def graph(tool,args):
+        try:
+            return reader.mcp.call(tool,args)
+        except Exception as e:  # noqa: BLE001 — обрыв/отказ MCP до отправки: чат не прочитан
+            raise SourceGuard('source_unreadable',f'{tool}: {type(e).__name__}: {e}') from e
     ref=(st.get('refs') or {}).get(q['id']) or {}
     row=inbox_delivery.store(st)['items'][q['id']]
     me=(st.get('me') or {}).get('id')
-    if reader.mcp.call('get-current-user',{}).get('id') != me:
-        raise ValueError('Authenticated source account changed')
+    user=graph('get-current-user',{})
+    if not isinstance(user,dict):
+        raise SourceGuard('source_unreadable','Current source account unreadable')
+    if user.get('id') != me:
+        raise SourceGuard('source_changed','Authenticated source account changed')
     # The existing channel-replies helper is bounded and cannot prove a complete
     # current thread. Keep that automatic route held rather than infer freshness.
     if not ref.get('chat') or not ref.get('msg') or not row.get('source_at') or row.get('source_media'):
-        raise ValueError('Exact current text-only chat source required')
-    data=reader.mcp.call('list-chat-messages',{'chatId':ref['chat'],'top':20,'orderby':'createdDateTime desc'})
-    rows=data.get('value')
+        raise SourceGuard('unknown','Exact current text-only chat source required')
+    data=graph('list-chat-messages',{'chatId':ref['chat'],'top':20,'orderby':'createdDateTime desc'})
+    rows=data.get('value') if isinstance(data,dict) else None
     if not isinstance(rows,list):
-        raise ValueError('Current source verification is incomplete')
+        raise SourceGuard('source_unreadable','Current source verification is incomplete')
     followup=row.get('followup')
     if followup:
         if q.get('automatic') or followup['thread_version'] != inbox_delivery.store(st)['threads'].get(row['thread']):
-            raise ValueError('Follow-up source changed; review the current conversation')
+            raise SourceGuard('source_changed','Follow-up source changed; review the current conversation')
         original=next((m for m in rows if m.get('id')==followup['id']),None)
         if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
                 or collect.sender(original).get('id') != me
                 or collect.plain((original.get('body') or {}).get('content')) != followup['text']
                 or media_attachments(original)):
-            raise ValueError('The confirmed outgoing source changed; reply retained')
+            raise SourceGuard('source_changed','The confirmed outgoing source changed; reply retained')
         try:
             anchor_at=datetime.fromisoformat(original['createdDateTime'].replace('Z','+00:00'))
             if anchor_at.tzinfo is None:
-                raise ValueError('Missing source timezone')
+                raise SourceGuard('source_unreadable','Missing source timezone')
             for other in rows:
                 if other.get('id')==followup['id'] or other.get('deletedDateTime'):
                     continue
                 at=datetime.fromisoformat(other['createdDateTime'].replace('Z','+00:00'))
                 if at.tzinfo is None or at >= anchor_at:
-                    raise ValueError('Newer conversation facts require re-evaluation')
-        except (KeyError,TypeError,AttributeError) as e:
-            raise ValueError('Incomplete follow-up source verification') from e
+                    raise SourceGuard('newer_messages','Newer conversation facts require re-evaluation')
+        except SourceGuard:
+            raise
+        except (KeyError,TypeError,AttributeError,ValueError) as e:  # битая дата — тоже не прочитано
+            raise SourceGuard('source_unreadable','Incomplete follow-up source verification') from e
         return
     original=next((m for m in rows if m.get('id')==ref['msg']),None)
     if (not original or original.get('deletedDateTime') or original.get('messageType')!='message'
@@ -1767,10 +1795,10 @@ def preflight_guarded(st,reader,q):
             or original.get('createdDateTime')!=row['source_at']
             or collect.plain((original.get('body') or {}).get('content')) != row.get('source_text')
             or media_attachments(original)):
-        raise ValueError('Source facts changed; re-evaluate the current conversation')
+        raise SourceGuard('source_changed','Source facts changed; re-evaluate the current conversation')
     if any(m.get('id')!=ref['msg'] and (m.get('createdDateTime') or '') >= row['source_at']
            and not m.get('deletedDateTime') for m in rows):
-        raise ValueError('Newer conversation facts require re-evaluation')
+        raise SourceGuard('newer_messages','Newer conversation facts require re-evaluation')
 
 
 def pause(st, reader, choice, seconds):

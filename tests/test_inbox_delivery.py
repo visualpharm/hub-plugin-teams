@@ -350,7 +350,10 @@ class Delivery(unittest.TestCase):
             with self.subTest(change=change):
                 if change=='none': main.preflight_guarded(st,reader,follow)
                 else:
-                    with self.assertRaises(ValueError): main.preflight_guarded(st,reader,follow)
+                    with self.assertRaises(ValueError) as caught: main.preflight_guarded(st,reader,follow)
+                    # код причины send_blocked (hub-core m637023)
+                    self.assertEqual(caught.exception.reason,{'account':'source_changed','new-incoming':'newer_messages',
+                        'new-owner':'newer_messages','bad-time':'source_unreadable'}.get(change,'source_changed'))
 
     def test_actual_collector_followups_verify_each_own_graph_source_and_reject_unseen_new_inbound(self):
         from unittest.mock import Mock
@@ -455,7 +458,9 @@ class Delivery(unittest.TestCase):
             with self.subTest(change=change):
                 if change in ('none','quote'): main.preflight_guarded(st,reader,{'id':'a'})
                 else:
-                    with self.assertRaises(ValueError): main.preflight_guarded(st,reader,{'id':'a'})
+                    with self.assertRaises(ValueError) as caught: main.preflight_guarded(st,reader,{'id':'a'})
+                    self.assertEqual(caught.exception.reason,{'new-incoming':'newer_messages','new-owner':'newer_messages'}
+                                     .get(change,'source_changed'))
 
     def test_automatic_reply_respects_current_contact_hours_before_transport(self):
         from datetime import datetime,timezone
