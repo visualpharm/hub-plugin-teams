@@ -91,17 +91,11 @@ def mentions_me(m, me):
     return any(((x.get("mentioned") or {}).get("user") or {}).get("id") == me for x in m.get("mentions") or [])
 
 
-def addressed_to_me(m, me, name):
-    """Сообщение канала, найденное поиском по имени, обращено к владельцу (24.10, d839917): поиск по первому имени
-    находит и тёзку — упомянут другой пользователь с тем же именем, и слово внутри текста (адрес «имя.фамилия»). Упомянут он сам — да; иначе имя должно остаться обращением в тексте, когда из него вычтены
-    упоминания других людей («Имя, глянь» без тега — да)."""
-    if mentions_me(m, me):
-        return True
-    text = plain((m.get("body") or {}).get("content"))
-    for x in m.get("mentions") or []:
-        if x.get("mentionText"):
-            text = text.replace(x["mentionText"], " ")
-    return bool(re.search(r"(?<![\w.@])" + re.escape(name) + r"(?![\w@]|\.\w)", text, re.I))
+def addressed_to_me(m, me):
+    """Сообщение канала, найденное поиском по имени, обращено к владельцу, только если он отмечен по id (Graph
+    `mentions[].mentioned.user.id`). Имя в тексте упоминанием не считается: поиск по имени находит тёзок, и даже без
+    тега «Иван Фамилия, …» обращено к другому Ивану (26.10, «Мне кажется это не мне»; было и «имя в тексте — да»)."""
+    return bool(me) and mentions_me(m, me)
 
 
 def channel_message(mcp, team, channel, mid, cache=None):
@@ -255,10 +249,10 @@ def bot(mail):
 
 def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25, me=None):
     """Упоминания владельца в каналах — поиском Graph по его имени (обход всех каналов — десятки вызовов в минуту).
-    Поиск находит и сообщения, где он просто участник, поэтому берём только те, где имя есть в самом тексте. Чаты
+    Поиск находит и сообщения, где он просто участник, и тёзок, поэтому берём только те, где он отмечен по id. Чаты
     (у них в поиске channelId — это id чата, а teamId нет) читает chats(); боты (Workflows и др., адрес
     @teams.microsoft.com) — карточки со списком людей, не упоминания (владелец 12.10: «из воркфлоу не надо»).
-    me — id владельца: сообщение читаем целиком и берём, только если оно обращено к нему (addressed_to_me)."""
+    me — id владельца: сообщение читаем целиком и берём, только если он в нём отмечен (addressed_to_me)."""
     body = {"requests": [{"entityTypes": ["chatMessage"], "query": {"queryString": name}, "from": 0, "size": size}]}
     data = mcp.call("search-query", {"body": body})
     out, cache = [], {}
@@ -276,8 +270,9 @@ def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25
             summary = plain(h.get("summary"))
             if name.lower() not in summary.lower():
                 continue
+            # отметку по id видно только в самом сообщении: не прочли его — не знаем, к кому оно, и не берём
             full = channel_message(mcp, ch["teamId"], ch["channelId"], r.get("id"), cache) if me and r.get("id") else None
-            if full is not None and not addressed_to_me(full, me, name):
+            if full is None or not addressed_to_me(full, me):
                 continue
             root = (full or {}).get("replyToId") or r.get("replyToId") or r.get("id")
             c = (channels or {}).get(ch["channelId"])

@@ -29,8 +29,9 @@ def msg(mid, at, who, text, mentions=(), attachments=(), deleted=False, reacted_
 
 
 class Fake:
-    def __init__(self, chats=(), chat_msgs=None, channel=(), hits=()):
+    def __init__(self, chats=(), chat_msgs=None, channel=(), hits=(), full=None):
         self.chats, self.chat_msgs, self.channel, self.hits = list(chats), chat_msgs or {}, list(channel), list(hits)
+        self.full = full or {}
 
     def call(self, tool, args, empty_ok=False):
         if tool == "list-chats":
@@ -41,6 +42,10 @@ class Fake:
             return {"value": self.channel}
         if tool == "search-query":
             return {"value": [{"hitsContainers": [{"hits": self.hits}]}]}
+        if tool == "get-channel-message":
+            if args["chatMessageId"] in self.full:
+                return self.full[args["chatMessageId"]]
+            raise OSError("ms365 get-channel-message: 404")
         if tool == "download-bytes-to-file":
             with open(args["outputPath"], "wb") as f:
                 f.write(b"\x89PNG fake")
@@ -156,16 +161,18 @@ class Mentions(unittest.TestCase):
                 # channelId (это id чата), но нет teamId — чаты читает chats()
                 hit("7", "c1", "Workflows", "..., Owner ...", address="Workflows@teams.microsoft.com"),
                 hit("8", "19:a_b@unq.gbl.spaces", "alex", "Owner в личке", team=None)]
-        out = collect.channel_mentions(Fake(hits=hits), CUT, "me@x", "Owner",
-                                       {"c1": {"team": "Dev", "channel": "Backend", "teamId": "t"}}, skip={"sup"})
+        # все кандидаты отмечают владельца по id — отсев здесь по каналу, отправителю и времени
+        tagged = {str(i): msg(str(i), "2026-10-09T10:01:00Z", "alex", "Owner", mentions=[ME]) for i in range(1, 10)}
+        out = collect.channel_mentions(Fake(hits=hits, full=tagged), CUT, "me@x", "Owner",
+                                       {"c1": {"team": "Dev", "channel": "Backend", "teamId": "t"}}, skip={"sup"}, me=ME)
         self.assertEqual([(i["text"], i["where"]) for i in out], [("Owner посмотри", "Dev › Backend")])
         # адрес ответа есть: корень треда и сообщение — можно ответить и поставить реакцию (12.10: у бота Workflows не было)
         self.assertEqual(out[0]["ref"], {"team": "t", "channel": "c1", "root": "1", "msg": "1"})
         self.assertTrue(collect.can_react(out[0]["ref"]))
         reply = hit("9", "c1", "bot", "Owner, го на митинг")
         reply["resource"]["replyToId"] = "root7"
-        out = collect.channel_mentions(Fake(hits=[reply]), CUT, "me@x", "Owner",
-                                       {"c1": {"team": "Dev", "channel": "Backend", "teamId": "t"}})
+        out = collect.channel_mentions(Fake(hits=[reply], full=tagged), CUT, "me@x", "Owner",
+                                       {"c1": {"team": "Dev", "channel": "Backend", "teamId": "t"}}, me=ME)
         self.assertEqual(out[0]["ref"]["root"], "root7")
 
 
@@ -212,9 +219,17 @@ class MentionAddressee(unittest.TestCase):
                                {"1": self.full("1", '<p><at id="0">Owner</at> глянь</p>', [("Owner", "me")])})
         self.assertEqual([i["text"] for i in out], ["Owner глянь"])
 
-    def test_plain_address_without_tag_stays(self):
+    def test_name_in_text_without_tag_is_not_a_mention(self):
+        # 26.10: «Owner Other админки нету» без тега, отмечен (или никто) не владелец — Inbox владельца это не нужно
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> Other админки нету")],
+                               {"1": self.full("1", "<p>Owner Other админки нету</p>")})
+        self.assertEqual(out, [])
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> Other админки нету")],
+                               {"1": self.full("1", '<p>Owner Other админки нету, <at id="0">Алина</at></p>',
+                                               [("Алина", "u-alina")])})
+        self.assertEqual(out, [])
         out, _ = self.run_with([self.hit("1", "<c0>Owner</c0>, глянь")], {"1": self.full("1", "<p>Owner, глянь</p>")})
-        self.assertEqual(len(out), 1)
+        self.assertEqual(out, [])
 
     def test_name_inside_an_address_is_not_an_address(self):
         out, _ = self.run_with([self.hit("1", "Алина, ищите по началу адреса («<c0>owner</c0>.pe»)")],
@@ -230,9 +245,9 @@ class MentionAddressee(unittest.TestCase):
         self.assertEqual(out[0]["ref"]["root"], "root7")
         self.assertEqual(calls, ["search-query", "get-channel-message", "list-channel-messages"])
 
-    def test_unreadable_message_is_kept_as_before(self):
+    def test_unreadable_message_is_not_taken(self):
         out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> Other вопрос")], {}, [])
-        self.assertEqual(len(out), 1)                     # не прочли — не теряем: решит разборщик
+        self.assertEqual(out, [])                         # не прочли — отметки по id не видно, к кому оно, не знаем
 
 
 class Tick(unittest.TestCase):
