@@ -2491,12 +2491,29 @@ function reactionRow(m) {
 }
 
 const quickDialogs=new Map();
+const quickKey = () => 'hub.inbox.quick.v1:'+hubName();
+function hasQuickDraft() {
+  const current=quickDialogs.get(hubName())?.box.draft?.();
+  if(current)return !!(current.text || current.files?.length || current.uploading);
+  try { return !!(localStorage.getItem(quickKey()) || JSON.parse(localStorage.getItem(quickKey()+':files') || '[]').length); }
+  catch { return true; } // Never hide the recovery entry when storage cannot be read.
+}
+function syncQuickButton(quick, saved=hasQuickDraft()) {
+  quick.classList.add('tm-quick-managed');
+  quick.classList.toggle('tm-quick-has-draft',saved);
+  const label=saved ? T('Сохранённый черновик хабу','Saved Hub draft') : T('Сообщение хабу','Message Hub');
+  quick.title=label;quick.setAttribute('aria-label',label);
+}
+function syncQuickButtons() {
+  const saved=hasQuickDraft();
+  for(const root of [ui?.root,toolbarRoot])for(const quick of root?.querySelectorAll('.tm-quick-trigger') || [])syncQuickButton(quick,saved);
+}
 // ⚡ and the conversation search live in the page toolbar when the core offers one (viewToolbar); otherwise in the thread head / list.
 let toolbarRoot = null;
 const toolbarReady = () => nativeFooter() && hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot;
 function quickButton() {
   const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));
-  quick.append(nativeIcon('quick'));return quick;
+  quick.append(nativeIcon('quick'));syncQuickButton(quick);return quick;
 }
 // I-55 (ui-expert m559769): поиск — в шапке страницы, где ядро даёт панель вида (на любой ширине), и фильтрует письма;
 // своего поля или кнопки поиска в колонке Inbox нет. Старое ядро без панели — прежнее поле над списком.
@@ -2534,8 +2551,9 @@ function quickSend() {
         draft.files?.length ? localStorage.setItem(fileKey,JSON.stringify(draft.files)) : localStorage.removeItem(fileKey);
         notice.hidden=true;
       } catch {notice.textContent=T('Черновик останется только в открытой странице.','This draft can only be kept while this page stays open.');notice.hidden=false;}
+      syncQuickButtons();
     }
-    const box=hub.input({key:'quick:'+to,to,text,files,hint:'',label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
+    const box=textInput({key:'quick:'+to,to,text,files,hint:'',label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
       onChange(value){persistQuick({text:value,files:box.draft?.().files || files});},
       onFilesChange(draft){files=draft.files;persistQuick(draft);},
       onSent(){
@@ -2545,10 +2563,13 @@ function quickSend() {
       }
 
     });
+    if(files.length && !box.draft?.().files?.length)box.set?.({files});
     function canClose(){if(!box.node.classList.contains('rec'))return true;notice.textContent=T('Останови запись, прежде чем закрыть.','Stop the recording before closing.');notice.hidden=false;return false;}
     dialog.append(head,box.node,notice);document.body.append(dialog);
     dialog.addEventListener('cancel',event=>{if(!canClose())event.preventDefault();});
-    dialog.addEventListener('close',()=>document.querySelector('.tm-quick-trigger')?.focus());
+    dialog.addEventListener('close',()=>{
+      const target=[...document.querySelectorAll('.tm-quick-trigger,.tm-options > summary,.tm-title-options > summary')].find(n=>n.checkVisibility());target?.focus();
+    });
     quick={dialog,box,canClose};quickDialogs.set(to,quick);
   }
   if(!quick.dialog.open)quick.dialog.showModal();quick.box.focus();
@@ -2725,6 +2746,7 @@ function paint() {
   const scroll=oldHistory?.scrollTop, follow=toBottom, scrollHeight=oldHistory?.scrollHeight, anchored=anchorHistory;
   anchorHistory=null;
   paintAll();
+  syncQuickButtons();
   messageMenu?.validate();rowMenu?.validate();
   for (const options of ui.root.querySelectorAll('.tm-conversation-options')) {
     if (!options.checkVisibility()) continue;
@@ -3090,6 +3112,7 @@ function registerView() {
     toolbar(root) {
       toolbarRoot = root;
       if (hub.input && !root.querySelector(":scope > .tm-quick-trigger")) root.prepend(quickButton());
+      syncQuickButtons();
       placeSearch();
     },
     // API 1.28: адрес вида с params при входе, при новом адресе и при повторном переходе
@@ -3138,7 +3161,7 @@ export default function register(h) {
   window.addEventListener('hub-redraw',()=>queueMicrotask(refreshHostStyles));
   document.addEventListener('load',e=>{if(e.target?.tagName==='LINK' && e.target.rel==='stylesheet')refreshHostStyles();},true);
   newComposer = newMessage(h, textInput);
-  window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
+  window.addEventListener('storage',e=>{if(e.key===null || e.key===quickKey() || e.key===quickKey()+':files')syncQuickButtons();if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open],.tm-handoff[open]')||[])if(!menu.contains(e.target))menu.open=false;});

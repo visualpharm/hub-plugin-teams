@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-10-28 · Draft-aware Quick entry
+The plugin marks its own Quick buttons as managed and separately indicates an existing
+draft. A compatible appearance module may hide only empty duplicates while its shared
+Quick is available. Stored text/files or unreadable storage retain the recovery entry.
+Old hosts keep the same button. No migration combines the independent Quick buffers.
+The shared-core adapter now restores saved text/files for this dialog and forwards owner
+text edits, as it already does for replies. Transport and receipt handling stay unchanged.
+
 ## 2026-10-15 · Offline source gate
 Decided: retain the existing mocked Python and Node checks under one reviewed local
 argv gate. Require the core dependency through PYTHONPATH or HUB_CORE.
