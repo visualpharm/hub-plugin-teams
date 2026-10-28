@@ -1361,14 +1361,23 @@ def send_replies(st, reader, queue, put=post, now=None):
             send_one(st, reader, {**q, "rid": rid}, put, now)
 
 
+def send_rule(st, q):
+    """Окно отправки ответа q: автоответ хаба в WhatsApp/Telegram — только ночь (hours.chat_rule), остальное — рабочие
+    часы владельца у собеседника (hours.rule; его ответы — модель hub-ios docs/send-model)."""
+    contact = ((st.get("who") or {}).get(q["id"]) or {}).get("contact")
+    ref = (st.get("refs") or {}).get(q["id"]) or {}
+    if q.get("automatic") and (ref.get("wa") or ref.get("tg")):
+        return hours.chat_rule(st.get("hours"), contact)
+    return hours.rule(st.get("hours"), contact)
+
+
 def hold(st, q, why, put=post, now=None):
     """Гейт отказал — переносим на первое время после его открытия, разрешённое рабочими часами собеседника; владелец
     видит «отправится тогда-то». Отказал CAP раз подряд — правила не дают отправить вовсе: говорим ему."""
     tries = int(q.get("tries") or 0) + 1
     if tries >= hours.CAP:
         return False
-    who = (st.get("who") or {}).get(q["id"]) or {}
-    at = hours.defer_to(hours.rule(st.get("hours"), who.get("contact")), hours.local(now), why)
+    at = hours.defer_to(send_rule(st, q), hours.local(now), why)
     at = iso(at.astimezone(timezone.utc))
     st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "inbox", "automatic", "editor",
                                                                  "target") if k in q},
@@ -1650,10 +1659,9 @@ def send_one(st, reader, q, put=post, now=None):
         if why:
             put({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": why})
             return
-        who = (st.get("who") or {}).get(q["id"]) or {}
         local = hours.local(now)
-        permitted = hours.next_allowed(hours.rule(st.get("hours"), who.get("contact")), local)
-        if permitted > local:   # рабочие часы собеседника — как у защищённого пути
+        permitted = hours.next_allowed(send_rule(st, q), local)
+        if permitted > local:   # мессенджеры — только ночь (выходные решает гейт send), почта — рабочие часы владельца
             st.setdefault("later", {})[q["rid"]] = {**{k: q[k] for k in ("id", "text", "automatic", "files", "reply_to", "quote", "target")
                                                        if k in q}, "at": iso(permitted.astimezone(timezone.utc))}
             save(st)

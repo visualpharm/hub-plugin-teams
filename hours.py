@@ -15,6 +15,10 @@ CAP = 8               # отказов гейта подряд, после ко�
 # Teams — рабочий чат коллег: любой день, только не ночью 23:00–08:00 (владелец 18.10, m501890). Рабочие часы
 # владельца (окно и выходные) — для WhatsApp, Telegram и почты; к автоответу в Teams их не применяем.
 TEAMS = (GATE_OPENS, 23 * 60, True)
+# Автоответ хаба в WhatsApp и Telegram: сборщик держит только ночь 23:00–08:00, выходные решает гейт команды send —
+# он знает реестр (близкие, weekend-ok) и «сам писал в эти выходные» (владелец 18.10, m501890; случай 25.10: ответ
+# Паше в вс 17:06 ушёл в «пн 08:00» по рабочим часам по умолчанию). Явное «без выходных» собеседнику — в силе.
+CHATS = (GATE_OPENS, 23 * 60, True)
 
 
 def minutes(hhmm):
@@ -38,6 +42,13 @@ def rule(cfg, contact=None):
     base = clean(cfg) or DEFAULT
     weekends = base["weekends"] != (contact is not None and contact in ((cfg or {}).get("except") or {}))
     return minutes(base["from"]), minutes(base["to"]), weekends
+
+
+def chat_rule(cfg, contact=None):
+    """Окно автоответа в WhatsApp/Telegram: ночь держим, выходные — гейту; собеседник из `except` без выходных — без них."""
+    if contact is not None and contact in ((cfg or {}).get("except") or {}) and not rule(cfg, contact)[2]:
+        return CHATS[0], CHATS[1], False
+    return CHATS
 
 
 def tz_name():

@@ -138,6 +138,38 @@ class Gate(unittest.TestCase):
                 self.go([], here(at), "night")
         self.assertEqual((self.kinds().count("scheduled"), self.kinds()[-1], self.st["later"]), (hours.CAP - 1, "send_failed", {}))
 
+    def test_hub_autoreply_in_messengers_holds_only_the_night_and_leaves_weekends_to_the_gate(self):
+        # 25.10: автоответ Паше в Telegram в вс 17:06 встал на «пн 08:00» (held: hours) — сборщик применял рабочие часы
+        # владельца по умолчанию (будни 08–20), хотя гейт send пропускает его в выходные (weekend-ok, писал сегодня)
+        self.st["refs"].update(t1={"tg": "telegram", "to": "628"}, m1={"mail": "gmail", "to": "a@b.c"})
+        self.st["who"].update(t1={"contact": "tg:628", "from": "Паша"}, m1={"contact": "mail:a@b.c", "from": "Ана"})
+        self.st.update(cfg={"inbox_guard": True}, open={k: ["b", "t"] for k in ("k1", "t1", "m1")})
+
+        def auto(i, rid):
+            self.st["open"][i] = ["b", "t"]                                       # ответ закрывает пункт — новый открыт
+            return {"id": i, "rid": rid, "text": rid, "automatic": True}
+
+        def last(rid):
+            p = [p for p in self.out if p.get("rid") == rid][-1]
+            return p["kind"], here(p["at"]) if p.get("at") else None, p.get("held")
+
+        self.go([auto("t1", "a1"), auto("k1", "a2")], "2026-10-25T19:00")          # вс 19:00, гейт пропускает
+        self.assertEqual(self.sent, ["a1", "a2"])
+        self.go([auto("t1", "a3")], "2026-10-25T19:00", "weekend")                 # гейт держит — его выходной
+        self.assertEqual(last("a3"), ("scheduled", "2026-10-26T08:00", "weekend"))
+        self.go([auto("t1", "a4")], "2026-10-25T23:30")                            # ночь держит сборщик
+        self.assertEqual(last("a4"), ("scheduled", "2026-10-26T08:00", "hours"))
+        self.go([auto("t1", "a5")], "2026-10-24T23:30")                            # сб ночью — до вс 08:00, не до пн
+        self.assertEqual(last("a5"), ("scheduled", "2026-10-25T08:00", "hours"))
+        self.go([auto("m1", "a6")], "2026-10-25T19:00")                            # почта — рабочие часы владельца
+        self.assertEqual(last("a6"), ("scheduled", "2026-10-26T08:00", "hours"))
+        self.st["hours"] = {"from": "08:00", "to": "20:00", "weekends": True, "except": {"tg:628": "Паша"}}
+        self.go([auto("t1", "a7")], "2026-10-25T19:00")                            # явное «без выходных» — в силе
+        self.assertEqual(last("a7"), ("scheduled", "2026-10-26T08:00", "hours"))
+        self.go([{"id": "t1", "rid": "o1", "text": "o1"}], "2026-10-25T19:00", "night")   # слово владельца — его модель
+        self.assertEqual(last("o1"), ("scheduled", "2026-10-26T08:00", "night"))
+        self.assertEqual(self.sent, ["a1", "a2", "a5"])                           # a5 ушёл в вс после 08:00
+
     def test_cancel_of_held_never_goes(self):
         q = [{"id": "k1", "rid": "r1", "text": "a"}]
         self.go(q, "2026-10-13T05:31", "night")
