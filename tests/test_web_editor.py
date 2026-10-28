@@ -3121,10 +3121,11 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({'kind':'config','hours':hours})
         self.assertTrue(self.page({'until':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['until'])
         self.page({'tapSelector':'.tm-send-options > summary'})
-        expected=self.page({'eval':"new Intl.DateTimeFormat('en-GB',{weekday:'long'}).format(new Date('2026-10-19T11:00:00Z'))"})[-1]['eval']
-        self.assertIn(expected,self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'])
+        # db2cbff: the label follows the page language (owner ru), Russian weekday in the accusative
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'],'Отправить в понедельник в 08:00')
         self.feed({'kind':'config','hours':{**hours,'except':[{'contact':'synthetic/telegram'}]}})
-        self.assertTrue(self.page({'until':"document.querySelector('.tm-send-working').textContent.includes('tomorrow')"})[-1]['until'])
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-send-working').textContent.includes('завтра')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-working').textContent"})[-1]['eval'],'Отправить завтра в 08:00')
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Reply at working start')
         if os.environ.get('HUB_INBOX_SCREENSHOTS'):
             out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
@@ -3552,7 +3553,7 @@ class InboxWebAcceptance(PageInChrome):
             self.assertLessEqual(got["actions"],got["composer"],got)
             self.assertLessEqual(got["footer"],844,got)
             self.assertEqual(got["overflow"],0,got)
-            icons=self.page({'eval':"[...document.querySelectorAll('.tm-acts .tm-action:not(.tm-handoff-toggle) > .icon,.tm-acts .tm-action > .tm-native-icon')].map(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height}))"})[-1]['eval']
+            icons=self.page({'eval':"[...document.querySelectorAll('.tm-acts .tm-action:not(.tm-handoff-toggle) > :is(.icon,.tm-native-icon)')].map(n=>({width:n.getBoundingClientRect().width,height:n.getBoundingClientRect().height}))"})[-1]['eval']
             self.assertEqual(len(icons),4,icons)
             self.assertEqual(len({(i['width'],i['height']) for i in icons}),1,{'width':width,'icons':icons})
             if os.environ.get("HUB_INBOX_SCREENSHOTS"):

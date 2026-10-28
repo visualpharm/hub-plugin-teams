@@ -472,7 +472,9 @@ let toBottom = false;   // открыли переписку с человеко
 const secs = (iso) => Date.parse(iso) / 1000;
 const sentOk = (id) => [...sends.values()].some((x) => x.id === id && x.state === "ok");
 const isArchived = m => hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m);
-const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (replyArchived.has(m.id) || answered.has(m.id) || work.has(m.id) || sentOk(m.id)));
+// An unbound answered fact cannot close a conversation whose own reply still awaits its trusted receipt.
+const replyUnsettled = m => { const p=pendingReply(m); return !!p && !p.storageUnavailable; };
+const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (replyArchived.has(m.id) || answered.has(m.id) && !replyUnsettled(m) || work.has(m.id) || sentOk(m.id)));
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
 const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pendingReply(m);
 function inFolder(m, folder = tab) {
