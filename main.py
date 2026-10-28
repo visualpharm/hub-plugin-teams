@@ -572,6 +572,16 @@ def msg_post(i, done, rules):
                if k in i}}
 
 
+def merge_out(owner_last):
+    """Исходящее владельца в WhatsApp, Telegram и почте (sources.OUT, unix) — в owner_last, как ответ в Teams: по нему tick
+    закрывает открытое (link-fade, 28.10). Берём большее. Меняет owner_last."""
+    for box, t in list(sources.OUT.items()):
+        if t:
+            at = iso(datetime.fromtimestamp(float(t), timezone.utc))
+            if at > owner_last.get(box, ""):
+                owner_last[box] = at
+
+
 def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
     """Новое — в канал (по возрастанию времени), отвеченное владельцем (ответ в той же переписке позже или его
     реакция на само сообщение) — пометить; пункт, все ждущие сообщения которого собеседник удалил (gone, d987429), —
@@ -636,8 +646,16 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
         st.setdefault("seen", []).append(i["key"])
         if i.get("box") and not done:
             opened[i["key"]] = [i["box"], i["at"]]
+    who = st.get("who") or {}
     for k, (box, at) in list(opened.items()):
-        if owner_last.get(box, "") > at or k in reacted:
+        if owner_last.get(box, "") > at:
+            # `out` — время исходящего: по нему proactivity отличает ответ владельца от «пришло новое» и гасит соседей
+            put({"kind": "answered", "id": k, "out": owner_last[box]})
+            del opened[k]
+        elif k in reacted:
+            put({"kind": "answered", "id": k})
+            del opened[k]
+        elif (who.get(k) or {}).get("contact", box) in muted:   # «Не показывать»: открытое прежде не висит (link-fade, 28.10)
             put({"kind": "answered", "id": k})
             del opened[k]
         elif k in gone:   # ждущее удалил сам собеседник — отвечать не на что
@@ -713,6 +731,12 @@ def run_sources(st, now, put=post, between=None):
         # Чтение, архивирование, окно поиска и перезапуск меняют список непрочитанных.
         # Ни одно из них не подтверждает отправку ответа владельцем.
         s["boxes"] = sorted(boxes | (set(s["boxes"]) if errors else set()))
+    mail = cfg.get("email")
+    if isinstance(mail, dict) and st.get("open"):   # ответили из почты, а ветка осталась непрочитанной — open не залипает
+        try:
+            sources.mail_out_open(sources.expand(mail.get("cmd") or "~/.claude/bin/gogx"), st["open"])
+        except Exception as e:   # noqa: BLE001 — сбой чтения почты не должен ронять круг
+            print(f"{iso(now)} email-out: {e}", file=sys.stderr, flush=True)
     return items, set(sources.GONE)
 
 
@@ -2078,6 +2102,7 @@ def run():
         if teams_ok:
             st["fails"] = 0
         prev_ok = st.get("last_ok")
+        merge_out(owner_last)
         fresh = tick(st, items, owner_last, now, reacted=reacted, gone=gone)
         thread_refresh(st, reader, owner_last, teams_ok=teams_ok)
         if not teams_ok:

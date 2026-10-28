@@ -624,7 +624,7 @@ class Flow(unittest.TestCase):
         main.tick(st, [newer], {}, now, put=posts.append)
         self.assertIn({"kind": "answered", "id": "k1"}, posts)   # прежняя карточка этой переписки устарела
         main.tick(st, [], {"wa:whatsapp:1@c.us": "2026-10-10T13:00:00Z"}, now, put=posts.append)
-        self.assertIn({"kind": "answered", "id": "k2"}, posts)   # переписка прочитана/отвечена
+        self.assertIn({"kind": "answered", "id": "k2", "out": "2026-10-10T13:00:00Z"}, posts)   # отвечена; out — время ответа
 
     def test_telegram_newer_message_supersedes_the_old_card(self):
         # 16.10 (m432551, Interpol): владелец ответил в Telegram, собеседник написал ещё — старый пункт с черновиком

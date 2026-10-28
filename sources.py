@@ -1084,6 +1084,32 @@ def mail_thread(cmd, acct, thread_id, count):
     return out
 
 
+_MAIL_OUT_AT = {}   # box -> когда последний раз смотрели цепочку на своё письмо
+
+
+def mail_out_open(cmd, opened, now=None, limit=8, every=600):
+    """Открытые пункты почты: если в цепочке есть письмо с меткой SENT позже пункта — записать время в OUT[box] (tick
+    закроет). Цепочку после ответа из Gmail читаем не чаще раза в every с, не больше limit за круг."""
+    now = time.time() if now is None else now
+    todo = sorted({box: at for box, at in opened.values() if str(box).startswith("mail:")}.items(),
+                  key=lambda x: _MAIL_OUT_AT.get(x[0], 0))
+    for box, at in todo[:limit]:
+        if now - _MAIL_OUT_AT.get(box, 0) < every:
+            continue
+        _MAIL_OUT_AT[box] = now
+        acct, _, thread = box[len("mail:"):].rpartition(":")
+        if not acct or not thread:
+            continue
+        try:
+            data = json.loads(run([cmd, "gmail", "thread", "get", thread, "-a", acct, "-j"]))
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+        sent = [int(m.get("internalDate") or 0) / 1000 for m in (data.get("thread") or {}).get("messages") or []
+                if "SENT" in (m.get("labelIds") or [])]
+        if sent:
+            OUT[box] = max(OUT.get(box, 0), max(sent))
+
+
 def mail_files(payload):
     """Вложения письма [{name, mime, size, att}]: файлы и картинки в теле; мелкие картинки-подписи (логотипы,
     трекеры — inline до 30 КБ) не считаем."""
