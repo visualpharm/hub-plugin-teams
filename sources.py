@@ -312,9 +312,12 @@ def whatsapp(cfg, now):
             if r.get("messages") and not wait:
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
             voice = wa_voice(cfg, ch, cid, f"{ch}:{cid}:{(wait[-1].get('id') if wait else '') or r.get('last')}", wait)
-            if voice:   # 14.10: расшифровка голосового — текст сообщения (по ней и срочность, и резюме)
-                wait = [{**m, "text": voice[m["id"]]["text"], "cached": True}
-                        if m.get("id") in voice and voice[m["id"]].get("text") else m for m in wait]
+            if voice:   # 14.10: расшифровка голосового — текст сообщения (по ней и срочность, и резюме); 24.10: «🎤 …»,
+                # не скачалось — так и пишем (а не «[голосовое]»: владелец решил бы, что расшифровки просто нет)
+                wait = [{**m, "text": "🎤 " + voice[m["id"]]["text"], "cached": True}
+                        if m.get("id") in voice and voice[m["id"]].get("text") else
+                        {**m, "text": VOICE_FAILED, "cached": True}
+                        if m.get("id") in voice and voice[m["id"]].get("failed") else m for m in wait]
             digest = unread_digest(wait, len(wait), preview=text, **({"limit": 1200, "authors": True} if whole else {}))
             if digest:
                 text = digest
@@ -335,12 +338,12 @@ def whatsapp(cfg, now):
             mark = (wait[-1].get("id") if wait else "") or r.get("last")
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
             media = wa_media(cfg, ch, cid, f"{box}:{mark}") if kinds & {"image", "sticker"} else []
-            media = media + [v["media"] for v in voice.values()]
-            if media:
+            if media or any(v.get("opened") for v in voice.values()):
                 _WA_OPENED.setdefault(cid, n)   # wamedia открывал чат — счётчик непрочитанных обнулится
+            media = media + [v["media"] for v in voice.values() if v.get("media")]
             if media and not any(m.get("body") or m.get("text") for m in wait):
                 text = ""   # у картинки без подписи заглушек нет — клиент рисует вложение
-            elif voice and not digest:
+            elif any(v.get("media") for v in voice.values()) and not digest:
                 text = "[голосовое]"
             ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
                    **contact_of(r.get("name"), text, group, wait),
@@ -479,44 +482,66 @@ def wa_media(cfg, ch, cid, key):
     return got
 
 
-_WA_VOICE = {}   # ключ -> (когда, {id сообщения: {text, media}}): чат ради голосового открываем один раз на сообщение
+_WA_VOICE = {}   # (чат, id сообщения) -> {text, media, opened}: скачанное голосовое второй раз не качаем
+_WA_VOICE_TRIES = {}   # (чат, id сообщения) -> (сколько раз не скачалось, когда последний раз)
+WA_VOICE_TRIES = 3   # 24.10 (d841958): не скачалось — пробуем на следующих тактах, всего до трёх раз
+WA_VOICE_AGAIN = 2 * 60
+VOICE_FAILED = "голосовое не скачалось"
 
 
 def wa_voice(cfg, ch, cid, key, wait):
-    """Голосовые WhatsApp среди ждущих: `wamedia --voice` скачивает файл через меню «Download» вкладки (владелец
-    13.10: синие галочки для медиа допустимы; без прокрутки и без звука), расшифровка — голосовой модуль хаба.
-    {id: {text, media}}; нет скрипта/вкладки/голоса — пусто, не вышедшее пробуем снова через WA_READ_AGAIN."""
+    """Голосовые WhatsApp среди ждущих: `wamedia --voice --only` берёт файл из хранилища вкладки (ключ и путь файла
+    там открыты, чат не открывается; 24.10, d841958: чаты бизнеса «secure service from Meta» и не отрисованные фоновой
+    вкладкой голосовые меню «Download» не отдавали), иначе через меню «Download» открытого чата (владелец 13.10: синие
+    галочки для медиа допустимы); расшифровка — `--transcribe` (fal wizper, язык `voice_lang`, по умолчанию es), рядом
+    `.txt`. {id: {text, media, opened}} — скачанное; {id: {failed: True}} — не скачалось (причина в логе, повтор на
+    следующих тактах до WA_VOICE_TRIES раз). Голос выключен или голосовых нет — пусто."""
     from urllib.parse import quote
     ids = [m["id"] for m in wait if m.get("id") and m.get("type") in ("ptt", "audio")]
     if not ids or cfg.get("media") is False or cfg.get("voice") is False:
         return {}
-    got = _WA_VOICE.get(key)
-    if got and (got[1] or time.time() - got[0] < WA_READ_AGAIN):
-        return got[1]
-    cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
-    out = {}
-    try:
-        rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--voice", "--only", ",".join(ids)],
-                              timeout=180) or "[]")
-    except (OSError, ValueError, subprocess.SubprocessError) as e:
-        print(f"whatsapp: голосовое {cid}: {e}", file=sys.stderr, flush=True)
-        rows = []
-    for m in rows:
+    now = time.time()
+    want = [i for i in ids if (cid, i) not in _WA_VOICE
+            and _WA_VOICE_TRIES.get((cid, i), (0, 0))[0] < WA_VOICE_TRIES
+            and now - _WA_VOICE_TRIES.get((cid, i), (0, 0))[1] >= WA_VOICE_AGAIN]
+    why = {}
+    if want:
+        cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
         try:
-            path = m["path"]
-            play = _playable(path)
-            item = {"id": f"wa:{cid}:{m['id']}", "kind": "voice", "name": os.path.basename(play), "mime": m.get("mime"),
-                    "url": "/api/file?path=" + quote(play, safe="")}
-            if play != path:
-                item["mime"] = "audio/mp4"
-            if m.get("dur"):
-                item["dur"] = m["dur"]
-            out[m["id"]] = {"text": _transcript(path).strip(), "media": item}
-        except (KeyError, OSError):
-            continue
-    _WA_VOICE[key] = (time.time(), out)
-    if out:
-        _WA_OPENED.setdefault(cid, len(ids))
+            rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--voice", "--only", ",".join(want),
+                                   "--transcribe", "--lang", cfg.get("voice_lang") or "es"], timeout=240) or "[]")
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            rows, why = [], {i: str(e) for i in want}
+        for m in rows:
+            try:
+                if m.get("error"):
+                    why[m["id"]] = m["error"]
+                    continue
+                path = m["path"]
+                play = _playable(path)
+                item = {"id": f"wa:{cid}:{m['id']}", "kind": "voice", "name": os.path.basename(play),
+                        "mime": m.get("mime"), "url": "/api/file?path=" + quote(play, safe="")}
+                if play != path:
+                    item["mime"] = "audio/mp4"
+                if m.get("dur"):
+                    item["dur"] = m["dur"]
+                text = (m.get("transcript") or "").strip() or _transcript(path).strip()
+                _WA_VOICE[(cid, m["id"])] = {"text": text, "media": item, "opened": m.get("via") not in ("store", "disk")}
+            except (KeyError, TypeError, OSError):
+                continue
+        for i in want:
+            if (cid, i) not in _WA_VOICE:
+                n = _WA_VOICE_TRIES.get((cid, i), (0, 0))[0] + 1
+                _WA_VOICE_TRIES[(cid, i)] = (n, now)
+                print(f"whatsapp: голосовое {cid} {i} не скачалось (попытка {n} из {WA_VOICE_TRIES}): "
+                      f"{why.get(i) or 'wamedia его не вернул'}", file=sys.stderr, flush=True)
+        while len(_WA_VOICE) > 500:
+            _WA_VOICE.pop(next(iter(_WA_VOICE)))
+        while len(_WA_VOICE_TRIES) > 500:
+            _WA_VOICE_TRIES.pop(next(iter(_WA_VOICE_TRIES)))
+    out = {i: _WA_VOICE.get((cid, i)) or {"failed": True} for i in ids}
+    if any(v.get("opened") for v in out.values()):
+        _WA_OPENED.setdefault(cid, len(ids))   # wamedia открывал чат — счётчик непрочитанных обнулится
     return out
 
 
