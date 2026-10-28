@@ -383,7 +383,7 @@ class WaVoice(unittest.TestCase):
         it = items[0]
         self.assertEqual(it["text"], "🎤 Quieren implementar el lunes")
         self.assertEqual([(m["kind"], m["name"], m["id"], m.get("dur")) for m in it["media"]],
-                         [("voice", "5491100000009-V1.ogg", "wa:5491100000009@c.us:V1", "0:32")])
+                         [("voice", "5491100000009-V1.ogg", "wa:5491100000009@c.us:V1", 32)])   # секунды числом
         self.assertTrue(it["media"][0]["url"].startswith("/api/file?path="))
         v = [c for c in calls if "--voice" in c][0]
         self.assertEqual(v[v.index("--only") + 1], "V1")
@@ -790,6 +790,191 @@ class WaMedia(unittest.TestCase):
             self.assertEqual(sources.wa_media({"media": False}, "whatsapp", "c", "k2"), [])
         finally:
             sources.run = orig
+
+
+class WaStoreMedia(unittest.TestCase):
+    """26.10 (d985909, Иван m985762): видео-заметка Jorge Lucero пришла меткой «Video note 1» без файла. Медиа WhatsApp —
+    фото, стикеры, видео, видео-заметки (ptv), гифки, документы — `wamedia --store` берёт из хранилища вкладки (чат не
+    открывается) и кладёт в media поста: url (/api/file), mime, size, dur (секунды, ffprobe), у видео thumb — кадр-превью;
+    файл больше потолка не качается: вложение без url и строка-причина в тексте."""
+    CID = "5491100000009@c.us"
+
+    def chat(self, *msgs):
+        return {"chat_id": self.CID, "name": "Jorge", "new": len(msgs), "unread": len(msgs),
+                "last": "2026-10-10T11:30-03:00", "preview": "Video note 1", "out_last_t": 0, "messages": list(msgs)}
+
+    def setUp(self):
+        self._run = sources.run
+        self.d = tempfile.mkdtemp()
+        os.environ["HUB_STATE_DIR"] = self.d
+        for name in ("_WA_MEDIA", "_WA_VOICE", "_WA_VOICE_TRIES", "_WA_OPENED", "_WA_FILES", "_WA_FILE_TRIES", "_YT"):
+            getattr(sources, name, {}).clear()
+        self.dir = os.path.join(self.d, "attachments", "inbox", "wa")
+        os.makedirs(self.dir, exist_ok=True)
+
+    def tearDown(self):
+        sources.run = self._run
+        os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"
+
+    def video(self, name, seconds=3):
+        path = os.path.join(self.dir, name)
+        if not shutil.which("ffmpeg"):
+            self.skipTest("нет ffmpeg")
+        import subprocess
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        f"testsrc=size=320x320:rate=10:duration={seconds}", "-pix_fmt", "yuv420p", path], check=True)
+        return path
+
+    def test_video_note_becomes_playable_media_with_poster_and_duration(self):
+        path = self.video("5491100000009-P1.mp4")
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "--store" in cmd:
+                return json.dumps([{"id": "P1", "kind": "video", "type": "ptv", "mime": "video/mp4",
+                                    "size": os.path.getsize(path), "w": 320, "h": 320, "name": "", "dur": 3,
+                                    "path": path, "via": "store"}])
+            return json.dumps([self.chat({"id": "P1", "t": 200, "type": "ptv", "text": "", "cached": False})])
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        it = items[0]
+        self.assertEqual(it["text"], "")   # клиент рисует само видео, не метку «Video note 1»
+        m = it["media"][0]
+        self.assertEqual((m["id"], m["kind"], m["mime"], m["size"]),
+                         ("wa:5491100000009@c.us:P1", "video", "video/mp4", os.path.getsize(path)))
+        self.assertTrue(m["url"].startswith("/api/file?path="))
+        self.assertAlmostEqual(m["dur"], 3, delta=0.2)
+        self.assertTrue(m["thumb"].startswith("/api/file?path="))
+        from urllib.parse import unquote
+        poster = unquote(m["thumb"].split("path=", 1)[1])
+        self.assertTrue(os.path.getsize(poster) > 0 and poster.endswith(".jpg"))
+        store = [c for c in calls if "--store" in c][0]
+        self.assertEqual(store[store.index("--only") + 1], "P1")
+        self.assertEqual(store[store.index("--max-mb") + 1], "50")
+        self.assertNotIn(self.CID, sources._WA_OPENED)   # из хранилища — чат не открывали
+        sources.whatsapp({"channels": ["whatsapp"]}, NOW)   # следующий такт: второй раз не качаем
+        self.assertEqual(len([c for c in calls if "--store" in c]), 1)
+
+    def test_photo_and_document_from_store_without_opening_chat(self):
+        jpg = os.path.join(self.dir, "5491100000009-I1.jpg")
+        pdf = os.path.join(self.dir, "5491100000009-D1.pdf")
+        for f in (jpg, pdf):
+            with open(f, "wb") as fh:
+                fh.write(b"x" * 10)
+
+        def run(cmd, timeout=90):
+            if "--store" in cmd:
+                return json.dumps([
+                    {"id": "I1", "kind": "image", "type": "image", "mime": "image/jpeg", "size": 10, "w": 960, "h": 1280,
+                     "name": "", "dur": 0, "path": jpg, "via": "store"},
+                    {"id": "D1", "kind": "doc", "type": "document", "mime": "application/pdf", "size": 10, "w": 0, "h": 0,
+                     "name": "Receta.pdf", "dur": 0, "path": pdf, "via": "store"}])
+            if "--channel" in cmd and "new" in cmd:
+                return json.dumps([self.chat({"id": "I1", "t": 200, "type": "image", "text": ""},
+                                             {"id": "D1", "t": 201, "type": "document", "text": ""})])
+            raise AssertionError(f"чат открывать нельзя: {cmd}")
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        media = items[0]["media"]
+        self.assertEqual([(m["kind"], m.get("w"), m["name"]) for m in media],
+                         [("image", 960, "5491100000009-I1.jpg"), ("file", None, "Receta.pdf")])
+        self.assertNotIn("thumb", media[0])
+
+    def test_file_over_the_cap_is_listed_without_url_and_says_why(self):
+        def run(cmd, timeout=90):
+            if "--store" in cmd:
+                return json.dumps([{"id": "V9", "kind": "video", "type": "video", "mime": "video/mp4", "size": 63_000_000,
+                                    "w": 720, "h": 1280, "name": "", "dur": 95,
+                                    "error": "файл 63.0 МБ — больше потолка 50 МБ, не скачан"}])
+            return json.dumps([self.chat({"id": "V9", "t": 200, "type": "video", "text": ""})])
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        it = items[0]
+        self.assertNotIn("url", it["media"][0])
+        self.assertEqual((it["media"][0]["kind"], it["media"][0]["size"], it["media"][0]["dur"]), ("video", 63_000_000, 95))
+        self.assertIn("📎 видео 63 МБ — больше 50 МБ, не скачано", it["text"])
+
+    def test_store_miss_says_not_downloaded_and_images_fall_back_to_the_open_chat(self):
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "--store" in cmd:
+                return json.dumps([{"id": "V2", "error": "нет в хранилище вкладки"},
+                                   {"id": "I2", "error": "нет в хранилище вкладки"}])
+            if "new" in cmd:
+                return json.dumps([self.chat({"id": "V2", "t": 200, "type": "video", "text": ""},
+                                             {"id": "I2", "t": 201, "type": "image", "text": ""})])
+            return json.dumps([{"id": "I2", "kind": "image", "mime": "image/jpeg", "w": 10, "h": 10,
+                                "path": os.path.join(self.dir, "x.jpg")}])   # старый путь: открытый чат
+        sources.run = run
+        with contextlib.redirect_stderr(io.StringIO()):
+            items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        it = items[0]
+        self.assertEqual([m["id"] for m in it["media"]], ["wa:5491100000009@c.us:I2"])
+        self.assertIn("📎 видео — не скачалось: нет в хранилище вкладки", it["text"])
+
+
+class YouTubeLinks(unittest.TestCase):
+    """26.10 (d985909): ссылка YouTube в сообщении — links[{url, title, site, image}] из oEmbed (без ключа), обложка
+    скачана в attachments хаба (image — /api/file), клиенты рисуют карточку ссылки без похода на YouTube."""
+
+    def setUp(self):
+        self._run = sources.run
+        self.d = tempfile.mkdtemp()
+        os.environ["HUB_STATE_DIR"] = self.d
+        getattr(sources, "_YT", {}).clear()
+
+    def tearDown(self):
+        sources.run = self._run
+        os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"
+
+    def test_youtube_link_gets_title_and_local_cover(self):
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if any("oembed" in c for c in cmd):
+                return json.dumps({"title": "Pinamar en 4K", "author_name": "Muni",
+                                   "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"})
+            out = cmd[cmd.index("-o") + 1]
+            with open(out, "wb") as f:
+                f.write(b"\xff\xd8jpg")
+            return ""
+        sources.run = run
+        links = sources.youtube_links("Mirá esto https://youtu.be/dQw4w9WgXcQ?si=abc, y también "
+                                      "https://www.youtube.com/watch?v=dQw4w9WgXcQ y https://example.com/x")
+        self.assertEqual(len(links), 1)
+        self.assertEqual((links[0]["url"], links[0]["title"], links[0]["site"]),
+                         ("https://youtu.be/dQw4w9WgXcQ?si=abc", "Pinamar en 4K", "YouTube"))
+        self.assertTrue(links[0]["image"].startswith("/api/file?path="))
+        self.assertTrue(any("-4" in c for c in calls))   # на munk нет IPv6
+        sources.youtube_links("https://youtu.be/dQw4w9WgXcQ")   # второй раз — из памяти
+        self.assertEqual(len(calls), 2)
+
+    def test_oembed_failure_gives_no_card(self):
+        def run(cmd, timeout=90):
+            raise OSError("404")
+        sources.run = run
+        self.assertEqual(sources.youtube_links("https://youtu.be/AAAAAAAAAAA"), [])
+
+    def test_whatsapp_message_with_youtube_link_carries_links(self):
+        chat = {"chat_id": "5491100000009@c.us", "name": "Jorge", "new": 1, "unread": 1, "last": "2026-10-10T11:30-03:00",
+                "preview": "", "out_last_t": 0, "messages": [{"id": "T1", "t": 200, "type": "chat", "cached": True,
+                                                              "text": "Hola! https://www.youtube.com/shorts/dQw4w9WgXcQ"}]}
+
+        def run(cmd, timeout=90):
+            if any("oembed" in c for c in cmd):
+                return json.dumps({"title": "Short", "thumbnail_url": "https://i.ytimg.com/vi/x/hq.jpg"})
+            if "-o" in cmd:
+                open(cmd[cmd.index("-o") + 1], "wb").write(b"jpg")
+                return ""
+            return json.dumps([chat])
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual([(l["url"], l["title"]) for l in items[0]["links"]],
+                         [("https://www.youtube.com/shorts/dQw4w9WgXcQ", "Short")])
 
 
 class MailFiles(unittest.TestCase):

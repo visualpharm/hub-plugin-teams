@@ -150,7 +150,7 @@ def contact_of(name, about, group=False, wait=()):
 KIND_NAMES = {"ptt": ("голосовое", "голосовых"), "audio": ("аудио", "аудио"), "image": ("фото", "фото"),
               "video": ("видео", "видео"), "document": ("файл", "файлов"), "sticker": ("стикер", "стикеров"),
               "chat": ("текст", "текстовых"), "location": ("геопозиция", "геопозиций"),
-              "call": ("звонок", "звонков")}
+              "call": ("звонок", "звонков"), "ptv": ("видеосообщение", "видеосообщений"), "gif": ("GIF", "GIF")}
 
 
 SERVICE_TYPES = {"e2e_notification", "notification_template", "gp2", "protocol", "ciphertext", "revoked"}
@@ -337,14 +337,23 @@ def whatsapp(cfg, now):
             # ключ — последнее ждущее сообщение: то же сообщение второй раз карточкой не станет
             mark = (wait[-1].get("id") if wait else "") or r.get("last")
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
-            media = wa_media(cfg, ch, cid, f"{box}:{mark}") if kinds & {"image", "sticker"} else []
-            if media or any(v.get("opened") for v in voice.values()):
+            # 26.10 (d985909): фото, видео, видео-заметки, документы — из хранилища вкладки, чат не открывается;
+            # чего там нет — фото и стикеры, как раньше, из открытого чата
+            files, notes, missed = wa_files(cfg, ch, cid, wait)
+            pics = wa_media(cfg, ch, cid, f"{box}:{mark}") if (missed & {"image", "sticker"} or (
+                not wait and kinds & {"image", "sticker"})) else []
+            if pics:
                 _WA_OPENED.setdefault(cid, n)   # wamedia открывал чат — счётчик непрочитанных обнулится
-            media = media + [v["media"] for v in voice.values() if v.get("media")]
-            if media and not any(m.get("body") or m.get("text") for m in wait):
+            if any(v.get("opened") for v in voice.values()):
+                _WA_OPENED.setdefault(cid, n)
+            media = files + pics + [v["media"] for v in voice.values() if v.get("media")]
+            if (media or notes) and not any(m.get("body") or m.get("text") for m in wait):
                 text = ""   # у картинки без подписи заглушек нет — клиент рисует вложение
             elif any(v.get("media") for v in voice.values()) and not digest:
                 text = "[голосовое]"
+            if notes:   # не скачалось или больше потолка — владелец и разборщик видят почему
+                text = "\n".join([text] + notes).strip()
+            links = youtube_links(" ".join([text] + [m.get("text") or "" for m in wait]))
             ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
                    **contact_of(r.get("name"), text, group, wait),
                    **({"title": r["name"]} if r.get("name") and wa_named(cid) else {}),
@@ -355,6 +364,7 @@ def whatsapp(cfg, now):
             context = wa_context(ref, wait, f"{box}:{mark}")
             items.append({"key": f"{box}:{mark}", "box": box, "src": "whatsapp", "tier": t, "unread": n,
                           **({"media": media} if media else {}), **({"context": context} if context else {}),
+                          **({"links": links} if links else {}),
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
                           "from": r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
@@ -482,6 +492,180 @@ def wa_media(cfg, ch, cid, key):
     return got
 
 
+WA_FILE_TYPES = {"image", "sticker", "video", "ptv", "gif", "document"}
+MEDIA_MAX_MB = 50   # больше — не качаем: вложение без url и строка-причина
+_WA_FILES = {}   # (чат, id сообщения) -> {"media": вложение} | {"big": вложение без url}: второй раз не качаем
+_WA_FILE_TRIES = {}   # (чат, id сообщения) -> (сколько раз не скачалось, когда последний раз, почему)
+WA_KIND_WORD = {"image": "фото", "sticker": "стикер", "video": "видео", "ptv": "видеосообщение", "gif": "GIF",
+                "document": "файл"}
+
+
+def wa_files(cfg, ch, cid, wait, keep=MEDIA_KEEP):
+    """Вложения WhatsApp среди ждущих (26.10, d985909): `wamedia --store --only` берёт фото, стикеры, видео,
+    видео-заметки (ptv), гифки и документы из хранилища вкладки и CDN WhatsApp — чат не открывается, синих галочек нет.
+    Файл — в attachments хаба; у видео кадр-превью (thumb) и длительность (dur, секунды, ffprobe). Больше потолка
+    (`media_max_mb`, по умолчанию 50 МБ) — вложение без url и строка-причина. Не скачалось — строка-причина, повтор
+    на следующих тактах до WA_VOICE_TRIES раз. -> (media, notes, типы, которых в хранилище не нашлось)."""
+    msgs = [m for m in wait if m.get("id") and m.get("type") in WA_FILE_TYPES][-keep:]
+    if not msgs or cfg.get("media") is False:
+        return [], [], set()
+    now = time.time()
+    want = [m["id"] for m in msgs if (cid, m["id"]) not in _WA_FILES
+            and _WA_FILE_TRIES.get((cid, m["id"]), (0, 0, ""))[0] < WA_VOICE_TRIES
+            and now - _WA_FILE_TRIES.get((cid, m["id"]), (0, 0, ""))[1] >= WA_VOICE_AGAIN]
+    if want:
+        cap = cfg.get("media_max_mb") or MEDIA_MAX_MB
+        cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
+        why = {}
+        try:
+            rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--store", "--only", ",".join(want),
+                                   "--max-mb", f"{cap:g}"], timeout=300) or "[]")
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            rows, why = [], {i: str(e) for i in want}
+        for m in rows if isinstance(rows, list) else []:
+            if not isinstance(m, dict) or m.get("id") not in want:
+                continue
+            if m.get("error") and (m.get("size") or 0) > cap * 1e6:
+                _WA_FILES[(cid, m["id"])] = {"big": _wa_file_item(cid, m, None), "type": m.get("type") or m.get("kind")}
+            elif m.get("error") or not m.get("path"):
+                why[m["id"]] = m.get("error") or "wamedia не вернул файл"
+            else:
+                _WA_FILES[(cid, m["id"])] = {"media": _wa_file_item(cid, m, m["path"])}
+        for i in want:
+            if (cid, i) not in _WA_FILES:
+                n = _WA_FILE_TRIES.get((cid, i), (0, 0, ""))[0] + 1
+                _WA_FILE_TRIES[(cid, i)] = (n, now, why.get(i) or "wamedia его не вернул")
+                print(f"whatsapp: вложение {cid} {i} не скачалось (попытка {n} из {WA_VOICE_TRIES}): "
+                      f"{_WA_FILE_TRIES[(cid, i)][2]}", file=sys.stderr, flush=True)
+        while len(_WA_FILES) > 500:
+            _WA_FILES.pop(next(iter(_WA_FILES)))
+        while len(_WA_FILE_TRIES) > 500:
+            _WA_FILE_TRIES.pop(next(iter(_WA_FILE_TRIES)))
+    media, notes, missed = [], [], set()
+    for m in msgs:
+        got = _WA_FILES.get((cid, m["id"])) or {}
+        word = WA_KIND_WORD.get(m["type"], "файл")
+        if got.get("media"):
+            media.append(got["media"])
+        elif got.get("big"):
+            media.append(got["big"])
+            cap = cfg.get("media_max_mb") or MEDIA_MAX_MB
+            notes.append(f"📎 {word} {got['big'].get('size', 0) / 1e6:.0f} МБ — больше {cap:g} МБ, не скачано")
+        else:
+            missed.add(m["type"])
+            if m["type"] not in ("image", "sticker"):   # фото и стикеры ещё попробуем из открытого чата
+                notes.append(f"📎 {word} — не скачалось: {_WA_FILE_TRIES.get((cid, m['id']), (0, 0, 'нет файла'))[2]}")
+    return media, notes, missed
+
+
+def _wa_file_item(cid, m, path):
+    """Строка wamedia --store -> вложение поста: {id, kind, name, mime, size, w, h, dur, url, thumb}. path None —
+    файл не качали (больше потолка): без url, только описание."""
+    from urllib.parse import quote
+    kind = {"doc": "file", "voice": "voice"}.get(m.get("kind"), m.get("kind") or "file")
+    item = {"id": f"wa:{cid}:{m['id']}", "kind": kind,
+            "name": m.get("name") or (os.path.basename(path) if path else ""), "mime": m.get("mime") or ""}
+    if path:
+        item["url"] = "/api/file?path=" + quote(path, safe="")
+        try:
+            item["size"] = os.path.getsize(path)
+        except OSError:
+            pass
+    elif m.get("size"):
+        item["size"] = m["size"]
+    if m.get("w") and m.get("h"):
+        item["w"], item["h"] = m["w"], m["h"]
+    dur = _duration(path) if path and kind in ("video", "voice", "audio") else 0
+    dur = dur or (m.get("dur") if isinstance(m.get("dur"), (int, float)) else 0)
+    if dur:
+        item["dur"] = dur
+    if path and kind == "video":
+        poster = _poster(path, dur)
+        if poster:
+            item["thumb"] = "/api/file?path=" + quote(poster, safe="")
+    return item
+
+
+def _clock(v):
+    """«1:05», «32» или число -> секунды числом; не разобрать — 0."""
+    if isinstance(v, (int, float)):
+        return v
+    parts = str(v or "").strip().split(":")
+    try:
+        return sum(int(x) * 60 ** k for k, x in enumerate(reversed(parts))) if all(parts) else 0
+    except ValueError:
+        return 0
+
+
+def _duration(path):
+    """Длительность файла в секундах (ffprobe), с точностью до десятых; нет ffprobe или не вышло — 0."""
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                             capture_output=True, text=True, timeout=30)
+        return round(float(out.stdout.strip()), 1)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return 0
+
+
+def _poster(path, dur=0):
+    """Кадр-превью видео рядом с файлом (`<имя>-poster.jpg`, кадр на 1-й секунде, у коротких — первый): клиенты
+    показывают его до загрузки видео. Нет ffmpeg или не вышло — None."""
+    out = os.path.splitext(path)[0] + "-poster.jpg"
+    if os.path.exists(out) and os.path.getsize(out):
+        return out
+    try:
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-ss", "1" if not dur or dur > 1.5 else "0",
+                        "-i", path, "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "4", out],
+                       timeout=60, check=True, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out if os.path.exists(out) and os.path.getsize(out) else None
+
+
+# --- ссылки YouTube (26.10, d985909): название и обложка из oEmbed (без ключа), обложка — в attachments хаба --------
+YOUTUBE = re.compile(r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com/(?:watch\?(?:[^\s<>\"']*?&)?v=|shorts/|live/|embed/)"
+                     r"|youtu\.be/)([A-Za-z0-9_-]{11})[^\s<>\"')\]]*")
+_YT = {}   # id видео -> (когда, {title, image} | None): oEmbed спрашиваем раз; не вышло — снова через WA_READ_AGAIN
+
+
+def youtube_links(text, keep=3):
+    """Ссылки YouTube в тексте -> [{url, title, site: "YouTube", image}] (поля превью ссылки, как у почты и Telegram:
+    клиенты рисуют карточку сами, не ходя на YouTube). Видео без названия (удалено, приватное, нет сети) — без карточки."""
+    from urllib.parse import quote
+    out, ids = [], set()
+    for m in YOUTUBE.finditer(text or ""):
+        vid, url = m.group(1), m.group(0).rstrip(".,;:!?")
+        if vid in ids or len(out) >= keep:
+            continue
+        ids.add(vid)
+        got = _YT.get(vid)
+        if not got or (got[1] is None and time.time() - got[0] >= WA_READ_AGAIN):
+            info = None
+            try:
+                data = json.loads(run(["curl", "-4", "-sS", "--fail", "--max-time", "10",
+                                       "https://www.youtube.com/oembed?format=json&url="
+                                       + quote(f"https://www.youtube.com/watch?v={vid}", safe="")], timeout=15) or "{}")
+                if isinstance(data, dict) and str(data.get("title") or "").strip():
+                    info = {"title": str(data["title"]).strip()[:200]}
+                    thumb = data.get("thumbnail_url") or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
+                    path = os.path.join(media_dir("links"), f"youtube-{vid}.jpg")
+                    if not os.path.exists(path) and str(thumb).startswith("https://"):
+                        try:
+                            run(["curl", "-4", "-sS", "--fail", "--max-time", "15", "-o", path, thumb], timeout=20)
+                        except (OSError, subprocess.SubprocessError):
+                            pass
+                    if os.path.exists(path) and os.path.getsize(path):
+                        info["image"] = "/api/file?path=" + quote(path, safe="")
+            except (OSError, ValueError, subprocess.SubprocessError):
+                info = None
+            got = _YT[vid] = (time.time(), info)
+            while len(_YT) > 500:
+                _YT.pop(next(iter(_YT)))
+        if got[1]:
+            out.append({"url": url, "site": "YouTube", **got[1]})
+    return out
+
+
 _WA_VOICE = {}   # (чат, id сообщения) -> {text, media, opened}: скачанное голосовое второй раз не качаем
 _WA_VOICE_TRIES = {}   # (чат, id сообщения) -> (сколько раз не скачалось, когда последний раз)
 WA_VOICE_TRIES = 3   # 24.10 (d841958): не скачалось — пробуем на следующих тактах, всего до трёх раз
@@ -523,8 +707,9 @@ def wa_voice(cfg, ch, cid, key, wait):
                         "mime": m.get("mime"), "url": "/api/file?path=" + quote(play, safe="")}
                 if play != path:
                     item["mime"] = "audio/mp4"
-                if m.get("dur"):
-                    item["dur"] = m["dur"]
+                dur = _clock(m.get("dur"))   # 26.10: секунды числом — клиенты читают dur как число («0:32» не видели)
+                if dur:
+                    item["dur"] = dur
                 text = (m.get("transcript") or "").strip() or _transcript(path).strip()
                 _WA_VOICE[(cid, m["id"])] = {"text": text, "media": item, "opened": m.get("via") not in ("store", "disk")}
             except (KeyError, TypeError, OSError):
@@ -717,7 +902,8 @@ def telegram(cfg, now):
         media = tg_media(cmd, cid, wait)
         if media and not any((m.get("text") or "").strip() for m in wait):
             text = ""   # 12.10: у медиа без подписи заглушки («[фото]», «1 сообщение без текста») не кладём — клиент рисует само вложение
-        links = [m["link"] for m in wait if m.get("link")][-3:]
+        links = [m["link"] for m in wait if m.get("link")][-3:] \
+            or youtube_links(" ".join(m.get("text") or "" for m in wait))   # превью Telegram нет — YouTube сами
         context = tg_context(r, wait)
         items.append({"key": f"{box}:{mark}", "box": box, "src": "telegram", "tier": t, "unread": n,
                       **({"context": context} if context else {}),

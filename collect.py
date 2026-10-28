@@ -40,41 +40,95 @@ _TZ = re.compile(r"\s*[\[(]\s*(?:UTC|GMT)\s*[+\-\u2212]\s*\d{1,2}(?::?\d{2})?\s*
 
 _EXT = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "video/mp4": "mp4"}
 HOSTED = re.compile(r"/hostedContents/([^/\"'?]+)/\$value")
+IMAGE_FILE = re.compile(r"\.(png|jpe?g|gif|webp|heic|bmp)$", re.I)
+TRIES, AGAIN = 3, 2 * 60   # файл не скачался — ещё попытки на следующих тактах, не на каждом
+_FAILED = {}   # имя файла в attachments -> (сколько раз не скачалось, когда последний раз, причина)
 
 
-def attachments(mcp, m, chat, keep=4):
-    """Вложения сообщения Teams (13.10): картинки из тела (hostedContents) скачиваются Graph-вызовом в attachments хаба и
-    отдаются как media[]; файлы-ссылки (SharePoint/OneDrive, attachments[].contentType == reference) — в links[]: байты
-    за входом Microsoft, откроются в самом Teams. Не скачалось — вложения нет (сообщение остаётся)."""
+def _why(e):
+    """Ошибка Graph → причина для владельца и разборщика одной фразой."""
+    s = str(e)
+    if re.search(r"\b40[13]\b|forbidden|access ?denied|unauthori[sz]ed|accessDenied", s, re.I):
+        return "нет доступа к файлу"
+    if re.search(r"\b404\b|not ?found|itemNotFound", s, re.I):
+        return "файл удалён или перемещён"
+    return "не скачался"
+
+
+def _fetch(mcp, d, base, ext, target):
+    """Скачать байты Graph в d/base.ext (расширение уточняем по contentType ответа). (имя файла, None) или (None, причина);
+    скачанное раньше — с диска, не скачалось — повтор не раньше AGAIN, всего TRIES раз."""
+    import os
+    import time
+    have = next((f for f in os.listdir(d) if f.startswith(base + ".")), None)
+    if have:
+        return have, None
+    n, last, why = _FAILED.get(base, (0, 0, None))
+    if n >= TRIES or (n and time.time() - last < AGAIN):
+        return None, why
+    path = os.path.join(d, f"{base}.{ext}")
+    try:
+        got = mcp.call("download-bytes-to-file", {"target": target, "outputPath": path})
+        real = _EXT.get(str(got.get("contentType") or "").split(";")[0].lower())
+        if real and real != ext and os.path.exists(path):
+            os.replace(path, os.path.join(d, f"{base}.{real}"))
+            path = os.path.join(d, f"{base}.{real}")
+        if os.path.exists(path):
+            _FAILED.pop(base, None)
+            return os.path.basename(path), None
+        e = OSError("файла нет после скачивания")
+    except (OSError, ValueError) as err:
+        e = err
+    why = _why(e)
+    _FAILED[base] = (n + 1, time.time(), why)
+    while len(_FAILED) > 500:
+        _FAILED.pop(next(iter(_FAILED)))
+    print(f"teams: вложение {target[:120]} не скачалось (попытка {n + 1} из {TRIES}): {str(e)[:200]}", flush=True)
+    return None, why
+
+
+def attachments(mcp, m, chat=None, keep=4, where=None):
+    """Вложения сообщения Teams: картинки из тела (hostedContents, 13.10) и картинки-файлы SharePoint/OneDrive
+    (attachments[].contentType == reference с расширением картинки; 26.10, Иван m974975: пришла только
+    «изображение (8).png» — Иван не видел, что на ней, разбор писал «без входа не прочитать») скачиваются Graph-вызовом
+    в attachments хаба и отдаются как media[]; остальные файлы — links[] (откроются в самом Teams). where — путь
+    сообщения в Graph (канал: /teams/…/channels/…/messages/…), по умолчанию — сообщение чата. Не скачалось — строка
+    причины в notes[] (её видят владелец и разборщик), файл остаётся ссылкой."""
+    import base64
     import os
     from urllib.parse import quote
     import sources
-    media, links = [], []
+    where = where or f"/chats/{chat}/messages/{m.get('id')}"
+    media, links, notes, d = [], [], [], None
+
+    def add(have, mid, name=None):
+        ext = have.rsplit(".", 1)[-1]
+        mime = next((k for k, v in _EXT.items() if v == ext), f"image/{ext}")
+        media.append({"id": mid, "kind": "video" if mime.startswith("video") else "image", "name": name or have,
+                      "mime": mime, "url": "/api/file?path=" + quote(os.path.join(d, have), safe="")})
+
     for hid in list(dict.fromkeys(HOSTED.findall((m.get("body") or {}).get("content") or "")))[:keep]:
-        d = sources.media_dir("teams")
-        base = hashlib.sha1(f"{chat}:{m.get('id')}:{hid}".encode()).hexdigest()[:20]
-        have = next((f for f in os.listdir(d) if f.startswith(base + ".")), None)
-        if have is None:
-            path = os.path.join(d, base + ".png")   # расширение уточним по contentType ответа
-            try:
-                got = mcp.call("download-bytes-to-file",
-                               {"target": f"/chats/{chat}/messages/{m['id']}/hostedContents/{hid}/$value", "outputPath": path})
-                ext = _EXT.get(str(got.get("contentType") or "").split(";")[0].lower(), "png")
-                if ext != "png" and os.path.exists(path):
-                    os.replace(path, os.path.join(d, f"{base}.{ext}"))
-                    path = os.path.join(d, f"{base}.{ext}")
-                have = os.path.basename(path) if os.path.exists(path) else None
-            except OSError:
-                have = None
+        d = d or sources.media_dir("teams")
+        base = hashlib.sha1(f"{chat or where}:{m.get('id')}:{hid}".encode()).hexdigest()[:20]
+        have, _ = _fetch(mcp, d, base, "png", f"{where}/hostedContents/{hid}/$value")
         if have:
-            ext = have.rsplit(".", 1)[-1]
-            mime = next((k for k, v in _EXT.items() if v == ext), "image/png")
-            media.append({"id": f"teams:{m.get('id')}:{hid[:12]}", "kind": "video" if mime.startswith("video") else "image",
-                          "name": have, "mime": mime, "url": "/api/file?path=" + quote(os.path.join(d, have), safe="")})
+            add(have, f"teams:{m.get('id')}:{hid[:12]}")
     for a in m.get("attachments") or []:
-        if a.get("contentType") == "reference" and a.get("contentUrl"):
-            links.append({"url": a["contentUrl"], "title": a.get("name") or "", "site": "Teams"})
-    return media, links[:3]
+        if a.get("contentType") != "reference" or not a.get("contentUrl"):
+            continue
+        url, name = a["contentUrl"], a.get("name") or ""
+        if IMAGE_FILE.search(name or url.split("?")[0]) and len(media) < keep:
+            d = d or sources.media_dir("teams")
+            base = hashlib.sha1(f"{where}:{url}".encode()).hexdigest()[:20]
+            ext = (IMAGE_FILE.search(name or url.split("?")[0]).group(1) or "png").lower().replace("jpeg", "jpg")
+            share = "u!" + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+            have, why = _fetch(mcp, d, base, ext, f"/shares/{share}/driveItem/content")
+            if have:
+                add(have, f"teams:{m.get('id')}:{base[:12]}", name)
+                continue
+            notes.append(f"📎 {name or 'картинка'} — не скачалась: {why or 'не скачался'}")
+        links.append({"url": url, "title": name, "site": "Teams"})
+    return media, links[:3], notes
 
 
 def person(name):
@@ -184,7 +238,8 @@ def chats(mcp, cutoff, me, owner_last, top=30, reacted=None, scan=None):
             if not (dm or mention or reply):
                 continue
             text = plain((m.get("body") or {}).get("content"))
-            media, links = attachments(mcp, m, c["id"])
+            media, links, notes = attachments(mcp, m, c["id"])
+            text = "\n".join([text] + notes).strip() if notes else text
             if not text and not media and not links:
                 continue
             if text and not media and not (mention or reply) and chatter(text):   # «да» цитатой на его вопрос — ответ
@@ -230,12 +285,17 @@ def channel_posts(mcp, channel, info, cutoff, me, owner_last, top=10, reacted=No
             if not fresh(m, cutoff, me) or (m is not root and not mention):
                 continue
             text = plain((m.get("body") or {}).get("content"))
-            if not text or (not mention and chatter(text)):
+            where = f"/teams/{team}/channels/{channel}/messages/" + (m["id"] if m is root else f"{root['id']}/replies/{m['id']}")
+            media, links, notes = attachments(mcp, m, keep=4, where=where) if (m.get("attachments") or HOSTED.search(
+                (m.get("body") or {}).get("content") or "")) else ([], [], [])
+            text = "\n".join([text] + notes).strip() if notes else text
+            if not (text or media or links) or (text and not media and not mention and chatter(text)):
                 continue
             thread = subject or plain((root.get("body") or {}).get("content")).split("\n")[0][:80]
             out.append({"key": key(channel, m["id"]), "box": box, "src": "channel" if m is root else "mention",
                         "where": label + (f" · {thread}" if m is not root else ""),
                         "from": sender(m).get("displayName") or "", "text": text, "at": m["createdDateTime"],
+                        **({"media": media} if media else {}), **({"links": links} if links else {}),
                         "link": m.get("webUrl") or "", "mention": mention,
                         "ref": {"team": team, "channel": channel, "root": root["id"], "msg": m["id"]}})
     return out

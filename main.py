@@ -541,6 +541,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
     opened = st.setdefault("open", {})   # key → [box, at]: запощено, ещё не отвечено
     seen.update(opened)  # a bounded recent-ID cache never forgets retained work
     texts = st.setdefault("texts", {})   # key → текст последнего поста открытого пункта
+    pics = st.setdefault("pics", {})     # key → id вложений последнего поста открытого пункта
     fresh, again, keys = [], [], set()
     muted = st.get("ignored") or {}
     for i in sorted((({**i, "from": collect.person(i["from"])} if i.get("from") else i) for i in items),
@@ -554,8 +555,11 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
         if i["key"] in seen:
             # 14.10: пункт ушёл без текста, текст дочитали позже — тот же пункт заново (клиенты берут последний пост
             # с этим id)
+            # 26.10: и картинку, которую скачали позже (было «📎 … не скачалась» или ссылка) — тоже заново
             was = texts.get(i["key"])
-            if i["key"] in opened and i.get("text") and i["text"] != was \
+            got = sorted(str(x.get("id")) for x in i.get("media") or [])
+            better = (i.get("text") and i["text"] != was) or (got and got != pics.get(i["key"], []))
+            if i["key"] in opened and better \
                     and not owner_last.get(i.get("box") or "", "") > i["at"]  \
                     and was is not None:
                 keys.add(i["key"])
@@ -569,6 +573,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
         i["also"] = also(i, items)
         put({**msg_post(i, False, rules), **({'inbox':token} if token else {})})
         texts[i["key"]] = i.get("text") or ""
+        pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
     for i in fresh:
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
@@ -581,6 +586,7 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
         done = (bool(i.get("box")) and owner_last.get(i["box"], "") > i["at"]) or i["key"] in reacted   # уже ответил
         put({**msg_post(i, done, rules), **({'inbox':token} if token else {})})
         texts[i["key"]] = i.get("text") or ""
+        pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
         st.setdefault("who", {})[i["key"]] = {"contact": contact(i), "from": i.get("from"), "src": i.get("src"),
                                               "where": i.get("where")}
         if i.get("ref"):   # куда ответить владелец сможет из вкладки; в пост это не идёт
@@ -604,6 +610,8 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
     st["seen"] = st.get("seen", [])[-SEEN_MAX:]
     for k in [k for k in texts if k not in opened]:
         del texts[k]
+    for k in [k for k in pics if k not in opened or not pics[k]]:
+        del pics[k]
     refs = st.setdefault("refs", {})
     late = [i for i in items if i.get("ref") and i["key"] in opened and i["key"] not in refs]
     for i in late:   # открытое сообщение, запощенное до того, как на его канал научились отвечать

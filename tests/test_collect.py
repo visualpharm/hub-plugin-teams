@@ -29,9 +29,10 @@ def msg(mid, at, who, text, mentions=(), attachments=(), deleted=False, reacted_
 
 
 class Fake:
-    def __init__(self, chats=(), chat_msgs=None, channel=(), hits=(), full=None):
+    def __init__(self, chats=(), chat_msgs=None, channel=(), hits=(), full=None, deny=None):
         self.chats, self.chat_msgs, self.channel, self.hits = list(chats), chat_msgs or {}, list(channel), list(hits)
         self.full = full or {}
+        self.deny, self.downloads = deny, []   # deny — текст ошибки Graph на любое скачивание
 
     def call(self, tool, args, empty_ok=False):
         if tool == "list-chats":
@@ -47,6 +48,9 @@ class Fake:
                 return self.full[args["chatMessageId"]]
             raise OSError("ms365 get-channel-message: 404")
         if tool == "download-bytes-to-file":
+            self.downloads.append(args["target"])
+            if self.deny:
+                raise OSError(f"ms365 download-bytes-to-file: {self.deny}")
             with open(args["outputPath"], "wb") as f:
                 f.write(b"\x89PNG fake")
             return {"path": args["outputPath"], "contentType": "image/png", "bytesWritten": 9}
@@ -130,6 +134,58 @@ class Files(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
 
+class SharePointImages(unittest.TestCase):
+    """26.10 (Иван m974975): в личке пришла только картинка файлом SharePoint («изображение (8).png») — пункт без
+    текста со ссылкой за входом Microsoft, разбор писал «прочитать без входа нельзя». Картинку-файл качаем, как картинку
+    из тела; не скачалось — строка с причиной в тексте."""
+    URL = "https://corp-my.sharepoint.com/personal/a/Documents/%D0%B8%D0%B7%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B5%D0%BD%D0%B8%D0%B5%20(8).png"
+
+    def setUp(self):
+        import tempfile
+        self.d = tempfile.mkdtemp()
+        self.was = os.environ.get("HUB_STATE_DIR")
+        os.environ["HUB_STATE_DIR"] = self.d
+        collect._FAILED.clear()
+
+    def tearDown(self):
+        import shutil
+        os.environ["HUB_STATE_DIR"] = self.was
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def fake(self, **kw):
+        img = {"contentType": "reference", "contentUrl": self.URL, "name": "изображение (8).png"}
+        doc = {"contentType": "reference", "contentUrl": "https://corp.sharepoint.com/f/plan.xlsx", "name": "plan.xlsx"}
+        return Fake([chat("d", "oneOnOne", "2026-10-09T10:05:00Z")],
+                    {"d": [msg("1", "2026-10-09T10:01:00Z", "anna", "", attachments=[img, doc])]}, **kw)
+
+    def test_image_file_is_downloaded_into_media_other_files_stay_links(self):
+        import base64
+        fake = self.fake()
+        [i] = collect.chats(fake, CUT, ME, {})
+        self.assertEqual(i["text"], "")
+        [m] = i["media"]
+        self.assertEqual((m["kind"], m["name"], m["mime"]), ("image", "изображение (8).png", "image/png"))
+        [t] = fake.downloads
+        self.assertTrue(t.startswith("/shares/u!") and t.endswith("/driveItem/content"))
+        enc = t.split("/")[2][2:]
+        self.assertEqual(base64.urlsafe_b64decode(enc + "=" * (-len(enc) % 4)).decode(), self.URL)
+        path = __import__("urllib.parse").parse.unquote(m["url"].split("path=", 1)[1])
+        self.assertTrue(path.startswith(os.path.join(self.d, "attachments", "inbox", "teams")) and os.path.exists(path))
+        self.assertEqual([l["title"] for l in i["links"]], ["plan.xlsx"])   # картинка уже в media — ссылкой не дублируем
+        collect.chats(fake, CUT, ME, {})
+        self.assertEqual(len(fake.downloads), 1)   # скачанное второй раз не качаем
+
+    def test_no_access_gives_a_reason_line_and_is_not_retried_every_tick(self):
+        fake = self.fake(deny='{"error":"Forbidden: Access denied (403)"}')
+        [i] = collect.chats(fake, CUT, ME, {})
+        self.assertNotIn("media", i)
+        self.assertIn("изображение (8).png", i["text"])
+        self.assertIn("нет доступа", i["text"])
+        self.assertEqual([l["title"] for l in i["links"]], ["изображение (8).png", "plan.xlsx"])
+        collect.chats(fake, CUT, ME, {})
+        self.assertEqual(len(fake.downloads), 1)   # повтор — не на каждом такте
+
+
 class ChannelPosts(unittest.TestCase):
     def test_only_thread_root_replies_only_when_mentioning_owner(self):
         # владелец 09.10: «из саппорта только первое сообщение… сообщения внутри поста не надо»
@@ -146,6 +202,23 @@ class ChannelPosts(unittest.TestCase):
         self.assertEqual(out[0]["where"], "Company › Support")
         self.assertIn("Странная сумма", out[1]["where"])
         self.assertEqual(last[collect.key("chan", "r")], "2026-10-09T10:02:00Z")
+
+    def test_picture_only_post_comes_with_the_picture(self):
+        """26.10: пост канала из одной картинки (тело — только <img> hostedContents) терялся: текста нет. Теперь — пункт
+        с media; картинка канала качается своим путём Graph."""
+        import shutil, tempfile
+        d, was = tempfile.mkdtemp(), os.environ.get("HUB_STATE_DIR")
+        os.environ["HUB_STATE_DIR"] = d
+        try:
+            img = '<img src="https://graph.microsoft.com/v1.0/teams/team/channels/chan/messages/n/hostedContents/aGlk/$value">'
+            fake = Fake(channel=[msg("n", "2026-10-09T10:03:00Z", "olga", img)])
+            info = {"teamId": "team", "team": "Company", "channel": "Support"}
+            [i] = collect.channel_posts(fake, "chan", info, CUT, ME, {})
+            self.assertEqual((i["text"], i["media"][0]["kind"]), ("", "image"))
+            self.assertEqual(fake.downloads, ["/teams/team/channels/chan/messages/n/hostedContents/aGlk/$value"])
+        finally:
+            os.environ["HUB_STATE_DIR"] = was
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class Mentions(unittest.TestCase):
@@ -277,6 +350,17 @@ class Tick(unittest.TestCase):
         main.tick(st, [self.item("k3", "2026-10-09T10:01:00Z")], {"b": "2026-10-09T10:05:00Z"}, now, out.append)
         main.tick(st, [{**self.item("k3", "2026-10-09T10:01:00Z"), "text": "другое"}], {}, now, out.append)
         self.assertEqual([p["kind"] for p in out[2:]], ["answered"])     # отвеченное заново не поднимаем
+
+    def test_open_item_is_posted_again_when_its_picture_got_downloaded(self):
+        """26.10: пункт ушёл со ссылкой на картинку, картинку скачали позже — тот же пункт заново с media (текст тот же)."""
+        st, out, now = {}, [], datetime(2026, 10, 9, 11, tzinfo=timezone.utc)
+        bare = {**self.item("k4", "2026-10-09T10:01:00Z"), "text": ""}
+        main.tick(st, [bare], {}, now, out.append)
+        pic = {**bare, "media": [{"id": "teams:1:x", "kind": "image", "name": "a.png", "url": "/api/file?path=a"}]}
+        main.tick(st, [pic], {}, now, out.append)
+        main.tick(st, [pic], {}, now, out.append)
+        self.assertEqual([(p["kind"], p["id"], len(p.get("media") or [])) for p in out],
+                         [("msg", "k4", 0), ("msg", "k4", 1)])
 
     def test_already_answered_message_comes_answered_without_second_post(self):
         st, out = {}, []
