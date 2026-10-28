@@ -9,6 +9,7 @@ const dependencies={T:(ru,en)=>en,...await import('data:text/javascript,'+encode
 for (const [file,name] of [['provider-read','providerReadState'],['read-state','localReadState'],['conversation-pins','conversationPins']]) {
   dependencies[name]=(await import('data:text/javascript,'+encodeURIComponent(readFileSync(`web/${file}.js`,'utf8'))))[name];
 }
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки (d660171)
 const storage=new Map();
 const c={console,URL,Map,Set,Date,location:{hash:''},...dependencies,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>{storage.set(key,value);},removeItem:key=>storage.delete(key)}};vm.createContext(c);
 vm.runInContext(source+'\nglobalThis.t={toHub,sendLatest,agentMenu,humanSummary,latestTarget,reviewAgents,handoffs,composing,editorDrafts,done,setHub:h=>hub=h,getError:()=>error};',c);

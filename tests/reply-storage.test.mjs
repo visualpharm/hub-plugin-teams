@@ -7,6 +7,7 @@ const dependencies={...await import('data:text/javascript,'+encodeURIComponent(r
 for (const [file,name] of [['provider-read','providerReadState'],['read-state','localReadState'],['conversation-pins','conversationPins']]) {
   dependencies[name]=(await import('data:text/javascript,'+encodeURIComponent(readFileSync(`web/${file}.js`,'utf8'))))[name];
 }
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки (d660171)
 let blocked=true;
 const values=new Map(), requests=[];
 const storage={getItem:k=>values.get(k)??null,removeItem:k=>values.delete(k),setItem(k,v){if(blocked)throw Error('quota');values.set(k,v);}};
