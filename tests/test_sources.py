@@ -145,6 +145,39 @@ class WhatsApp(unittest.TestCase):
         chat["out_last_t"] = 450                                          # ответили в группе — пункт уходит
         self.assertEqual(sources.whatsapp({"channels": ["whatsapp"], "groups": ["120363999@g.us"]}, NOW)[0], [])
 
+    def test_all_groups_whole_thread_without_team_and_skip_list(self):
+        """20.10: all_groups — в Inbox все группы, кроме skip_groups (имя или id): ветка целиком, как у рабочей, но признак
+        team (он открывает автоответ proactivity) — только у групп из прежнего списка groups."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear(); sources._WA_WHO.clear()
+        msgs = [{"id": "g2", "t": 300, "type": "chat", "text": "", "cached": False},
+                {"id": "g4", "t": 400, "type": "chat", "text": "", "cached": False}]
+        rows = [{"chat_id": "120363999@g.us", "name": "Ремонт дома", "unread": 0, "out_last_t": 100,
+                 "last": "2026-10-10T11:36-03:00", "preview": "", "messages": msgs},
+                {"chat_id": "120363111@g.us", "name": "Соседи", "unread": 0, "out_last_t": 100,
+                 "last": "2026-10-10T11:36-03:00", "preview": "", "messages": msgs},
+                {"chat_id": "120363222@g.us", "name": "Спам-акции", "unread": 2, "out_last_t": 100,
+                 "last": "2026-10-10T11:36-03:00", "preview": "", "messages": msgs}]
+
+        def run(cmd, timeout=90):
+            if "thread" in cmd:
+                return json.dumps({"messages": [
+                    {"id": "g2", "author": "Аня", "out": False, "body": "Кто заберёт ключи?"},
+                    {"id": "g4", "author": "Боря", "out": False, "body": "Я после обеда"}]})
+            return json.dumps(rows)
+        sources.run = run
+        cfg = {"channels": ["whatsapp"], "all_groups": True, "skip_groups": ["Спам-акции"], "groups": ["Ремонт дома"]}
+        items, _, _ = sources.whatsapp(cfg, NOW)
+        got = {i["from"]: i for i in items}
+        self.assertEqual(sorted(got), ["Ремонт дома", "Соседи"])            # спамная пропущена, прочитанное — тоже в разбор
+        self.assertTrue(got["Ремонт дома"]["team"])
+        self.assertNotIn("team", got["Соседи"])                             # автоответ новой группе не открываем
+        self.assertEqual(got["Соседи"]["text"], "Аня: Кто заберёт ключи? · Боря: Я после обеда")
+        self.assertIn("группа", got["Соседи"]["where"])
+        cfg["skip_groups"] = ["120363111@g.us", "Спам-акции"]               # по id тоже
+        self.assertEqual([i["from"] for i in sources.whatsapp(cfg, NOW)[0]], ["Ремонт дома"])
+        cfg.pop("all_groups")                                               # выключено — как раньше: только groups
+        self.assertEqual([i["from"] for i in sources.whatsapp({**cfg, "skip_groups": []}, NOW)[0]], ["Ремонт дома"])
+
     def test_no_item_without_text_the_chat_is_read_again_later(self):
         """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в лог, не в плашку),
         через WA_READ_AGAIN читаем снова; ни «без текста», ни «не открывали» в пункте."""
@@ -297,6 +330,22 @@ class Telegram(unittest.TestCase):
         self.assertEqual(items[0]["text"], "Ира: Кто купит краску? · Олег: Я могу")
         self.assertTrue(items[0]["team"])
         self.assertEqual(sources.telegram({}, NOW)[0], [])                  # не в списке — как раньше
+
+    def test_all_groups_whole_without_team_except_skipped(self):
+        """20.10: all_groups/skip_groups в Telegram — то же, что в WhatsApp; без all_groups — прежнее поведение."""
+        sources.run = fake_run({"new": [
+            {"chat_id": "-100777", "name": "Дача", "unread": 0, "group": True, "last": "2026-10-10T11:30-03:00",
+             "preview": "", "out_last_t": 5,
+             "messages": [{"id": "7", "text": "Кто купит краску?", "type": "chat", "out": False, "t": 7, "from": "Ира"},
+                          {"id": "8", "text": "Я могу", "type": "chat", "out": False, "t": 8, "from": "Олег"}]},
+            {"chat_id": "-100888", "name": "Крипто-сигналы", "unread": 5, "group": True,
+             "last": "2026-10-10T11:30-03:00", "preview": "", "out_last_t": 0,
+             "messages": [{"id": "9", "text": "Покупай", "type": "chat", "out": False, "t": 9, "from": "Бот"}]}]})
+        items, _, _ = sources.telegram({"all_groups": True, "skip_groups": ["-100888"]}, NOW)
+        self.assertEqual([i["from"] for i in items], ["Дача"])
+        self.assertEqual(items[0]["text"], "Ира: Кто купит краску? · Олег: Я могу")
+        self.assertNotIn("team", items[0])
+        self.assertEqual(sources.telegram({"skip_groups": ["-100888"]}, NOW)[0], [])   # выключено — как раньше
 
     def test_reply_carries_files_and_a_native_reply_to(self):
         # 13.10: ответ с файлами и ответ-цитата на конкретное сообщение; реакция — на выбранное, не на последнее
