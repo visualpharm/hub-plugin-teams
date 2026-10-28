@@ -2484,9 +2484,6 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   else if(detail)head.append(options,headerSource);
   else head.append(el("b","tm-from",name),headerSource,options);
   box.append(head);
-  // разбор proactivity — одной строкой над перепиской (последнее сообщение, у которого он есть)
-  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post))).find(Boolean);
-  if (analysed) box.append(el("div", "tm-verdict", analysed));
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source",sourceLabel));
   let previous=null;
@@ -2518,6 +2515,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
       if (h?.error) { const error=el("p","tm-history-error",h.error);error.setAttribute("role","status");history.append(error); }
     }
   }
+  // разбор proactivity — одной строкой вплотную над самой старой показанной репликой (у последнего сообщения, у которого он есть)
+  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post))).find(Boolean);
+  if (analysed) history.append(el("div", "tm-verdict", analysed));
   if (h?.revealed && h.items) {
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
     const current=ms.map(m=>flat(m.text)).join(" ");
