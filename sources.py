@@ -568,6 +568,33 @@ def tg_reply_text(m, by_id):
             "text": (src.get("text") or "")[:160]}
 
 
+CONTEXT_MAX = 700   # знаков JSON на предыдущие реплики в посте msg: текст сообщения важнее, пост — до 2000
+
+
+def tg_context(r, wait):
+    """Реплики до ждущих (20.10, d664989): разборщику нужно, на что отвечает собеседник, а ветка kind:thread выходит
+    только по просьбе владельца. `tgnew new` и так отдаёт пару сообщений перед непрочитанным — обычно его ответы;
+    раньше они отбрасывались. [{at, from, me, text}] по порядку, новые важнее: не влезло — без старых."""
+    msgs = [m for m in r.get("messages") or [] if m.get("type") not in SERVICE_TYPES]
+    ids = [m.get("id") for m in msgs]
+    first = ids.index(wait[0].get("id")) if wait and wait[0].get("id") in ids else len(msgs)
+    out, size = [], 0
+    for m in reversed(msgs[:first]):
+        text = " ".join((m.get("text") or "").split())[:240]
+        if not text:
+            one = KIND_NAMES.get(m.get("type") or "", ("", ""))[0]
+            text = f"[{one}]" if one and one != "текст" else ""
+        if not text:
+            continue
+        e = {"at": iso_utc(datetime.fromtimestamp(m["t"], timezone.utc)) if m.get("t") else "",
+             "from": "" if m.get("out") else (m.get("from") or ""), "me": bool(m.get("out")), "text": text}
+        size += len(json.dumps(e, ensure_ascii=False)) + 2
+        if size > CONTEXT_MAX:
+            break
+        out.append(e)
+    return out[::-1]
+
+
 # --- Telegram: личный аккаунт, только чтение (`tgnew new` — копия сессии Telethon, прочитанным ничего не отмечает) --
 @source("telegram", every=120)
 def telegram(cfg, now):
@@ -615,7 +642,9 @@ def telegram(cfg, now):
         if media and not any((m.get("text") or "").strip() for m in wait):
             text = ""   # 12.10: у медиа без подписи заглушки («[фото]», «1 сообщение без текста») не кладём — клиент рисует само вложение
         links = [m["link"] for m in wait if m.get("link")][-3:]
+        context = tg_context(r, wait)
         items.append({"key": f"{box}:{mark}", "box": box, "src": "telegram", "tier": t, "unread": n,
+                      **({"context": context} if context else {}),
                       "where": "Telegram" + (" · группа" if group else ""), "from": r.get("name") or cid,
                       "text": text[:1200], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
                       **({"media": media} if media else {}), **({"links": links} if links else {}),

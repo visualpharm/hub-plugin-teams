@@ -94,6 +94,9 @@ def short(e):
 
 def post(data):
     text = json.dumps(data, ensure_ascii=False)
+    while len(text) > POST_MAX and isinstance(data.get("context"), list) and data["context"]:
+        data = {**data, "context": data["context"][1:]}   # предыдущие реплики — первыми, старые раньше: текст важнее
+        text = json.dumps(data, ensure_ascii=False)
     if len(text) > POST_MAX and isinstance(data.get("text"), str):   # пост канала — до 2000 знаков: режем текст
         data = {**data, "text": data["text"][:max(0, len(data["text"]) - (len(text) - POST_MAX) - 1)] + "…"}
         text = json.dumps(data, ensure_ascii=False)
@@ -526,7 +529,7 @@ def msg_post(i, done, rules):
             "sign": colleague(i, rules),   # подпись хаба под черновиком — только когда это коллега
             **({"also": i["also"]} if i.get("also") else {}),
             "contact": contact(i),   # по нему приложения берут рабочие часы собеседника (config.hours.except)
-            **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread", "team")
+            **{k: i[k] for k in ("src", "where", "from", "text", "at", "link", "mention", "tier", "media", "links", "unread", "team", "context")
                if k in i}}
 
 

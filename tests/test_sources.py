@@ -345,6 +345,36 @@ class Telegram(unittest.TestCase):
         self.assertEqual(calls[0][1:], ["tg", "--to", "3123499", "--text", "Да, вечером",
                                         "--who", "Лена", "--about", "Привет · Пришлёшь договор?"])   # 20.10: карточка контакта
 
+    def test_personal_chat_carries_owner_replies_before_unread_as_context(self):
+        """20.10 (d664989): разборщику нужна переписка, на что отвечают; ветка kind:thread выходит только по просьбе
+        владельца. `tgnew new` уже отдаёт сообщения до непрочитанного (его ответы) — они идут в пост полем context."""
+        sources.run = fake_run({"new": [
+            {"chat_id": "33", "name": "Коля", "unread": 1, "group": False, "last": "2026-10-10T11:30-03:00",
+             "preview": "С молнией?", "out_last_t": 3,
+             "messages": [{"id": "1", "text": "Как дела?", "type": "chat", "out": False, "t": 1, "from": "Коля"},
+                          {"id": "2", "text": "Сегодня гроза", "type": "chat", "out": True, "t": 2, "from": ""},
+                          {"id": "3", "text": "Сидим   дома", "type": "chat", "out": True, "t": 3, "from": ""},
+                          {"id": "4", "text": "С молнией?", "type": "chat", "out": False, "t": 4, "from": "Коля"}]}]})
+        items, _, _ = sources.telegram({}, NOW)
+        self.assertEqual(items[0]["text"], "С молнией?")
+        self.assertEqual([(c["me"], c["text"]) for c in items[0]["context"]],
+                         [(False, "Как дела?"), (True, "Сегодня гроза"), (True, "Сидим дома")])
+        self.assertEqual(items[0]["context"][0]["at"], "1970-01-01T00:00:01Z")
+        post = main.msg_post(items[0], False, {})
+        self.assertEqual(post["context"], items[0]["context"])
+        # пост больше 2000 знаков: сначала уходит старый контекст, текст сообщения целым
+        long = dict(items[0], text="я" * 1150, context=[{"me": True, "text": "к" * 240, "at": "", "from": ""}] * 6)
+        sent = []
+        spool, main.spool = main.spool, type("S", (), {"put": staticmethod(lambda *a, **k: sent.append(a[3]))})
+        try:
+            main.post(main.msg_post(long, False, {}))
+        finally:
+            main.spool = spool
+        got = json.loads(sent[0]["text"])
+        self.assertEqual(got["text"], "я" * 1150)
+        self.assertTrue(0 < len(got["context"]) < 6)
+        self.assertLessEqual(len(sent[0]["text"]), main.POST_MAX)
+
     def test_work_group_read_whole_with_authors(self):
         sources.run = fake_run({"new": [
             {"chat_id": "-100777", "name": "Дача", "unread": 0, "group": True, "last": "2026-10-10T11:30-03:00",
