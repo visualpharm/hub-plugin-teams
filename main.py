@@ -731,6 +731,12 @@ def run_sources(st, now, put=post, between=None):
         # Чтение, архивирование, окно поиска и перезапуск меняют список непрочитанных.
         # Ни одно из них не подтверждает отправку ответа владельцем.
         s["boxes"] = sorted(boxes | (set(s["boxes"]) if errors else set()))
+    wa = cfg.get("whatsapp")
+    if isinstance(wa, dict) and st.get("open"):   # вкладки нет или входящее старше суток — исходящее ищем в копии переписки
+        try:
+            sources.wa_out_open(sources.expand(wa.get("cmd") or "~/.claude/bin/wa"), st["open"])
+        except Exception as e:   # noqa: BLE001
+            print(f"{iso(now)} wa-out: {e}", file=sys.stderr, flush=True)
     mail = cfg.get("email")
     if isinstance(mail, dict) and st.get("open"):   # ответили из почты, а ветка осталась непрочитанной — open не залипает
         try:

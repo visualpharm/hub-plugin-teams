@@ -29,6 +29,7 @@ def item(key, box, at="2026-10-27T20:48:00Z", **kw):
 
 class LinkFade(unittest.TestCase):
     def setUp(self):
+        sources._WA_OUT_AT.clear()
         sources.OUT.clear()
         self.out = []
         self.st = {"open": {KEY: [BOX, "2026-10-27T20:48:00Z"]}, "seen": [KEY], "who": {}}
@@ -94,6 +95,37 @@ class LinkFade(unittest.TestCase):
         self.assertAlmostEqual(sources.OUT[box], T_OUT, delta=1)
         self.tick()
         self.assertEqual(self.st["open"], {})
+
+    def test_f_reply_from_the_phone_is_found_in_the_saved_thread_when_the_tab_is_gone(self):
+        # 28.10, Fincas: Chrome закрыт, `wa new` падает, OUT пуст; ответ владельца с телефона лежит в копии переписки
+        real, asked = sources.run, []
+
+        def fake(cmd, timeout=90):
+            asked.append(cmd)
+            return ('{"messages": [{"out": false, "t": %d}, {"out": true, "t": %d}, {"out": false, "t": %d}]}'
+                    % (T_IN, T_OUT, T_IN - 5))
+        sources.run = fake
+        try:
+            sources.wa_out_open("wa", self.st["open"], now=NOW.timestamp())
+            sources.wa_out_open("wa", self.st["open"], now=NOW.timestamp() + 60)   # не чаще раза в 10 минут
+        finally:
+            sources.run = real
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(asked[0][:3], ["wa", "thread", "5490000000001"])
+        self.assertIn("--cached", asked[0])
+        self.tick()
+        self.assertEqual(self.st["open"], {})
+        self.assertEqual(self.answered()[0]["out"], "2027-01-15T21:33:00Z".replace("2027-01-15", "2026-10-27"))
+
+    def test_an_unanswered_thread_in_the_saved_copy_leaves_the_record_open(self):
+        real = sources.run
+        sources.run = lambda cmd, timeout=90: '{"messages": [{"out": false, "t": %d}, {"out": true, "t": %d}]}' % (T_IN, T_IN - 900)
+        try:
+            sources.wa_out_open("wa", self.st["open"], now=NOW.timestamp() + 7200)
+        finally:
+            sources.run = real
+        self.tick()
+        self.assertIn(KEY, self.st["open"])
 
 
 if __name__ == "__main__":

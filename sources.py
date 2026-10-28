@@ -1110,6 +1110,32 @@ def mail_out_open(cmd, opened, now=None, limit=8, every=600):
             OUT[box] = max(OUT.get(box, 0), max(sent))
 
 
+_WA_OUT_AT = {}   # box -> когда последний раз смотрели сохранённую переписку на своё сообщение
+
+
+def wa_out_open(cmd, opened, now=None, limit=20, every=600):
+    """Открытые пункты личных чатов WhatsApp: своё сообщение владельца позже пункта — в сохранённой копии переписки
+    (`wa thread --cached`, файлы, без вкладки) — время в OUT[box]. Чтение `wa new` не видит исходящее, если вкладки нет
+    (Chrome закрыт, WhatsApp грузится) или входящее старше суток; ответ с телефона всё равно есть в копии
+    (link-fade, 28.10: ответ Fincas 27.10 21:33Z, а пункт висел)."""
+    now = time.time() if now is None else now
+    todo = sorted({box: at for box, at in opened.values() if str(box).startswith("wa:") and str(box).endswith("@c.us")},
+                  key=lambda b: _WA_OUT_AT.get(b, 0))
+    for box in todo[:limit]:
+        if now - _WA_OUT_AT.get(box, 0) < every:
+            continue
+        _WA_OUT_AT[box] = now
+        _, ch, cid = box.split(":", 2)
+        try:
+            data = json.loads(run([cmd, "thread", wa_peer(cid), "--cached", "--json", "--limit", "30", "--channel", ch],
+                                  timeout=30))
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            continue
+        sent = [float(m.get("t") or 0) for m in (data.get("messages") or []) if m.get("out") is True]
+        if sent:
+            OUT[box] = max(OUT.get(box, 0), max(sent))
+
+
 def mail_files(payload):
     """Вложения письма [{name, mime, size, att}]: файлы и картинки в теле; мелкие картинки-подписи (логотипы,
     трекеры — inline до 30 КБ) не считаем."""
