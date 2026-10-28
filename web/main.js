@@ -435,6 +435,13 @@ let sortOrder="importance";
 try { if(localStorage.getItem("hub.inbox.sort")==="time")sortOrder="time"; } catch {}
 const ranks=new Map();
 let rankSince=0, rankLoading=false, rankError="", rankRetryAt=0;
+// Разбор proactivity по посту сообщения: почему и что дальше (вердикт, пост дела, поручение); поздний пост без поля поле не стирает
+const verdicts=new Map();
+export function mergeVerdict(prev, d) {
+  const why=typeof d?.why==="string"?d.why.trim():"", next=typeof d?.next_action==="string"?d.next_action.trim():"";
+  return why||next ? {why: why||prev?.why||"", next: next||prev?.next||""} : prev;
+}
+export function verdictLine(v) { return v ? whyLine([v.why, v.next].filter(Boolean).join("\n")) : ""; }
 async function syncRanks() {
   if(rankLoading || Date.now()<rankRetryAt)return;
   rankLoading=true;
@@ -446,6 +453,9 @@ async function syncRanks() {
       rankSince=Math.max(rankSince,Number(String(p.id).replace(/^p/,""))||0);
       let d;try{d=JSON.parse(p.text)}catch{continue}
       const state=d?.s||"", act=d?.do||"", post=d?.[d.kind==="item"?"post":"item"];
+      if(typeof post==="string" && ["item","verdict","delegated"].includes(d.kind)) {
+        const note=mergeVerdict(verdicts.get(post), d); if(note)verdicts.set(post,note);
+      }
       if(typeof post!=="string" || !["item","verdict"].includes(d.kind) || d.kind==="verdict"&&!act)continue;
       const level=["answered","replied","done","old","noise"].includes(state)?0
         :state==="escalated"||act==="escalate"?3:state==="draft"||act==="draft"?2:["noise","done"].includes(act)?0:1;
@@ -2458,6 +2468,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   else if(detail)head.append(options,headerSource);
   else head.append(el("b","tm-from",name),headerSource,options);
   box.append(head);
+  // разбор proactivity — одной строкой над перепиской (последнее сообщение, у которого он есть)
+  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post))).find(Boolean);
+  if (analysed) box.append(el("div", "tm-verdict", analysed));
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source",sourceLabel));
   let previous=null;

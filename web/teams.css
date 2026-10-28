@@ -246,6 +246,7 @@
 .tm-received-reactions { display: flex; gap: 4px; flex-wrap: wrap; }
 .tm-received-reactions > span { padding: 2px 7px; border-radius: 14px; background: var(--muted); }
 .tm-guidance { flex: none; padding-top: 8px; color: var(--foreground); white-space: pre-line; }
+.tm-verdict { flex: none; padding: 8px 0; color: var(--foreground); overflow-wrap: anywhere; }
 .tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
 .tm-detail .tm-divider { justify-content: center; }
 .tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
@@ -552,7 +553,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-search-toggle .icon { width: 22px; height: 22px; }
 .tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
 .tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
-.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-draft, .tm-rich-text) { font-size: 14px; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-verdict, .tm-draft, .tm-rich-text) { font-size: 14px; }
 .tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
