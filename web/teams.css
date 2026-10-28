@@ -662,3 +662,9 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-spinner { flex: none; width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--foreground) 18%, transparent); border-top-color: var(--muted-foreground); border-radius: 50%; animation: tm-spin 0.9s linear infinite; }
 @keyframes tm-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .tm-spinner { animation-duration: 3s; } }
+
+/* Список разговоров — те же поля, что у остальных списков веба: текст в 28 px от края колонки, значок/точка в поле слева,
+   время 14 px от правого края, разделитель начинается от текста. Телефон (.tm-narrow) не меняется. */
+.tm-container:not(.tm-narrow) .tm-list { padding-inline: 0; }
+.tm-container:not(.tm-narrow) .tm-list > .tm-person { position: relative; grid-template-columns: 28px minmax(0, 1fr); column-gap: 0; padding-inline: 0 14px; border-bottom: 0; }
+.tm-container:not(.tm-narrow) .tm-list > .tm-person::after { content: ""; position: absolute; inset: auto 0 0 28px; height: 1px; background: var(--border); }
