@@ -167,9 +167,10 @@ class Choice:
             # плагин разбора входящих, которому владелец доверил отправку (sources.json: "triage": "<плагин>"): только
             # send и cancel — и ничего больше; остальное в этом канале — слово владельца
             who = triage_plugin()
-            own_correction = (d.get("channel") == "plugin" and d.get("sender") == NAME
+            sender = plugin_name(d.get("sender") or "")
+            own_correction = (d.get("channel") == "plugin" and sender == NAME
                               and isinstance(body, dict) and body.get("kind") == "reopen")
-            if not (own_correction or who and d.get("channel") == "plugin" and d.get("sender") == who and isinstance(body, dict)
+            if not (own_correction or who and d.get("channel") == "plugin" and sender == who and isinstance(body, dict)
                     and body.get("kind") in ("send", "cancel", "dismiss")):
                 return
         if isinstance(body, dict) and body.get("kind") in ("send", "send_new") and "text_file" in body:
@@ -1304,6 +1305,13 @@ def hold(st, q, why, put=post, now=None):
     put({"kind": "scheduled", "id": q["id"], "rid": q["rid"], "at": at, "held": why, **auto_text(q)})
     save(st)
     return True
+
+
+def plugin_name(sender):
+    """Имя плагина из подписи отправителя: с Sync 20.10 ядро подписывает процесс плагина само — `ext:<имя>`
+    (`ext:<аккаунт>:<имя>` у плагина из каталога), прежние факты — голым именем."""
+    name = str(sender)
+    return (name[4:] if name.startswith("ext:") else name).split(":")[-1]
 
 
 def triage_plugin():
