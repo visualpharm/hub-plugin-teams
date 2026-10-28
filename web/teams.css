@@ -414,7 +414,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-line:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 12px; }
 
 /* Uploaded files use one chip row; attachment and send stay beside the reply. */
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec):has(> .attach) {
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec):has(> .attach:not([hidden])) {
   grid-template-columns: auto minmax(0, 1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry attach actions" "feedback feedback feedback feedback" "error error error error";
 }
@@ -494,7 +494,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-date { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 8px; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry actions options" "feedback feedback feedback feedback" "error error error error"; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "discard entry attach actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) .tm-send-leading > .tm-discard { grid-area: discard; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-trailing:not(.rec) > .composer-actions > :nth-last-child(2) { grid-area: actions; }
@@ -503,7 +503,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   grid-template-columns: auto minmax(0,1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "entry entry entry entry" "discard . actions options" "feedback feedback feedback feedback" "error error error error";
 }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach):has(.tm-send-options) {
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) {
   grid-template-columns: auto minmax(0,1fr) 44px 44px 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" "discard . attach actions options" "feedback feedback feedback feedback feedback" "error error error error error";
 }
@@ -550,10 +550,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 /* Send is a labelled capsule beside its menu chevron, as in the native composer. */
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) auto 44px; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px auto 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "entry entry entry entry" ". discard actions options" "feedback feedback feedback feedback" "error error error error"; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px 44px auto 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px 44px auto 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" ". attach discard actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send { width: auto; min-width: 44px; padding: 0 14px 0 10px; border: 0; border-radius: 22px; gap: 6px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send[data-label]::after { content: attr(data-label); }

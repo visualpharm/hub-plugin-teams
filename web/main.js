@@ -226,6 +226,21 @@ const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
 // guarded; Teams and unknown sources fail closed when CAS is advertised.
 const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_REPLIES.includes(m?.src);
 const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
+// The fork's shared field drops the paperclip itself for attachments:false (capability composerFiles). Flagman's hub.input
+// has no such option: the paperclip is always there and pasted or dropped files join the field, to be refused on send.
+// For a text-only destination the plugin hides it and stops files before the field's own listeners (textarea, form).
+const textInput = opts => {
+  const box = hub.input(opts);
+  if (opts.attachments !== false || hub.capabilities?.composerFiles || !box?.node) return box;
+  const node = box.node, attach = node.querySelector(':scope > .attach');
+  if (attach) attach.hidden = true;
+  const withFiles = e => [...((e.clipboardData || e.dataTransfer)?.types || [])].includes('Files');
+  for (const type of ['paste', 'dragover', 'drop']) node.addEventListener(type, e => {
+    if (!withFiles(e)) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+  }, true);
+  return box;
+};
 const histories = new Map();
 const messageTargets = new Map();
 let messageMenu = null, rowMenu = null;
@@ -1809,7 +1824,7 @@ function sharedReply(m, st) {
       else leading.append(discard);
     }
     if(!trailing)leading.append(sendMenu);
-    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m), hint: "",
+    const box = st.box = textInput({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m), hint: "",
       label: T("Ответ: ","Reply to ") + (personName(m.from) || T("собеседнику","recipient")), placeholder: T("Ответ", "Reply"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
@@ -1914,7 +1929,7 @@ function sharedReply(m, st) {
         } catch (e) { return { error: e.message }; }
         return {};
       };
-      const ibox = st.instructBox = hub.input({ key: "instruction:" + encodeURIComponent(draftKey(m)), to: personName(m.from) || "recipient", hint: "",
+      const ibox = st.instructBox = textInput({ key: "instruction:" + encodeURIComponent(draftKey(m)), to: personName(m.from) || "recipient", hint: "",
         label: T("Личное указание к черновику", "Private draft instruction"), placeholder: T("Расскажи ему о…", "Tell them about…"),
         attachments: false, maxLength: 2000, send: revise,
         // the instruction stays in the field after a revision (it can be run again): only the draft changes
@@ -2943,7 +2958,7 @@ function build(root) {
   if (hub.capabilities?.composerTransport === 1) {
     prompt = el("div", "tm-whole-prompt");
     promptFeedback = el("p", "tm-editor-feedback"); promptFeedback.setAttribute("role", "status");
-    const input = hub.input({ key: "whole-inbox", to: hubName(), hint: "", label: T("Спросить про Inbox", "Ask about your whole Inbox"), placeholder: T("Спросить про Inbox", "Ask about Inbox"),
+    const input = textInput({ key: "whole-inbox", to: hubName(), hint: "", label: T("Спросить про Inbox", "Ask about your whole Inbox"), placeholder: T("Спросить про Inbox", "Ask about Inbox"),
       attachments: false, maxLength: 1500, sentLabel: "Queued for Inbox review.",
       onChange(text) { promptState.text = text; },
       async send() {
@@ -3049,7 +3064,7 @@ let badgeTimer = null;
 export default function register(h) {
   hub = h;
   bindHub(h);
-  newComposer = newMessage(h);
+  newComposer = newMessage(h, textInput);
   window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});

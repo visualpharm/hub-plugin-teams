@@ -2,7 +2,7 @@
 import { T } from "./ui-text.js";
 import { replyText } from "./reply-text.js";
 
-export function newMessage(hub) {
+export function newMessage(hub, input = opts => hub.input(opts)) {
   const el = (...a) => hub.el(...a), states = new Map();
   const id = () => crypto.randomUUID();
   const contact = c => c && ["teams", "whatsapp", "telegram", "email"].includes(c.src)
@@ -129,7 +129,7 @@ export function newMessage(hub) {
       const pending = el("div", "tm-new-pending"), storage = el("p", "tm-new-storage"); storage.setAttribute("role", "status");
       const retry = button(T("Повторить исходное", "Retry original message"), "primary tm-new-retry", () => { if (s.pending && s.uncertain) dispatch(s); });
       // The message is the shared composer of the hub (as in the reply field), not a field of its own.
-      const box = hub.input({ key: "new:" + encodeURIComponent(s.key), to: "recipient", hint: "", label: T("Сообщение", "Message"), placeholder: T("Сообщение", "Message"),
+      const box = input({ key: "new:" + encodeURIComponent(s.key), to: "recipient", hint: "", label: T("Сообщение", "Message"), placeholder: T("Сообщение", "Message"),
         attachments: false, maxLength: 30000, send: ({ text }) => send(s, text) });
       const field = box.node.querySelector("textarea"); field.classList.add("tm-new-text"); field.name = "message";
       box.set({ text: s.text });
