@@ -29,7 +29,7 @@ const proposal={kind:'draft_proposal',id:'source',post:'p42',rid:'ask',editor:'w
 assert.equal(revised.receive({...proposal,post:'p41'}),false);
 assert.equal(revised.receive({...proposal,editor:'other-client'}),false);
 assert.equal(revised.receive(proposal),true);assert.equal(revised.text,'');
-revised.edit('My newer edit');assert.throws(()=>revised.apply(),/changed/);assert.equal(revised.text,'My newer edit');
+revised.edit('My newer edit');assert.equal(revised.apply().text,'Could we meet at 11?');assert.equal(revised.text,'Could we meet at 11?');
 const accepted=start();confirm(accepted);accepted.direct('Suggest 11.');accepted.revise('ask');
 accepted.receive({kind:'draft_state',id:'source',rid:'ask',inbox:current});accepted.receive(proposal);
 assert.equal(accepted.apply().text,'Could we meet at 11?');
@@ -91,7 +91,7 @@ for (const kind of ['send_failed','send_blocked']) {
   assert.equal(retry.receive({kind,id:'source',rid:'first',target:'recipient-a'}),false);
   assert.equal(retry.delivery.rid,'retry');
 }
-console.log('Inbox editor: identity, CAS, stale proposals, explicit Apply and truthful delivery passed');
+console.log('Inbox editor: identity, CAS, stale proposals, Apply without a second gesture and truthful delivery passed');
 const refusedChanged=start();confirm(refusedChanged);refusedChanged.send('refused','Original');
 refusedChanged.receive({kind:'send_blocked',id:'source',rid:'refused',error:'Definitive refusal'});
 refusedChanged.observe({...message,inbox:{...token,version:'replacement'}});

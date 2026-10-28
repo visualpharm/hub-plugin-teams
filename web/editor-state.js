@@ -1,6 +1,9 @@
 // Collector protocol v1. No transport or trusted-author inference lives here.
 const valid = (t) => t?.v === 1 && typeof t.version === "string" && Number.isInteger(t.edit_version);
 const same = (a, b) => valid(a) && valid(b) && a.version === b.version && a.edit_version === b.edit_version;
+// The collector refused before transport only because the CAS version moved (another client, a new hub draft).
+// Ivan m612908: the pressed reply goes once more by itself; any other refusal stays "not sent".
+const STALE = /^Inbox changed/;
 export function boundedRequest(q) {
   if (JSON.stringify(q).length > 1900) throw Error("Shorten the instruction or reply before sending.");
   return q;
@@ -10,7 +13,7 @@ export class InboxEditor {
     this.id = message.id; this.post = message.post; this.editor = editor;
     this.token = message.inbox; this.text = text; this.instruction = "";
     this.revision = 0; this.control = null; this.request = null; this.proposal = null;
-    this.delivery = null; this.error = ""; this.needsHold = false; this.changed = false;
+    this.delivery = null; this.error = ""; this.needsHold = false; this.changed = false; this.retry = null;
   }
   edit(text) { this.text = text; this.revision++; }
   direct(text) { this.instruction = text; this.revision++; }
@@ -33,7 +36,7 @@ export class InboxEditor {
   ready() {
     if (this.changed) throw Error("The conversation changed. Review the current message before continuing.");
     if (this.error) throw Error(this.error);
-    if (this.control || this.delivery) throw Error("Wait for the current request to be confirmed.");
+    if (this.control || this.delivery || this.retry) throw Error("Wait for the current request to be confirmed.");
     if (this.needsHold || !valid(this.token) || !this.token.held || this.token.holder !== this.editor)
       throw Error("Confirm this editor before continuing.");
   }
@@ -51,8 +54,23 @@ export class InboxEditor {
     this.ready();
     if (!text.trim()) throw Error("Write your reply first.");
     const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}), ...(target ? {target} : {}) });
-    this.delivery = { rid, token: this.token, text, target, state: "queued" };
+    this.delivery = { rid, token: this.token, text, target, at, state: "queued" };
     return q;
+  }
+  // The one automatic resend after a CAS-only refusal: same text and target, new rid, current token, replaces.
+  resend(rid) {
+    const r = this.retry;
+    if (!r) throw Error("Nothing to resend.");
+    this.retry = null;
+    try { this.ready(); } catch (e) { this.retry = r; throw e; }
+    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text: r.text,
+      replaces: r.replaces, ...(r.target ? {target: r.target} : {}) });
+    this.delivery = { rid, token: this.token, text: r.text, target: r.target, state: "queued", resend: true };
+    return q;
+  }
+  giveUp(error) {
+    this.retry = null; this.needsHold = true;
+    this.error = error || "The reply was not sent.";
   }
   // Called only for collector-authored facts by the feed adapter.
   receive(d) {
@@ -85,7 +103,13 @@ export class InboxEditor {
       this.delivery.state = "sent"; this.text = ""; this.token = d.inbox; this.error = ""; return true;
     }
     if (["send_blocked", "send_failed"].includes(d.kind) && !d.unresolved) {
+      const was = this.delivery;
       this.delivery = null; this.needsHold = true;
+      if (d.kind === "send_blocked" && STALE.test(d.error || "") && was.state === "queued" && !was.resend && !was.at
+          && !this.changed && valid(d.inbox) && (!valid(this.token) || d.inbox.edit_version >= this.token.edit_version)) {
+        this.token = d.inbox; this.needsHold = !(d.inbox.held && d.inbox.holder === this.editor);
+        this.retry = { replaces: d.rid, text: was.text, target: was.target }; this.error = ""; return true;
+      }
       this.error = d.error || "The reply was not sent."; return true;
     }
     if (["send_uncertain", "send_duplicate", "scheduled"].includes(d.kind) || d.kind==="send_failed" && d.unresolved) {
@@ -94,10 +118,9 @@ export class InboxEditor {
     }
     return false;
   }
+  // Apply is the owner's gesture: a newer edit or token never asks for another one (Ivan m612908).
   apply() {
-    this.ready();
-    if (!this.proposal || this.proposal.revision !== this.revision || !same(this.proposal.inbox, this.token))
-      throw Error("Your reply or instruction changed. Revise the draft again.");
+    if (!this.proposal) throw Error("No draft to apply.");
     this.text = this.proposal.text; this.revision++;
     const applied = this.proposal; this.proposal = null; return applied;
   }

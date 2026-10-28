@@ -1640,6 +1640,33 @@ def send_one(st, reader, q, put=post, now=None):
     save(st)
 
 
+STALE_INBOX='Inbox changed'
+
+
+def replace_refusal(st, q):
+    """Автоповтор клиента после отказа «Inbox changed» несёт replaces = отвергнутый rid. Заменить можно только отказ
+    этого же пункта по устаревшей CAS-версии (до транспорта — не ушло), один раз и не повтор повтора: вторая вкладка
+    или второй клиент с тем же replaces не отправит тот же текст ещё раз (Иван m612908). None — можно."""
+    old=q.get('replaces')
+    if old is None:
+        return None
+    done=st.setdefault('inbox_replaced',{})
+    if done.get(old)==q['rid']:
+        return None
+    result=((st.get('inbox_rejections') or {}).get(old) or {}).get('result') or {}
+    if not isinstance(old,str) or old==q['rid'] or result.get('kind')!='send_blocked' or result.get('id')!=q['id'] \
+            or not str(result.get('error','')).startswith(STALE_INBOX):
+        return 'Only a reply refused for a changed Inbox version can be replaced'
+    if old in done:
+        return 'This reply was already replaced'
+    if old in done.values():
+        return 'A replacement is not replaced again'
+    done[old]=q['rid']
+    for k in list(done)[:-500]:
+        del done[k]
+    return None
+
+
 def send_guarded(st, reader, q, put=post, now=None):
     """The one serialized manual/auto boundary; durable claim before transport."""
     rejected=st.setdefault('inbox_rejections',{})
@@ -1653,9 +1680,18 @@ def send_guarded(st, reader, q, put=post, now=None):
         return
     def reject(event):
         event={**event,**({'target':q['target']} if q.get('target') else {})}
+        if event.get('kind')=='send_blocked' and str(event.get('error','')).startswith(STALE_INBOX):
+            # refused before transport only for a stale CAS version: the current token (no text, no destination) lets
+            # the client resend the pressed reply once with replaces (Ivan m612908, as the native client does)
+            token=inbox_delivery.context(st,q['id'])
+            if token: event['inbox']=token
         rejected[q['rid']]={'fingerprint':fingerprint,'result':event}
         save(st)  # a rejected request cannot silently become a send after restart
         put(event)
+    why=replace_refusal(st,q)
+    if why:
+        reject({'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':why})
+        return
     try:
         inbox_delivery.check(st,q)
     except ValueError as e:

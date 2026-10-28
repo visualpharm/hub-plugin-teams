@@ -445,6 +445,74 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer draft beside unresolved delivery')
 
+    def stale_send(self, text):
+        self.seed_inbox();self.acknowledge(self.queued('draft_control'))
+        self.edit(text)
+        self.page({'tapSelector':'.tm-shared-compose button[type=submit]'})
+        q=self.queued('send')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(q))
+        return q
+
+    def test_send_refused_only_for_a_stale_version_goes_once_more_by_itself(self):
+        # Ivan m612908: the pressed reply goes even if the draft changed version meanwhile; one resend, then the reason
+        STALE='Inbox changed; refresh the current item before acting'
+        q=self.stale_send('Pressed guarded reply')
+        self.token={**self.token,'version':'synthetic-source-B','edit_version':self.token['edit_version']+2}
+        self.feed({'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':STALE,'inbox':self.token})
+        again=self.queued('send')
+        self.assertNotEqual(again['rid'],q['rid'])
+        self.assertEqual(again['replaces'],q['rid'])
+        self.assertEqual(again['inbox'],self.token)
+        self.assertEqual({k:again[k] for k in ('id','text','editor')},{k:q[k] for k in ('id','text','editor')})
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-mine-fail')"})[-1]['eval'])
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(again))
+        self.feed({'kind':'send_blocked','id':again['id'],'rid':again['rid'],'error':STALE,'inbox':{**self.token,'edit_version':self.token['edit_version']+1}})
+        got=self.page({'until':"!!document.querySelector('.tm-mine-fail')"},{'sleep':300},
+                      {'eval':"[document.querySelectorAll('.tm-mine-fail').length,document.body.innerText.includes('Inbox changed')]"})
+        self.assertTrue(got[0]['until'],got);self.assertEqual(got[-1]['eval'],[1,True])
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='ext.post'],[])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Pressed guarded reply')
+        # After reload the refused first attempt is not a second failed reply.
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},
+                  {'eval':"document.querySelector('.tm-person').click();true"},{'until':"!!document.querySelector('.tm-mine-fail')"},{'sleep':300})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-mine-fail').length"})[-1]['eval'],1)
+
+    def test_stale_resend_takes_the_editor_first_when_the_fresh_version_is_not_held(self):
+        q=self.stale_send('Pressed guarded reply')
+        self.token={**self.token,'edit_version':self.token['edit_version']+2,'held':False,'holder':None}
+        self.feed({'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Inbox changed; refresh the current item before acting','inbox':self.token})
+        hold=self.queued('draft_control')
+        self.assertEqual((hold['action'],hold['inbox']),('hold',self.token))
+        self.acknowledge(hold)
+        again=self.queued('send')
+        self.assertEqual((again['replaces'],again['inbox'],again['text']),(q['rid'],self.token,'Pressed guarded reply'))
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(again))
+        self.feed({'kind':'sent','id':again['id'],'rid':again['rid'],'submitted_inbox':self.token,
+                   'inbox':{**self.token,'held':False,'holder':None,'edit_version':self.token['edit_version']+1},'receipt':{'id':'synthetic-receipt'}})
+        self.page({'until':"!document.querySelector('.tm-shared-compose textarea')"})
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='ext.post'],[])
+
+    def refusal_is_not_resent(self, d, shown):
+        q=self.stale_send('Pressed guarded reply')
+        self.feed({**d,'id':q['id'],'rid':q['rid']})
+        self.page({'wait':shown},{'sleep':400})
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='ext.post'],[])
+
+    def test_refusal_newer_messages_is_not_resent(self):
+        self.refusal_is_not_resent({'kind':'send_blocked','reason':'newer_messages','error':'New messages arrived. Review them before sending.'},'New messages arrived')
+
+    def test_refusal_owner_editing_is_not_resent(self):
+        self.refusal_is_not_resent({'kind':'send_blocked','error':'Owner is editing or directing this conversation; explicit release required'},'Owner is editing')
+
+    def test_stale_refusal_without_a_fresh_token_is_not_resent(self):
+        self.refusal_is_not_resent({'kind':'send_blocked','error':'Inbox changed; refresh the current item before acting'},'Inbox changed')
+
+    def test_unknown_delivery_is_never_resent(self):
+        self.refusal_is_not_resent({'kind':'send_failed','unresolved':True,'error':'Unknown synthetic outcome'},'Unknown synthetic outcome')
+        self.feed({'kind':'send_uncertain','id':'source-a','rid':'unrelated','error':'Delivery needs reconciliation.'})
+        self.page({'sleep':300})
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='ext.post'],[])
+
     def test_guarded_recovery_cannot_hold_a_reposted_conversation(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'))
         self.edit('Original guarded reply')
@@ -3646,9 +3714,11 @@ class InboxWebAcceptance(PageInChrome):
         got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "Owner exact edit")
         self.edit("Newer owner edit")
-        got = self.page({"click": "Apply draft"}, {"wait": "Your reply or instruction changed"},
-                        {"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
-        self.assertEqual(got[-1]["eval"], "Newer owner edit")
+        # Apply is the gesture: a newer edit does not ask to revise again (Ivan m612908)
+        got = self.page({"click": "Apply draft"},
+                        {"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11? https://example.test/p'"},
+                        {"eval": "document.querySelector('.tm-shared-compose .tm-editor-feedback').textContent"})
+        self.assertTrue(got[-2]["until"], got); self.assertEqual(got[-1]["eval"], "")
         self.page({"click": "Переработать черновик"})
         request = self.queued("ask"); self.acknowledge(request)
         self.feed({**proposal, "rid": request["rid"], "inbox": self.token})

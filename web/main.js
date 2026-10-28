@@ -60,6 +60,7 @@ const withSignature = (text, m) => nativeFooter() && String(text || "").trim() ?
 const signed = (text, m) => (!signature || !m?.sign || text.trim().endsWith(signature) ? text.trim() : `${text.trim()}\n\n${signature}`);
 const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail", error} — ответы владельца из вкладки
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
+const staleRetries = new Set(); // id: the collector refused only a stale CAS version — the pressed reply goes once more
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
 const deliveredReactions = new Map(); // exact message -> last confirmed reaction, independent of a retry
 const reactionNotices = new Map();
@@ -334,6 +335,7 @@ function editorFact(d) {
     if (m && state.token) m.inbox = state.token;
     if (st) st.error = state.error;
     if (st && state.needsHold && !state.control && !state.delivery) st.started = false;
+    if (state.retry) staleRetries.add(id);
     if (st?.closing && !state.control && !state.token.held) composing.delete(id);
     if (state.delivery?.state === "sent") {
       acceptDraft(m,state.delivery.rid);
@@ -537,7 +539,11 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "draft") draft.set(d.id, p.ts);
       // ✨ из треда и меню сообщения: время просьбы по журналу — черновик старше неё устарел (I-16)
       else if (p.by === "owner" && d?.kind === "ask" && d.what === "draft" && typeof d.post === "string") { for (const m of msgs.values()) if (m.post === d.post) draft.set(m.id, p.ts); }
-      else if (p.by === "owner" && d?.kind === "send" && d.rid) sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",sequence:Number(p.id.slice(1)),...(sends.get(d.rid) || {}) });
+      else if (p.by === "owner" && d?.kind === "send" && d.rid) {
+        // The automatic resend names the refused rid: it is no longer a separate failed reply (here or after reload).
+        if (typeof d.replaces==="string" && d.replaces!==d.rid && sends.get(d.replaces)?.state!=="ok") { sends.delete(d.replaces);detachedSends.add(d.replaces); }
+        sends.set(d.rid, { ...d, guarded:guardedReply(msgs.get(d.id)),ts:p.ts,mine:true,state:"wait",sequence:Number(p.id.slice(1)),...(sends.get(d.rid) || {}) });
+      }
       else if (p.by === AUTHOR && d?.kind === "archived") acceptArchive(d);
       else if (p.by === AUTHOR && d?.kind === "sent" && d.rid) {
         const guarded = guardedReply(msgs.get(d.id));
@@ -590,6 +596,7 @@ async function sync() {
       }
       else if (p.by === AUTHOR && ["thread","thread_failed"].includes(d?.kind)) historyFact(d,p.id);
       else if (p.by === AUTHOR && d?.kind === "send_failed" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: d.unresolved ? "unresolved" : "fail", error: d.error || (d.unresolved ? "Delivery needs reconciliation" : "ошибка") });if(!d.unresolved)await settlePendingReply(msgs.get(d.id),d.rid); }
+      else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid && editorStates.get(d.id)?.retry?.replaces===d.rid) continue;   // resendStale takes it
       else if (p.by === AUTHOR && d?.kind === "send_blocked" && d.rid) { sends.set(d.rid, { ...(sends.get(d.rid) || {}), id: d.id, state: "fail", error: d.error || "Reply retained" });await settlePendingReply(msgs.get(d.id),d.rid); }
       else if (p.by === AUTHOR && ["send_uncertain", "send_duplicate"].includes(d?.kind) && d.rid) {
         const guarded=guardedReply(msgs.get(d.id));
@@ -611,6 +618,8 @@ async function sync() {
     }
     failed = "";
     loaded = true;
+    // Not awaited: the hold it may need is acknowledged by a later sync.
+    for (const id of [...staleRetries]) { staleRetries.delete(id); resendStale(id); }
     if (posts.length || wasOffline) saveCache();
     return posts.length > 0 || wasOffline;
   } catch {
@@ -1511,6 +1520,49 @@ async function confirmEditor(m, st, action = "hold") {
     if (!(await mark(q.kind, q))) st.error = "Editor confirmation is pending. Your draft is retained.";
   } catch (e) { st.error = e.message; }
   paint();
+}
+
+// Ivan m612908: a reply the owner pressed goes even if the draft changed version meanwhile. After a CAS-only
+// refusal (nothing was sent) the same text goes once with a new rid, the current token and replaces = the refused
+// rid, as the native client does. A refused hold or a refused resend is shown as "not sent" with its reason.
+async function resendStale(id) {
+  const state=editorStates.get(id), r=state?.retry;
+  if (!r || resendStale.busy?.has(id)) return;
+  (resendStale.busy ||= new Set()).add(id);
+  const m=msgs.get(id), st=composing.get(id), old=sends.get(r.replaces) || {};
+  try {
+    if (!m || !st || st.state!==state || old.state==="ok") throw Error("The conversation changed. Reopen this editor before continuing.");
+    if (state.needsHold || !state.token?.held || state.token.holder!==state.editor) {
+      const q=state.hold(requestId(), state.token);
+      if (!(await mark(q.kind, q))) { if (state.control?.rid===q.rid) state.control=null; throw Error("Editor confirmation is pending. Your draft is retained."); }
+      const deadline=Date.now()+10000;
+      while (state.control && !state.error && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,50));
+      if (state.error) throw Error(state.error);
+      if (state.control) throw Error("Editor confirmation is still pending. Your draft is retained; try again when it arrives.");
+    }
+    if (editorStates.get(id)!==state || msgs.get(id)?.post!==m.post) throw Error("The conversation changed. Reopen this editor before continuing.");
+    let q=state.resend(requestId());
+    if (old.archive) q=boundedRequest({...q,archive:true,archive_ids:old.archive_ids});
+    // Local admission moves from the refused rid to its replacement; the draft keeps the same text.
+    const saved=savedDraft(m);
+    await settlePendingReply(m, r.replaces);
+    if (saved?.pendingRid===r.replaces) saveDraft(m, saved.text, q.rid, saved.files);
+    sends.delete(r.replaces);detachedSends.add(r.replaces);
+    try { await retainReply(m, q); }
+    catch (e) { if (state.delivery?.rid===q.rid) state.delivery=null; sends.set(r.replaces,{...old,id,state:"fail",error:e.message});detachedSends.delete(r.replaces); throw e; }
+    let accepted=false;try {accepted=await mark(q.kind,q);}catch { /* The request may already have arrived. */ }
+    if (!accepted && !["ok","later"].includes(sends.get(q.rid)?.state)) {
+      if (sends.get(q.rid)?.state==="wait") sends.set(q.rid,{...sends.get(q.rid),state:"unresolved"});
+      replyNotice(st,UNKNOWN_REPLY_NOTICE);
+    }
+  } catch (e) {
+    state.giveUp(e.message);
+    if (sends.has(r.replaces) || !detachedSends.has(r.replaces)) {
+      sends.set(r.replaces,{...old,id,state:"fail",error:e.message});
+      await settlePendingReply(m, r.replaces);
+    }
+    if (st) { st.error=state.error; st.started=false; }
+  } finally { resendStale.busy.delete(id); paint(); }
 }
 
 async function waitForEditor(m, st, revision) {
