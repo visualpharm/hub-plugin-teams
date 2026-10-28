@@ -178,6 +178,32 @@ class WhatsApp(unittest.TestCase):
         cfg.pop("all_groups")                                               # выключено — как раньше: только groups
         self.assertEqual([i["from"] for i in sources.whatsapp({**cfg, "skip_groups": []}, NOW)[0]], ["Ремонт дома"])
 
+    def test_group_message_read_but_still_blank_does_not_hide_the_rest(self):
+        """20.10: «Pampa Salta» не выходила в Inbox сутки — у двух реплик чат прочитан, а текста нет (вёрстка WhatsApp Web
+        отдала пустое тело), и вся группа из 14 сообщений висела «не прочитан — повторю». Реплика, которую чат отдал
+        пустой, остальное не держит; если текста нет ни у одной — пункта нет, как раньше."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear(); sources._WA_WHO.clear()
+        sources._WA_BLANK.clear()
+        chat = {"chat_id": "120363410@g.us", "name": "Поездка", "unread": 3, "out_last_t": 0,
+                "last": "2026-10-10T11:36-03:00", "preview": "", "messages": [
+                    {"id": "p1", "t": 200, "type": "chat", "text": "", "cached": True},
+                    {"id": "p2", "t": 300, "type": "chat", "text": "", "cached": True},
+                    {"id": "p3", "t": 400, "type": "chat", "text": "", "cached": True}]}
+        bodies = {"p1": "Кто едет в субботу?", "p2": "", "p3": "Я, размер M"}
+
+        def run(cmd, timeout=90):
+            if "thread" in cmd:
+                return json.dumps({"messages": [{"id": k, "author": "Аня", "out": False, "body": v}
+                                                for k, v in bodies.items()]})
+            return json.dumps([chat])
+        sources.run = run
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"], "groups": ["Поездка"]}, NOW)
+        self.assertEqual([i["from"] for i in items], ["Поездка"])
+        self.assertEqual(items[0]["text"], "Аня: Кто едет в субботу? · Я, размер M")
+        sources._WA_READ.clear(); sources._WA_TEXT.clear(); sources._WA_BLANK.clear()
+        bodies.update(p1="", p3="")                                         # пусто у всех — пункта нет
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"], "groups": ["Поездка"]}, NOW)[0], [])
+
     def test_no_item_without_text_the_chat_is_read_again_later(self):
         """14.10, владелец: «не говорить мне, что они непрочитаны» — не прочитали чат — пункта нет (строка в лог, не в плашку),
         через WA_READ_AGAIN читаем снова; ни «без текста», ни «не открывали» в пункте."""

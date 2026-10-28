@@ -290,8 +290,12 @@ def whatsapp(cfg, now):
                 continue   # всё прочитано или отвечено — внимания не требует
             wait = waiting({**r, "unread": n})
             def blind(ms):   # текстовые без текста; у последнего хватает строки из списка чатов
-                return [m for k, m in enumerate(ms) if not (m.get("text") or "").strip()
-                        and (m.get("type") or "chat") == "chat" and not (k == len(ms) - 1 and text and not m.get("cached"))]
+                out = [m for k, m in enumerate(ms) if not (m.get("text") or "").strip()
+                       and (m.get("type") or "chat") == "chat" and not (k == len(ms) - 1 and text and not m.get("cached"))]
+                if len(out) < len(ms) and any((m.get("text") or "").strip() for m in ms):
+                    # 20.10: реплика, которую прочитанный чат отдал пустой, не держит остальные (Pampa Salta — сутки)
+                    out = [m for m in out if (cid, m.get("id")) not in _WA_BLANK]
+                return out
             wait = [{**m, "text": _WA_TEXT[(cid, m.get("id"))], "cached": True,
                      **({"from": _WA_WHO[(cid, m["id"])]} if (cid, m.get("id")) in _WA_WHO else {})}
                     if not (m.get("text") or "").strip() and (cid, m.get("id")) in _WA_TEXT else m for m in wait]
@@ -358,6 +362,7 @@ _WA_READ = {}     # сообщение, ради текста которого �
 WA_READ_AGAIN = 10 * 60
 _WA_TEXT = {}     # (чат, сообщение) -> текст, дочитанный из чата: копия треда может отстать от списка чатов
 _WA_WHO = {}      # (чат, сообщение) -> автор (группы: кто пишет)
+_WA_BLANK = {}    # (чат, сообщение) -> когда: чат прочитан, а реплика пришла без текста — читать её снова бесполезно
 
 
 def wa_read(cfg, ch, cmd, r, wait, n):
@@ -380,8 +385,13 @@ def wa_read(cfg, ch, cmd, r, wait, n):
     for mid, b in body.items():
         if b:
             _WA_TEXT[(cid, mid)] = b
+            _WA_BLANK.pop((cid, mid), None)
             if who.get(mid):
                 _WA_WHO[(cid, mid)] = who[mid]
+        elif not any(m.get("id") == mid and m.get("media") for m in got.get("messages") or []):
+            _WA_BLANK[(cid, mid)] = time.time()
+    while len(_WA_BLANK) > 2000:
+        _WA_BLANK.pop(next(iter(_WA_BLANK)))
     while len(_WA_TEXT) > 2000:
         _WA_WHO.pop(next(iter(_WA_TEXT)), None)
         _WA_TEXT.pop(next(iter(_WA_TEXT)))
