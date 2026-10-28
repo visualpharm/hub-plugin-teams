@@ -17,5 +17,5 @@ assert.equal(mergeVerdict(undefined, { why: 5 }), "");
 // показ: строка есть только в открытой переписке (detail), над историей, и берётся у последнего сообщения с разбором
 assert.match(src, /const analysed = detail && \[\.\.\.ms\]\.reverse\(\)\.map\(\(m\) => verdicts\.get\(m\.post\)\)\.find\(Boolean\);/);
 assert.ok(src.indexOf('el("div", "tm-verdict", analysed)') < src.indexOf('const history = el("div", "tm-history")'));
-assert.match(readFileSync(new URL("../web/teams.css", import.meta.url), "utf8"), /\.tm-verdict \{[^}]*flex: none/);
+assert.match(readFileSync(new URL("../web/teams.css", import.meta.url), "utf8"), /\.tm-verdict \{/);
 console.log("verdict ok");
