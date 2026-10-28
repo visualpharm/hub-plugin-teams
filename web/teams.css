@@ -125,6 +125,8 @@
 .tm-folder { min-width: 44px; min-height: 44px; border: 0; border-radius: 22px; padding: 8px; background: transparent; color: var(--foreground); }
 .tm-folder[aria-pressed="true"] { background: var(--primary); color: #fff; }
 .tm-folder .icon, .tm-folder .tm-native-icon, .tm-options > summary .icon { width: 28px; height: 28px; }
+/* Folder and «New message» capsules keep the 44px touch target whatever the page's own .btn.small sets (flagman: min-height auto, 27px). */
+.tm-container .tm-bar :is(.tm-folder, .tm-new-trigger) { min-height: 44px; }
 .tm-options > summary { display: flex; list-style: none; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 22px; }
 .tm-options > summary::-webkit-details-marker { display: none; }
 .tm-options-panel { position: absolute; z-index: 20; inset-inline: 16px; top: calc(100% - 8px); padding: 12px; display: flex; flex-direction: column; gap: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); box-shadow: var(--shadow-lift); max-height: 65dvh; overflow: auto; }
@@ -206,15 +208,15 @@
 .tm-head :is(.ago,.tm-age), .tm-where, .tm-src, .tm-count, .tm-draft-by, .tm-note, .tm-hint { font-size: var(--text-base); }
 .tm-draft { border: 0; padding: var(--space-3); }
 .tm-team legend { text-transform: none; letter-spacing: normal; font-size: var(--text-base); }
-.tm .btn.small, .tm .seg button, .tm-find, .tm-chan { min-height: var(--control-size); font-size: var(--text-base); }
+.tm .btn.small, .tm .seg button, .tm-find, .tm-chan { min-height: var(--control-size, 44px); font-size: var(--text-base); }
 .tm-detail { position: relative; display: flex; min-width: 0; min-height: 0; padding: var(--space-4); }
 .tm-empty-detail { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; min-width: 0; min-height: 0; padding: 24px; text-align: center; }
 .tm-empty-detail h2 { margin: 0; font-size: 20px; line-height: 1.25; font-weight: 600; color: var(--foreground); text-wrap: pretty; }
 .tm-empty-detail > .tm-native-icon { width: 40px; height: 40px; color: var(--muted-foreground); }
 .tm-narrow .tm-empty-detail { display: none; }
 .tm-detail > .tm-thread { flex: 1; min-height: 0; max-width: 760px; margin-inline: auto; padding: 0; gap: var(--space-4); }
-.tm-detail > .tm-thread > .tm-head { padding-right: var(--control-size); min-height: var(--control-size); align-items: center; }
-.tm-close-conversation { position: absolute; top: var(--space-4); right: var(--space-4); min-width: var(--control-size); min-height: var(--control-size); }
+.tm-detail > .tm-thread > .tm-head { padding-right: var(--control-size, 44px); min-height: var(--control-size, 44px); align-items: center; }
+.tm-close-conversation { position: absolute; top: var(--space-4); right: var(--space-4); min-width: var(--control-size, 44px); min-height: var(--control-size, 44px); }
 .tm-close-conversation .icon { width: 24px; height: 24px; }
 .tm-history { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .tm-history > * { flex-shrink: 0; }
@@ -252,9 +254,6 @@
 .tm-history-error { margin: 0; color: var(--foreground); }
 .tm-detail .tm-history { flex: 1; }
 .tm-detail .tm-compose, .tm-detail .tm-thread > .tm-acts { flex: none; }
-.tm-instruction { max-height: min(30dvh,240px); overflow: auto; }
-.tm-instruction summary { min-height: var(--control-size); cursor: pointer; align-content: center; color: var(--foreground); font-size: 16px; }
-.tm-instruction textarea { max-height: 132px; }
 .tm-proposal { display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .tm-proposal:empty { display: none; }
 .tm-proposal-body { display: grid; gap: var(--space-2); max-height: min(18dvh,160px); overflow: auto; }
@@ -339,6 +338,7 @@
 .tm-sort-choices button { display: block; width: 100%; min-height: 44px; text-align: left; }
 .tm-sort-choices [aria-checked=true] { background: var(--muted); font-weight: 600; }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
+.tm-icon-edit { --tm-icon: url("icons/edit.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
 .tm-icon-quick { --tm-icon: url("icons/quick.svg"); }
 .tm-quick-trigger { width: 44px; height: 44px; flex: none; padding: 10px; border: 0; border-radius: 50%; background: var(--muted); }
@@ -405,6 +405,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-new-field > span { padding-block: 10px; }
 .tm-new input, .tm-new textarea { min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: max(16px, var(--text-base)); background: var(--background); }
 .tm-new textarea { resize: vertical; }
+.tm-new .composer { margin: 16px 0 0; }
+.tm-new .composer textarea { padding: 0; border: 0; border-radius: 0; background: transparent; resize: none; }
 .tm-new-chosen { display: flex; align-items: center; gap: 8px; }
 .tm-new-chosen > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tm-new-hint { display: block; color: var(--muted-foreground); font-size: var(--text-base); }
@@ -464,9 +466,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 /* The selected native folder fills available space; extra web options stay reachable. */
 .tm-icon-inbox { --tm-icon: url("./icons/inbox.svg"); }
-.tm-container:not(.tm-core-native) .tm .tm-folder[aria-pressed="true"] { display: flex; flex: 1; align-items: center; justify-content: center; gap: 6px; font-size: 17px; }
+.tm-container:not(.tm-core-native) .tm .tm-folder[aria-pressed="true"] { display: flex; flex: none; align-items: center; justify-content: center; gap: 6px; padding-inline: 14px; font-size: 17px; white-space: nowrap; }
 .tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
-.tm-folders:has([data-folder="failed"]) .tm-folder-label { display: none; }
 
 /* Native 32px capsules sit inside the web's 44px touch targets. */
 .tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger), .tm-container:not(.tm-core-native) .tm .tm-bar > details > summary {
@@ -521,15 +522,13 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-search-toggle .icon { width: 22px; height: 22px; }
 .tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
 .tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
-.tm-instruction > summary { display: flex; align-items: center; gap: 6px; list-style: none; }
-.tm-instruction > summary::-webkit-details-marker { display: none; }
-.tm-instruction > summary .icon { width: 16px; height: 16px; flex: none; color: var(--muted-foreground); transform: rotate(-90deg); transition: transform 0.15s; }
-.tm-instruction[open] > summary .icon { transform: none; }
-.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-draft, .tm-instruction > summary, .tm-rich-text) { font-size: 14px; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-draft, .tm-rich-text) { font-size: 14px; }
 .tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
 .tm .tm-earlier { background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); }
+/* Открытая переписка: раннее подгружается само у верха — не кнопка, а тихая метка постоянной высоты (не двигает ленту). */
+.tm .tm-earlier.tm-earlier-auto { display: flex; align-items: center; justify-content: center; align-self: stretch; min-height: 28px; padding: 0; border-radius: 0; background: none; color: var(--muted-foreground); font-size: var(--text-sm, 13px); }
 
 /* Page toolbar (⚡ and search), as in the native header. */
 .view-toolbar > .tm-quick-trigger { width: 34px; height: 34px; border: 0; border-radius: 17px; background: var(--card); padding: 9px; cursor: pointer; }
@@ -574,6 +573,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-to-line > .tm-to-label { flex: none; margin-right: 4px; }
 .tm-to-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--foreground); }
 .tm-to-channel { flex: none; white-space: pre; }
+/* Личное указание — режим того же поля: значок в углу переключает «ответ собеседнику» и «указание к черновику». */
+.tm-mode-off { display: none !important; }
+.tm-instruction-toggle { position: absolute; top: 4px; right: 6px; z-index: 2; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground); }
+.tm-instruction-toggle .tm-native-icon { width: 20px; height: 20px; }
+.tm-instruction-toggle[aria-pressed="true"], .tm-instruction-toggle.tm-has-instruction { color: var(--primary); }
 
 /* подпись значка по долгому нажатию на телефоне */
 .tm-tip { position: fixed; z-index: 1000; transform: translate(-50%, -100%); padding: 6px 10px; border-radius: 8px; background: var(--foreground); color: var(--background);
@@ -595,3 +599,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions > .spacer { display: none; }
 /* круглые кнопки шапки на телефоне — с промежутком 8, как ‹ › на столе (ревью ui-expert m582026) */
 .view-toolbar > .tm-quick-trigger + .tm-search-toggle { margin-left: 8px; }
+
+/* «Хаб пишет черновик… 0:12»: тихая строка с бегущими секундами, без красного. */
+.tm-drafting { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0; color: var(--foreground); font-size: var(--text-base); }
+.tm-drafting-clock { color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.tm-spinner { flex: none; width: 14px; height: 14px; border: 2px solid color-mix(in srgb, var(--foreground) 18%, transparent); border-top-color: var(--muted-foreground); border-radius: 50%; animation: tm-spin 0.9s linear infinite; }
+@keyframes tm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tm-spinner { animation-duration: 3s; } }

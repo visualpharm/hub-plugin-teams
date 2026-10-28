@@ -15,3 +15,5 @@ muted pin beside the timestamp; the pin toggle keeps a44px menu target.
 Inbox tray is the unchanged native0597a826 icon-nav-inbox asset, displayed with its label in the folder control. The accessible label remains when the extra Failed folder requires compact icon-only presentation.
 
 Media list glyphs image, mic, video and doc reuse the unchanged native0597a826 Icons8 SF Regular assets. They follow the text label at14px; thumbnails use44px squares. These glyphs describe content and are not action buttons.
+
+Edit (compose) is the unchanged native icon-edit asset, the «New message» button. The shared page's own icon sprite has no «edit» symbol on every core, so the plugin carries its own mask instead of referencing `#i-edit`.

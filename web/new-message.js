@@ -44,17 +44,20 @@ export function newMessage(hub) {
     let result; try { result = await hub.postFeed(JSON.stringify({kind:"contacts",rid,q})); } catch { result = {error:"Contact search failed"}; }
     if (s.lookup === rid && result?.error) { s.looking = false; s.errors = result.error; draw(s); }
   }
-  async function submit(s) {
-    if (s.pending && !s.uncertain) return;
-    // Read the actual fields, including browser autofill, at the send boundary.
-    s.text = s.ui.text.value; s.subject = s.ui.subject.value; save(s);
-    if (!s.pending) {
-      if (!s.to) { s.status = T("Выберите адресата", "Choose a recipient"); draw(s); return; }
-      if (!s.text.trim()) { s.status = T("Введите сообщение", "Enter a message"); s.ui.text.focus(); draw(s); return; }
-      if (s.to.src === "email" && !s.subject.trim()) { s.status = T("Введите тему письма", "Enter a subject"); s.ui.subject.focus(); draw(s); return; }
-      s.pending = {kind:"send_new",rid:id(),to:s.to.to,text:s.text,...(s.to.name ? {name:s.to.name} : {}),...(s.to.src === "email" ? {subject:s.subject} : {})};
-      s.pendingName = s.to.name;
-    }
+  // Shared field's send: returns {} or {error} (the field restores the text and shows the phrase under itself).
+  // A pending original — in flight or unconfirmed — blocks a second message: it is retried only by its own button.
+  async function send(s, text) {
+    if (s.pending) return { error: s.uncertain ? T("Сначала повторите исходное сообщение ниже.", "Retry the original message below first.") : T("Предыдущее сообщение ещё отправляется.", "The previous message is still sending.") };
+    s.subject = s.ui.subject.value;
+    if (!s.to) return { error: T("Выберите адресата", "Choose a recipient") };
+    if (!text.trim()) return { error: T("Введите сообщение", "Enter a message") };
+    if (s.to.src === "email" && !s.subject.trim()) { s.ui.subject.focus(); return { error: T("Введите тему письма", "Enter a subject") }; }
+    s.pending = {kind:"send_new",rid:id(),to:s.to.to,text,...(s.to.name ? {name:s.to.name} : {}),...(s.to.src === "email" ? {subject:s.subject} : {})};
+    s.pendingName = s.to.name; s.text = "";   // the field is cleared by the send; what is typed next is a new draft
+    await dispatch(s);
+    return {};
+  }
+  async function dispatch(s) {
     const pending = s.pending;
     s.uncertain = false; s.status = ""; save(s); draw(s);
     clearTimeout(s.sendTimer);
@@ -83,7 +86,7 @@ export function newMessage(hub) {
       u.chosen.append(person, change);
     }
     u.results.replaceChildren(...s.items.map(c => {
-      const b = button("", "quiet tm-new-contact", () => { s.to = c; s.lookup = ""; s.looking = false; s.items = []; save(s); draw(s); u.text.focus(); });
+      const b = button("", "quiet tm-new-contact", () => { s.to = c; s.lookup = ""; s.looking = false; s.items = []; save(s); draw(s); u.box.focus(); });
       b.append(el("span", "", c.name), el("span", "tm-new-hint", [source(c), c.hint].filter(Boolean).join(" · "))); return b;
     }));
     if (s.looking) u.results.append(el("p", "", T("Поиск…", "Searching…")));
@@ -99,8 +102,9 @@ export function newMessage(hub) {
       u.pending.append(replyText(el,s.pending.text,"tm-pending-text","p"));
     }
     u.subjectRow.hidden = s.to?.src !== "email";
-    u.send.disabled = !!s.pending && !s.uncertain;
-    u.send.textContent = s.uncertain ? T("Повторить исходное", "Retry original message") : T("Отправить", "Send");
+    u.retry.hidden = !s.uncertain;
+    const recipient = s.to?.name || "recipient";
+    if (u.recipient !== recipient) { u.recipient = recipient; u.box.set({ to: recipient }); }
     u.status.textContent = s.status || (s.pending ? s.uncertain ? T("Доставка не подтверждена", "Delivery is unconfirmed") : T("Отправляется…", "Sending…") : "");
     u.status.hidden = !u.status.textContent;
     u.storage.textContent = s.storageError || ""; u.storage.hidden = !s.storageError;
@@ -116,29 +120,34 @@ export function newMessage(hub) {
       results.id = "tm-new-results-" + states.size; results.setAttribute("aria-live", "polite"); results.setAttribute("aria-relevant", "additions text");
       search.setAttribute("aria-controls", results.id);
       chosen.setAttribute("role", "group"); chosen.setAttribute("aria-label", T("Кому", "To"));
-      const text = el("textarea", "tm-new-text"), subject = el("input", "tm-new-subject");
-      text.value = s.text; text.rows = 5; text.maxLength = 30000; text.name = "message";
+      const subject = el("input", "tm-new-subject");
       subject.value = s.subject; subject.maxLength = 200; subject.name = "subject"; subject.autocomplete = "off";
       const row = (label, control) => { const r = el("label", "tm-new-field"); r.append(el("span", "", label), control); return r; };
       const to = el("div", "tm-new-to"); to.append(chosen,search,results);
       const toRow = el("div", "tm-new-field"); toRow.append(el("span", "", T("Кому", "To")), to);
       const subjectRow = row(T("Тема", "Subject"), subject), status = el("p", "tm-new-status"); status.setAttribute("role", "status");
       const pending = el("div", "tm-new-pending"), storage = el("p", "tm-new-storage"); storage.setAttribute("role", "status");
-      const send = el("button", "btn primary tm-new-send", T("Отправить", "Send")); send.type = "submit";
-      form.append(toRow,subjectRow,row(T("Сообщение", "Message"),text),status,pending,storage,send); dialog.append(head,form); document.body.append(dialog);
-      s.ui = {dialog,search,chosen,results,text,subject,subjectRow,status,pending,storage,send};
-      for (const [node, field] of [[text,"text"],[subject,"subject"]]) node.addEventListener("input", () => { s[field] = node.value; save(s); });
+      const retry = button(T("Повторить исходное", "Retry original message"), "primary tm-new-retry", () => { if (s.pending && s.uncertain) dispatch(s); });
+      // The message is the shared composer of the hub (as in the reply field), not a field of its own.
+      const box = hub.input({ key: "new:" + encodeURIComponent(s.key), to: "recipient", label: T("Сообщение", "Message"), placeholder: T("Сообщение", "Message"),
+        attachments: false, maxLength: 30000, send: ({ text }) => send(s, text) });
+      const field = box.node.querySelector("textarea"); field.classList.add("tm-new-text"); field.name = "message";
+      box.set({ text: s.text });
+      form.append(toRow,subjectRow,status,pending,retry,storage); dialog.append(head,form,box.node); document.body.append(dialog);
+      s.ui = {dialog,search,chosen,results,box,field,subject,subjectRow,status,pending,retry,storage};
+      subject.addEventListener("input", () => { s.subject = subject.value; save(s); });
+      field.addEventListener("input", () => { s.text = field.value; save(s); });
       search.addEventListener("input", () => {
         s.query = search.value; s.lookup = ""; s.items = []; s.errors = ""; s.looking = false; clearTimeout(s.timer); draw(s);
         if (s.query.trim().length >= 2) s.timer = setTimeout(() => lookup(s), 500);
       });
       search.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); lookup(s); } });
-      form.addEventListener("submit", e => { e.preventDefault(); submit(s); });
+      form.addEventListener("submit", e => e.preventDefault());
       dialog.addEventListener("keydown", e => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dialog.close(); } });
-      dialog.addEventListener("close", () => { clearTimeout(s.timer); save(s); document.querySelector('.tm-new-trigger')?.focus(); });
+      dialog.addEventListener("close", () => { clearTimeout(s.timer); s.text = field.value; save(s); document.querySelector('.tm-new-trigger')?.focus(); });
     }
     draw(s); if (!s.ui.dialog.open) s.ui.dialog.showModal();
-    (s.to ? s.ui.text : s.ui.search).focus();
+    if (s.to) s.ui.box.focus(); else s.ui.search.focus();
   }
   function fact(d) {
     const s = state();
@@ -152,12 +161,14 @@ export function newMessage(hub) {
       s.status = d.error || T("Итог отправки неизвестен. Проверьте переписку.", "Delivery outcome is unknown. Check the conversation.");
       save(s); draw(s); return;
     }
-    const p = s.pending, same = s.to?.to === p.to && s.text === p.text && (p.subject || "") === (s.to?.src === "email" ? s.subject : "");
+    const p = s.pending, same = !s.text && s.to?.to === p.to && (p.subject || "") === (s.to?.src === "email" ? s.subject : "");
     clearTimeout(s.sendTimer);
     s.pending = null; s.uncertain = false;
     s.status = d.kind === "sent" ? T("Отправлено", "Sent") : d.error || T("Не удалось отправить", "Delivery refused");
     if (d.kind === "sent" && !same) s.status = T("Исходное сообщение отправлено. Новый текст остаётся черновиком.", "The original message was sent. Your new text remains a draft.");
-    if (d.kind === "sent" && same) { s.to = null; s.text = s.subject = ""; if (s.ui) { s.ui.text.value = ""; s.ui.subject.value = ""; s.ui.dialog.close(); } }
+    // a refusal returns the original text to the field, ahead of anything typed since
+    if (d.kind !== "sent") { s.text = s.text ? p.text + "\n" + s.text : p.text; s.ui?.box.set({ text: s.text }); }
+    if (d.kind === "sent" && same) { s.to = null; s.text = s.subject = ""; if (s.ui) { s.ui.box.set({ text: "" }); s.ui.subject.value = ""; s.ui.dialog.close(); } }
     save(s); draw(s);
   }
   window.addEventListener("hashchange", () => { for (const s of states.values()) s.ui?.dialog.close(); });

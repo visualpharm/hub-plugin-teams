@@ -239,6 +239,7 @@ function historyFact(d, post) {
   if (d.kind === "thread_failed") {
     h.loading=false;h.error=d.error || "Could not load history.";h.request=null;clearTimeout(h.timer);
     if (d.reset_history) h.items=null;
+    retryHistory(d.id);
     return;
   }
   if (!Number.isInteger(d.part) || !Number.isInteger(d.of) || d.of<1 || d.of>100 || d.part<0 || d.part>=d.of || !Array.isArray(d.items)) return;
@@ -256,20 +257,53 @@ function historyFact(d, post) {
     if (!unique.has(key)) unique.set(key,t);
   }
   h.items=[...unique.values()].sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0));
-  h.loading=false;h.error="";h.more=d.more===true;h.request=null;h.parts.clear();clearTimeout(h.timer);
+  h.loading=false;h.error="";h.tries=0;clearTimeout(h.retryTimer);h.more=d.more===true;h.request=null;h.parts.clear();clearTimeout(h.timer);
+  anchorHistory=d.id;   // раннее встало над прочитанным: paint() держит читаемое место
 }
 async function fetchHistory(m, before=null) {
   if (!historyAvailable) return;
   const h=historyState(m.id); if(h.loading) return;
   const q={kind:"history",id:m.id,...(before ? {before:before.id,before_at:before.at,limit:20} : {})};
   h.loading=true;h.error="";h.before=before?.id || null;h.request=q;
-  h.timer=setTimeout(()=>{if(h.request===q && h.loading){h.loading=false;h.error="History did not respond. Try again.";paint();}},30000);
+  h.timer=setTimeout(()=>{if(h.request===q && h.loading){h.loading=false;h.error="History did not respond. Try again.";retryHistory(m.id);paint();}},30000);
   paint();
   try {
     const result=await hub.postFeed(JSON.stringify(q));
-    if(result.error && h.request===q){h.loading=false;h.error=result.error;clearTimeout(h.timer);paint();}
-  } catch { if(h.request===q){h.loading=false;h.error="Could not load history. Try again.";clearTimeout(h.timer);paint();} }
+    if(result.error && h.request===q){h.loading=false;h.error=result.error;clearTimeout(h.timer);retryHistory(m.id);paint();}
+  } catch { if(h.request===q){h.loading=false;h.error="Could not load history. Try again.";clearTimeout(h.timer);retryHistory(m.id);paint();} }
 }
+// Раннее подгружается само, когда читатель у верха переписки (Иван m646880 п.2: кнопки «Показать более ранние» нет, как
+// в нативном Inbox): строка-метка над перепиской видна — берём следующую страницу. Страниц подряд без ухода метки из
+// вида — не больше EARLIER_AUTO (страница из одних повторов не гонит всю историю). Сбой не показываем: метка остаётся
+// «Подгружаем…», запрос повторяется сам с нарастающей паузой, как в натив-клиенте.
+const EARLIER_AUTO = 3, HISTORY_BACKOFF = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55];   // seconds, then every 60 — as in the native client
+let anchorHistory = null;   // переписка, чьё раннее только что встало наверх: paint() сдвигает прокрутку на прирост высоты
+function loadEarlier(last, auto = false) {
+  if (!historyAvailable || !last || !canReply(last)) return;
+  const state=historyState(last.id);
+  if (state.loading) return;
+  if (auto) { if ((state.auto || 0) >= EARLIER_AUTO) return; state.auto=(state.auto || 0)+1; }
+  clearTimeout(state.retryTimer);
+  if (!state.revealed && state.items) { state.revealed=true;paint();return; }
+  state.revealed=true;
+  if (state.items && !state.more && !state.error) return;
+  const cursor=state.items?.find(t=>typeof t.id === "string" && t.id);
+  fetchHistory(last,state.more && cursor ? cursor : null);
+}
+function retryHistory(id) {
+  const h=historyState(id);
+  clearTimeout(h.retryTimer);
+  h.tries=(h.tries || 0)+1;
+  h.retryTimer=setTimeout(() => { const m=msgs.get(id); if (m && h.error && !h.loading && ui?.root.querySelector(`.tm-earlier-auto[data-history="${CSS.escape(id)}"]`)) loadEarlier(m); }, 1000*(h.tries<=HISTORY_BACKOFF.length ? HISTORY_BACKOFF[h.tries-1] : 60));
+}
+const earlierWatch = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
+  for (const e of entries) {
+    const row=e.target, id=row.dataset.history, h=histories.get(id);
+    if (!row.isConnected) { earlierWatch.unobserve(row); continue; }
+    if (!e.isIntersecting) { if (h) h.auto=0; continue; }
+    loadEarlier(msgs.get(id),true);
+  }
+}) : null;
 const promptState = { text: "", rid: null, status: "" };
 const reviewAgents = loadReviewAgents(); // conversation key (legacy: post id), browser origin only; never changes automatic triage
 const handoffs = new Map();     // durable exact Hub+post+thread intents, separate from recipient drafts
@@ -1296,6 +1330,27 @@ function openPerson(key, group) {
   else paint();
 }
 
+// Переход к сообщению (Plugin API 1.28, #/x/inbox?plugin=teams&id=<id сообщения ленты> | &post=<pN>): открыть переписку,
+// где оно лежит; папку выбираем по нему. Не нашли — остаёмся на списке. Лента может быть ещё не прочитана — переход ждёт.
+let pendingOpen = null;
+function openMessage(target) {
+  const m = target.id ? msgs.get(target.id) : [...msgs.values()].find((x) => x.post === target.post);
+  const folder = m && ["new", "sent", "failed", "archive"].find((f) => inFolder(m, f));
+  if (!folder) return false;
+  tab = folder; src = "all"; dmPerson = null; confirmAll = false;
+  if (searchQuery) { searchQuery = ""; const input = ui?.search?.querySelector("input"); if (input) input.value = ""; }
+  const key = conversationKey(m), group = list().filter((x) => conversationKey(x) === key);
+  if (!group.length) return false;
+  openPerson(key, group);
+  return true;
+}
+function applyPendingOpen() {
+  if (!pendingOpen || !loaded || !ui?.root.isConnected || cachedView) return;
+  const target = pendingOpen;
+  pendingOpen = null;
+  if (Date.now() - target.at < 60000) openMessage(target);   // дольше минуты ждали ленту — адрес устарел
+}
+
 function personRow(key, group) {
   const latest = group[0];
   const name = personName(latest.from) || "—";
@@ -1314,7 +1369,7 @@ function personRow(key, group) {
   }
   const mark = conversationMark(group);
   if (mark) {
-    const icon = mark.emoji ? el("span", "", mark.emoji) : mark.icon === "edit" ? hub.icon("edit") : nativeIcon(mark.icon);
+    const icon = mark.emoji ? el("span", "", mark.emoji) : nativeIcon(mark.icon);
     icon.classList.add("tm-row-status"); icon.removeAttribute("aria-hidden");
     icon.setAttribute("role", "img"); icon.setAttribute("aria-label", mark.label); icon.setAttribute("title", mark.label);
     head.append(icon);
@@ -1620,23 +1675,7 @@ function sharedReply(m, st) {
     },T("Удалить черновик","Discard draft"));
     discard.append(nativeIcon("trash"));
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
-    if (st.state) {
-      const details = el("details", "tm-instruction"), summary = el("summary", null, T("Личное указание к черновику", "Private draft instruction"));
-      summary.prepend(hub.icon("chevron-down"));
-      const directive = el("textarea", "tm-compose-ta"); directive.rows = 2; directive.maxLength = 2000;
-      directive.placeholder = T("Расскажи ему о…", "Tell them about…");
-      directive.setAttribute("aria-label", T("Личное указание к черновику", "Private draft instruction"));
-      directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
-      const revise = button(T("Переработать черновик", "Revise draft"), "quiet", async () => {
-        const revision=st.state.revision;
-        beginEditing(m, st);
-        try { await waitForEditor(m,st,revision); const q = st.state.revise(requestId()); if (!(await mark(q.kind, q))) st.error = "Revision request is pending. Your draft is retained."; }
-        catch (e) { st.error = e.message; }
-        paint();
-      });
-      st.proposal = el("div", "tm-proposal");
-      details.append(summary, directive, revise); st.instruction = details; wrap.append(st.proposal);
-    }
+    if (st.state) { st.proposal = el("div", "tm-proposal"); wrap.append(st.proposal); }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
     sendToggle.setAttribute("aria-label",T("Варианты отправки","Send options"));sendToggle.append(hub.icon("chevron-down"));
     const sendChoices=el("div","tm-send-menu");
@@ -1818,18 +1857,65 @@ function sharedReply(m, st) {
     // не прокручивается с текстом; в полях хаба её нет. Слота в общем композере нет — строка лежит поверх его верхнего поля
     const field = el("div", "tm-to-field"), to = st.toLine = el("div", "tm-to-line");
     field.append(to, box.node);
+    if (st.state) {
+      // Private instruction to the Hub — a mode of the same field, not a row of its own (Иван m646880 п.2): the corner
+      // icon switches the field between the reply to the contact and the instruction; Enter / send revises the draft,
+      // each mode keeps its own text, the instruction never goes to the contact.
+      const revise = async ({ text }) => {
+        if (st.state.instruction !== text) st.state.direct(text);
+        const revision = st.state.revision;
+        beginEditing(m, st);
+        try {
+          await waitForEditor(m, st, revision);
+          const q = st.state.revise(requestId());
+          if (!(await mark(q.kind, q))) return { error: "Revision request is pending. Your draft is retained." };
+        } catch (e) { return { error: e.message }; }
+        return {};
+      };
+      const ibox = st.instructBox = hub.input({ key: "instruction:" + encodeURIComponent(draftKey(m)), to: personName(m.from) || "recipient",
+        label: T("Личное указание к черновику", "Private draft instruction"), placeholder: T("Расскажи ему о…", "Tell them about…"),
+        attachments: false, maxLength: 2000, send: revise,
+        // the instruction stays in the field after a revision (it can be run again): only the draft changes
+        onSent() { ibox.set({ text: st.state.instruction || "" }); } });
+      ibox.node.classList.add("tm-instruct", "tm-mode-off");
+      const directive = ibox.node.querySelector("textarea");
+      directive.dataset.instruct = m.id;
+      directive.addEventListener("input", () => { st.state.direct(directive.value); beginEditing(m, st); });
+      const toggle = st.toggle = button("", "quiet tm-instruction-toggle", () => {
+        st.instructing = !st.instructing; sharedReply(m, st);
+        (st.instructing ? ibox : st.box).focus();
+      }, T("Личное указание к черновику", "Private draft instruction"));
+      toggle.append(nativeIcon("draft"));
+      toggle.title = T("Личное указание к черновику", "Private draft instruction");
+      field.append(ibox.node, toggle);
+    }
     wrap.append(field, feedback);
   }
   st.box.set({});
   if (st.toLine) {
     const current = msgs.get(m.id) || m, name = personName(current.from) || T("собеседник", "recipient");
     const channel = TEAMS_SRCS.includes(current.src) ? "Teams" : current.src === "email" ? T("Почта", "Mail", "Correo") : SRC[current.src] || current.src;
-    const sig = JSON.stringify([name, channel, T("ru", "en")]);
+    const sig = JSON.stringify([name, channel, T("ru", "en"), !!st.instructing]);
     if (st.toLine.dataset.sig !== sig) {
       st.toLine.dataset.sig = sig;
-      st.toLine.replaceChildren(el("span", "tm-to-label", T("Кому", "To")), " ", el("b", "tm-to-name", name), el("span", "tm-to-channel", ` · ${channel}`));
-      st.toLine.title = `${T("Кому", "To")} ${name} · ${channel}`;
+      if (st.instructing) {
+        // same slot, instead of the recipient: the instruction is private and never reaches the contact
+        const title = T("Личное указание к черновику", "Private draft instruction");
+        st.toLine.replaceChildren(el("b", "tm-to-name", title));
+        st.toLine.title = title;
+      } else {
+        st.toLine.replaceChildren(el("span", "tm-to-label", T("Кому", "To")), " ", el("b", "tm-to-name", name), el("span", "tm-to-channel", ` · ${channel}`));
+        st.toLine.title = `${T("Кому", "To")} ${name} · ${channel}`;
+      }
     }
+  }
+  if (st.instructBox) {
+    st.box.node.classList.toggle("tm-mode-off", !!st.instructing);
+    st.instructBox.node.classList.toggle("tm-mode-off", !st.instructing);
+    st.toggle.setAttribute("aria-pressed", String(!!st.instructing));
+    st.toggle.classList.toggle("tm-has-instruction", !st.instructing && !!st.state?.instruction?.trim());
+    const revise = st.instructBox.node.querySelector("button[type=submit]"), label = T("Переработать черновик", "Revise draft");
+    if (revise && revise.getAttribute("aria-label") !== label) { revise.setAttribute("aria-label", label); revise.title = label; }
   }
   replyLayout(st);
   const state = st.state, p = state?.proposal;
@@ -1963,6 +2049,33 @@ function hubOffer(m) {
   const { list, carried } = hubDrafts(m), latest = list.at(-1), offer = splitDraft(latest?.text || "");
   return { latest, text: offer.text, why: (offer.carried || carried) && offer.text ? carriedWhy(offer.why) : offer.why };
 }
+// «Хаб пишет черновик… 0:12» (Иван m647012: не тикает — выглядит зависшей): секунды идут с нажатия ✨; черновик пришёл —
+// строка сменяется им; не пришёл за окно — строка тихо уходит, без красного и без ошибки. Пока строка на экране,
+// канал перечитывается каждые 1,5 с, чтобы черновик встал на место сразу.
+const DRAFT_WINDOW = 300, DRAFT_POLL = 1500;
+const clockText = (s) => s < 60 ? `${s} ${T("с", "s")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+function draftingSince(ms) {
+  const asked = ms.filter((m) => askedAt(m) !== undefined && !hubDrafts(m).list.length).map(askedAt);
+  if (!asked.length) return null;
+  const since = Math.max(...asked);
+  return Date.now() / 1000 - since < DRAFT_WINDOW ? since : null;
+}
+function draftingRow(since) {
+  const row = el("p", "tm-drafting"), clock = el("span", "tm-drafting-clock");
+  row.setAttribute("role", "status"); row.dataset.since = String(since);
+  row.append(el("span", "tm-spinner"), el("span", null, T("Хаб пишет черновик…", "Hub is drafting a reply…", "El hub redacta un borrador…")), clock);
+  clock.textContent = clockText(Math.max(0, Math.floor(Date.now() / 1000 - since)));
+  return row;
+}
+function tickDrafting() {
+  if (!ui?.root.isConnected) return;
+  for (const row of ui.root.querySelectorAll(".tm-drafting")) {
+    const seconds = Math.floor(Date.now() / 1000 - Number(row.dataset.since));
+    if (seconds >= DRAFT_WINDOW) { paint(); return; }
+    row.querySelector(".tm-drafting-clock").textContent = clockText(Math.max(0, seconds));
+  }
+}
+let draftTimer = null, draftPollTimer = null;
 const staleMark = () => el("p", "tm-draft-stale", T("Черновик устарел", "Draft is out of date"));
 
 async function askDraft(m) {
@@ -2318,17 +2431,19 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     history.append(row);previous=m;
   };
   const h = histories.get(last.id);
-  if (historyAvailable && canReply(last)) {
-    const earlier = button(h?.loading ? T("Загружаю историю…","Loading history…") : h?.error ? T("Повторить загрузку истории","Retry history") : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => {
-      const state=historyState(last.id);
-      if (!state.revealed && state.items) { state.revealed=true;paint();return; }
-      state.revealed=true;
-      const cursor=state.items?.find(t=>typeof t.id === "string" && t.id);
-      fetchHistory(last,state.more && cursor ? cursor : null);
-    });
-    earlier.disabled=!!h?.loading;
-    if (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id))) history.append(earlier);
-    if (h?.error) { const error=el("p","tm-history-error",h.error);error.setAttribute("role","status");history.append(error); }
+  if (historyAvailable && canReply(last) && (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id)))) {
+    if (detail && earlierWatch) {
+      // переписка открыта: метка над ней, без кнопки — раннее берётся, когда метка в виде
+      const row=el("div","tm-earlier tm-earlier-auto",h?.loading || h?.error ? T("Подгружаем…","Loading earlier messages…","Cargando…") : "");
+      row.setAttribute("role","status");row.dataset.history=last.id;
+      if (h?.error) row.title=h.error;
+      history.append(row);earlierWatch.observe(row);
+    } else {
+      const earlier = button(h?.loading ? T("Загружаю историю…","Loading history…") : h?.error ? T("Повторить загрузку истории","Retry history") : T("Показать более ранние","Earlier messages"), "quiet tm-earlier", () => loadEarlier(last));
+      earlier.disabled=!!h?.loading;
+      history.append(earlier);
+      if (h?.error) { const error=el("p","tm-history-error",h.error);error.setAttribute("role","status");history.append(error); }
+    }
   }
   if (h?.revealed && h.items) {
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
@@ -2347,9 +2462,10 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const notes = [];
   if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? T("Ты ответил в Teams","You replied in Teams") : T("Прочитано или отвечено","Read or answered"));
   if (ms.some((m) => work.has(m.id))) notes.push(T("Передано хабу в работу","Handed to Hub"));
-  if (ms.some((m) => askedAt(m) !== undefined && !hubDrafts(m).list.length)) notes.push(T("Хаб готовит черновик ответа","Hub is preparing a draft"));
   if (ms.every(isArchived)) notes.push(T("Скрыто","Archived"));
   if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
+  const drafting = draftingSince(ms);
+  if (drafting !== null) history.append(draftingRow(drafting));
 
   for (const m of ms) {
     // один черновик — последний; прежние заменены им (I-16: повтор ✨ не задваивает)
@@ -2410,9 +2526,6 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   else if (acts.childElementCount) box.append(acts);
   if (composeFor) {
     const reply = composer(composeFor);
-    // the private instruction is its own collapsed row above the reply field, not inside it
-    const instruction = hub.capabilities?.composerTransport === 1 && composing.get(composeFor.id)?.instruction;
-    if (instruction) box.append(instruction);
     box.append(reply);
     const draftOptions=composing.get(composeFor.id)?.options;
     if(draftOptions){
@@ -2446,10 +2559,11 @@ function paint() {
     selection:menu.contains(document.activeElement) && document.activeElement.tagName==='TEXTAREA' ? [document.activeElement.selectionStart,document.activeElement.selectionEnd] : null}));
   const typing = ui.root.contains(document.activeElement) && document.activeElement.dataset?.compose;
   const at = typing ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
-  const instructionFocus = ui.root.contains(document.activeElement) && document.activeElement.closest?.('.tm-instruction') ? document.activeElement : null;
+  const instructionFocus = ui.root.contains(document.activeElement) && document.activeElement.closest?.('.tm-instruct') ? document.activeElement : null;
   const instructionSel = instructionFocus?.tagName==='TEXTAREA' ? [instructionFocus.selectionStart,instructionFocus.selectionEnd] : null;
   const oldConversation=ui.detail.dataset.conversation, oldHistory=ui.detail.querySelector('.tm-history');
-  const scroll=oldHistory?.scrollTop, follow=toBottom;
+  const scroll=oldHistory?.scrollTop, follow=toBottom, scrollHeight=oldHistory?.scrollHeight, anchored=anchorHistory;
+  anchorHistory=null;
   paintAll();
   messageMenu?.validate();rowMenu?.validate();
   for (const options of ui.root.querySelectorAll('.tm-conversation-options')) {
@@ -2464,7 +2578,9 @@ function paint() {
     }
   }
   if (!follow && oldConversation && oldConversation===ui.detail.dataset.conversation && scroll!==undefined) {
-    const history=ui.detail.querySelector('.tm-history');if(history)history.scrollTop=scroll;
+    const history=ui.detail.querySelector('.tm-history');
+    // раннее встало над прочитанным — прокрутка растёт на прирост высоты: читаемое остаётся на месте
+    if(history)history.scrollTop=anchored && msgs.get(anchored) ? scroll+Math.max(0,history.scrollHeight-scrollHeight) : scroll;
   }
   const want = focusId || typing;
   const ta = want && ui.root.querySelector(`textarea[data-compose="${CSS.escape(want)}"]`);
@@ -2740,7 +2856,7 @@ function build(root) {
   pick.setAttribute("aria-controls", "tm-panel");
   controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
   const newTrigger = button("", "quiet tm-new-trigger", () => newComposer.open(), T("Новое сообщение", "New message"));
-  newTrigger.append(hub.icon("edit"));
+  newTrigger.append(nativeIcon("edit"));   // the core sprite of the shared page has no «edit» symbol: an empty capsule
   bar.append(tabs,sort,newTrigger);
   const panelNode = el("div", "tm-panel");
   panelNode.id = "tm-panel";
@@ -2817,6 +2933,13 @@ function registerView() {
       if (hub.input && !root.querySelector(":scope > .tm-quick-trigger")) root.prepend(quickButton());
       placeSearch();
     },
+    // API 1.28: адрес вида с params при входе, при новом адресе и при повторном переходе
+    open(root, params) {
+      if (params?.plugin !== "teams" || !(params.id || params.post)) return;
+      autoOpen = false;   // адрес назвал сообщение: не нашли — остаёмся на списке, а не открываем первую переписку
+      pendingOpen = { at: Date.now(), ...(params.id ? { id: String(params.id) } : { post: String(params.post) }) };
+      applyPendingOpen();
+    },
     async render(root, snap) {
       for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
       if (!ui || ui.root !== root) { build(root); if (!loaded) restoreCache(); paint(); }
@@ -2826,6 +2949,7 @@ function registerView() {
         const first = !loaded;
         if ((await sync()) || first) paint();
       }
+      applyPendingOpen();
       if((snap?.feeds?.proactivity||0)>rankSince)syncRanks();
       refreshListAges();
       // число новых поменялось — обновить бейдж в боковой панели; без нужды вид не трогаем: прежние ядра выдавали
@@ -2863,6 +2987,10 @@ export default function register(h) {
   const recheck = async () => { if (ui?.root.isConnected && (await sync())) paint(); else if (offline) paint(); };
   window.addEventListener("online", recheck);
   window.addEventListener("offline", recheck);
+  if (draftTimer !== null) clearInterval(draftTimer);
+  draftTimer = setInterval(tickDrafting, 1000);
+  if (draftPollTimer !== null) clearInterval(draftPollTimer);
+  draftPollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility() && ui.root.querySelector(".tm-drafting")) recheck(); }, DRAFT_POLL);
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility()) recheck(); }, 15000);
   registerView();
