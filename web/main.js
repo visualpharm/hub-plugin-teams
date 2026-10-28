@@ -889,7 +889,7 @@ function handoffMenu(m) {
   if (!menu) {
     menu = el("details", "tm-handoff"); const summary = el("summary", "btn quiet tm-action tm-handoff-toggle");
     menu.dataset.post = m.post;
-    summary.append(hub.icon("chevron-down"));
+    summary.append(nativeIcon("chevron-down"));
     menu.append(summary, el("div", "tm-handoff-menu"));
     menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
     if (handoffMenus.size > 50) handoffMenus.delete(handoffMenus.keys().next().value);
@@ -946,7 +946,7 @@ function nativeIcon(name) {
 function action(text, name, fn, label) {
   const b = button("", "tm-action", fn, label || text);
   b.title = label || text;
-  b.append(name === "react" ? hub.icon("react") : nativeIcon(name), el("span", "tm-action-label", text));
+  b.append(nativeIcon(name), el("span", "tm-action-label", text));
   holdLabel(b, text);
   return b;
 }
@@ -1677,7 +1677,7 @@ function sharedReply(m, st) {
     if(!hub.capabilities?.composerActions)optionsBody.append(discard);
     if (st.state) { st.proposal = el("div", "tm-proposal"); wrap.append(st.proposal); }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
-    sendToggle.setAttribute("aria-label",T("Варианты отправки","Send options"));sendToggle.append(hub.icon("chevron-down"));
+    sendToggle.setAttribute("aria-label",T("Варианты отправки","Send options"));sendToggle.append(nativeIcon("chevron-down"));
     const sendChoices=el("div","tm-send-menu");
     const chooseSend=(at,action=null)=>{
       st.nextSendAt=null;

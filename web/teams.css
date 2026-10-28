@@ -339,6 +339,8 @@
 .tm-sort-choices [aria-checked=true] { background: var(--muted); font-weight: 600; }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-edit { --tm-icon: url("icons/edit.svg"); }
+.tm-icon-chevron-down { --tm-icon: url("icons/chevron-down.svg"); }
+.tm-icon-react { --tm-icon: url("icons/react.svg"); }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
 .tm-icon-quick { --tm-icon: url("icons/quick.svg"); }
 .tm-quick-trigger { width: 44px; height: 44px; flex: none; padding: 10px; border: 0; border-radius: 50%; background: var(--muted); }
@@ -433,7 +435,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-options { position: relative; grid-area: options; }
 .tm-send-options > summary { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; list-style: none; }
 .tm-send-options > summary::-webkit-details-marker { display: none; }
-.tm-send-options > summary .icon { width: 18px; height: 18px; }
+.tm-send-options > summary :is(.icon, .tm-native-icon) { width: 18px; height: 18px; }
 .tm-send-options:not([open]) > .tm-send-menu { display: none; }
 .tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
 .tm .tm-send-menu > .btn, .tm .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; font-size:16px; }
