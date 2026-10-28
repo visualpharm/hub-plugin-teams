@@ -17,3 +17,5 @@ Inbox tray is the unchanged native0597a826 icon-nav-inbox asset, displayed with 
 Media list glyphs image, mic, video and doc reuse the unchanged native0597a826 Icons8 SF Regular assets. They follow the text label at14px; thumbnails use44px squares. These glyphs describe content and are not action buttons.
 
 Edit (compose) is the unchanged native icon-edit asset, the «New message» button. The shared page's own icon sprite has no «edit» symbol on every core, so the plugin carries its own mask instead of referencing `#i-edit`.
+
+Idea is the unchanged native0597a826 icon-idea asset: the field's «Private draft instruction» mode toggle. The «Draft» action keeps the sparkles, so one action has one glyph.

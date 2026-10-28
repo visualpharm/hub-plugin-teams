@@ -1325,12 +1325,12 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'eval':"document.querySelector('"+menu+"').open=true;true"},{'until':"document.querySelector('"+menu+"').open"},
                       {'eval':"(()=>{const m=document.querySelector('"+menu+"'),r=[...m.querySelectorAll('.tm-agent-row')];return {agents:r.map(o=>o.value),titles:r.map(o=>o.textContent),value:r.find(o=>o.getAttribute('aria-checked')==='true')?.value,"
                              "latest:m.querySelector('.tm-latest-thread').textContent,disabled:m.querySelector('.tm-latest-thread').disabled,"
-                             "covers:(()=>{const e=document.querySelector('.tm-history-top')?.getBoundingClientRect(),b=m.querySelector('.tm-handoff-menu').getBoundingClientRect();return !!e&&!(b.bottom<=e.top||b.top>=e.bottom||b.right<=e.left||b.left>=e.right)})()}})()"})
+                             "inside:(()=>{const b=m.querySelector('.tm-handoff-menu').getBoundingClientRect();return b.top>=-1&&b.bottom<=innerHeight+1})()}})()"})
         self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
         self.assertTrue(got[-2]['until'],got)
         got=got[-1]['eval']
         self.assertEqual(got['value'],'hub');self.assertIn('noe',got['agents']);self.assertIn('hub',got['agents']);self.assertNotIn('visited',got['agents'])
-        self.assertIn('Хаб',got['titles']);self.assertIn('Noe',got['titles']);self.assertFalse(got['covers'],'The menu does not cover «Earlier messages»')
+        self.assertIn('Хаб',got['titles']);self.assertIn('Noe',got['titles']);self.assertTrue(got['inside'],'The whole menu stays inside the window (d743077)')
         self.assertEqual((got['latest'],got['disabled']),('В последний тред: Счёт за свет',False))
         # choosing Noe sends nothing; «В работу» then prepares Noe's composer with the exact source quote
         self.page({'eval':"[...document.querySelectorAll('"+menu+" .tm-agent-row')].find(b=>b.value==='noe').click();true"})
@@ -1354,6 +1354,30 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':"document.querySelector('.tm-handoff-status')?.textContent.includes('Передано в')"},
                       {'tapSelector':menu+" > summary"},{'eval':"document.querySelector('"+menu+" .tm-latest-thread').disabled"})
         self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-1]['eval'],'A queued handoff is not offered twice')
+
+    def test_hand_off_menu_stays_inside_the_window(self):
+        # d743077: at 390 the agent menu ran past the bottom edge — it opens upwards when there is no room below and
+        # scrolls inside when it does not fit either way; with room below it still opens down
+        for i in range(8):
+            self.ev("session.requested", f"agent{i}", session_id=f"s-a{i}", cwd=f"/a{i}", role="agent", about=f"Агент {i}: проверка", channel="cli", owner=True)
+            self.ev("session.started", f"agent{i}", session_id=f"s-a{i}")
+        self.seed_inbox(start_editing=False)
+        menu=".tm-thread > .tm-acts .tm-handoff"
+        probe=("(()=>{const m=document.querySelector('"+menu+"'),p=m.querySelector('.tm-handoff-menu'),r=p.getBoundingClientRect(),t=m.getBoundingClientRect();"
+               "return {top:r.top,bottom:r.bottom,h:innerHeight,up:p.classList.contains('tm-drop-up'),below:r.top>=t.bottom,scrolls:p.scrollHeight>p.clientHeight+1}})()")
+        got={}
+        for width,height,top in ((390,844,False),(390,300,False),(1024,844,False),(390,844,True),(1024,844,True)):
+            self.page({'viewport':{'width':width,'height':height}},{'sleep':150},{'eval':"document.querySelector('.tm-close-conversation')?.click();document.querySelector('.tm-person').click();true"},
+                      {'until':"!!document.querySelector('"+menu+"')"})
+            # the row sits above the reply field at the bottom; a row near the top of the window is placed there by hand
+            self.page({'eval':"document.getElementById('tm-top-row')?.remove();"+("document.head.append(Object.assign(document.createElement('style'),{id:'tm-top-row',textContent:'.tm-thread > .tm-acts{position:fixed;top:60px;right:16px;z-index:30}'}));" if top else "")+"true"},{'sleep':100})
+            got[(width,height,top)]=self.page({'tapSelector':menu+" > summary"},{'until':"document.querySelector('"+menu+"').open"},{'sleep':100},{'eval':probe})[-1]['eval']
+            self.page({'eval':"document.querySelector('"+menu+"').open=false;true"})
+        for size,r in got.items():
+            self.assertGreaterEqual(r['top'],-1,(size,r));self.assertLessEqual(r['bottom'],r['h']+1,(size,r))
+        self.assertTrue(got[(390,844,False)]['up'],got);self.assertTrue(got[(1024,844,False)]['up'],got);self.assertTrue(got[(390,300,False)]['scrolls'],got)
+        for size in ((390,844,True),(1024,844,True)): self.assertFalse(got[size]['up'],got);self.assertTrue(got[size]['below'],got)
+        self.page({'eval':"document.getElementById('tm-top-row')?.remove();true"})
 
     def test_header_search_filters_inbox_and_clearing_restores_it(self):
         # I-55 (ui-expert m559769): the search lives in the page header and filters the letters; no own search inside the Inbox column

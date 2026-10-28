@@ -310,6 +310,8 @@
 /* меню открывается вниз, поверх поля ответа — переписка над рядом действий остаётся видна (ревью ui-expert m572303) */
 .tm-handoff-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: grid; gap: 2px; min-width: 240px; max-width: min(320px, 90vw); max-height: 50vh; overflow: auto;
   padding: 6px; border-radius: 12px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / .18)); }
+/* у низа окна меню открывается вверх — fitDrop в main.js; высоту по месту ставит он же */
+.tm-handoff-menu.tm-drop-up { top: auto; bottom: calc(100% + 6px); }
 .tm-handoff-heading { margin: 4px 10px; color: var(--muted-foreground); font-size: 13px; }
 .tm-review-agent { display: grid; gap: 2px; }
 .tm-handoff-menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--border); }
@@ -339,6 +341,7 @@
 .tm-sort-choices [aria-checked=true] { background: var(--muted); font-weight: 600; }
 .tm-icon-draft { --tm-icon: url("icons/draft.svg"); }
 .tm-icon-edit { --tm-icon: url("icons/edit.svg"); }
+.tm-icon-idea { --tm-icon: url("icons/idea.svg"); }
 .tm-icon-chevron-down { --tm-icon: url("icons/chevron-down.svg"); }
 .tm-icon-react { --tm-icon: url("icons/react.svg"); }
 /* натив рисует стрелку раскрытия 16 pt (InboxView: меню отправки); класс повторён, чтобы перебить размеры кнопок действий */

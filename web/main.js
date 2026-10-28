@@ -883,14 +883,37 @@ function agentMenu(m) {
 // и «В последний тред» (одним нажатием, без поля). Выбор агента ничего не отправляет.
 // узел меню живёт между перерисовками: снимок ядра, пришедший, пока выбираешь агента, не закрывает меню
 const handoffMenus = new Map();
+// Выпадающее меню целиком в окне, как системное меню натива: вниз, пока помещается; не помещается и сверху места
+// больше — вверх; не влезает и так — высота по свободному месту, прокрутка внутри. Граница — окно (с клавиатурой —
+// видимая часть) и предки, которые обрезают содержимое.
+function fitDrop(menu, panel, gap = 6, edge = 8) {
+  panel.classList.remove("tm-drop-up"); panel.style.maxHeight = "";
+  if (!menu.open || !menu.isConnected) return;
+  const vv = window.visualViewport;
+  let top = vv ? vv.offsetTop : 0, bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  for (let a = menu.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const cs = getComputedStyle(a);
+    if (cs.overflowY === "visible" && cs.overflowX === "visible") continue;
+    const r = a.getBoundingClientRect(); top = Math.max(top, r.top); bottom = Math.min(bottom, r.bottom);
+  }
+  const at = menu.getBoundingClientRect(), cap = parseFloat(getComputedStyle(panel).maxHeight) || Infinity;
+  const below = bottom - at.bottom - gap - edge, above = at.top - gap - top - edge, need = Math.min(panel.scrollHeight, cap);
+  const up = need > below && above > below;
+  panel.classList.toggle("tm-drop-up", up);
+  panel.style.maxHeight = `${Math.max(88, Math.floor(Math.min(cap, up ? above : below)))}px`;
+}
+const fitOpenHandoffs = () => { for (const menu of handoffMenus.values()) if (menu.open) fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu")); };
 function handoffMenu(m) {
   let menu = handoffMenus.get(m.post);
-  if (menu?.open) return menu;
+  if (menu?.open) { queueMicrotask(() => fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu"))); return menu; }   // перерисовка могла сдвинуть ряд
   if (!menu) {
     menu = el("details", "tm-handoff"); const summary = el("summary", "btn quiet tm-action tm-handoff-toggle");
     menu.dataset.post = m.post;
     summary.append(nativeIcon("chevron-down"));
     menu.append(summary, el("div", "tm-handoff-menu"));
+    const fit = () => fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu"));
+    menu.addEventListener("toggle", fit);
+    summary.addEventListener("click", () => requestAnimationFrame(fit));   // до первой отрисовки открытого: toggle приходит позже
     menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
     if (handoffMenus.size > 50) handoffMenus.delete(handoffMenus.keys().next().value);
     handoffMenus.set(m.post, menu);
@@ -1889,7 +1912,7 @@ function sharedReply(m, st) {
         st.instructing = !st.instructing; sharedReply(m, st);
         (st.instructing ? ibox : st.box).focus();
       }, T("Личное указание к черновику", "Private draft instruction"));
-      toggle.append(nativeIcon("draft"));
+      toggle.append(nativeIcon("idea"));   // ✨ — у кнопки «Черновик» в ряду; одно действие — один значок (ui-expert m743100)
       toggle.title = T("Личное указание к черновику", "Private draft instruction");
       field.append(ibox.node, toggle);
     }
@@ -3000,6 +3023,7 @@ export default function register(h) {
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open],.tm-handoff[open]')||[])if(!menu.contains(e.target))menu.open=false;});
+  window.addEventListener("resize", fitOpenHandoffs); window.visualViewport?.addEventListener("resize", fitOpenHandoffs);
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки
   hub.addStyle("web/teams.css");
   if(agesTimer!==null)clearInterval(agesTimer);
