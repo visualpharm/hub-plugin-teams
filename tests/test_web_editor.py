@@ -10,6 +10,33 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_late_native_theme_preserves_the_reply_field_and_caret(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({'kind':'config','inbox_protocol':{'version':1,'editor_cas':True},'signature':'🤖 _Hub, proofread by Ivan_'})
+        self.feed({'kind':'msg','id':'late-theme','contact':'synthetic-account/late-theme','src':'telegram',
+                   'from':'Late colleague','text':'Late theme fixture.','reply':True,'sign':True,
+                   'at':datetime.now(timezone.utc).isoformat()})
+        self.page({'eval':"dispatchEvent(new Event('online'));true"},
+                  {'eval':"document.querySelector('.tm-close-conversation').click();true"},
+                  {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Late colleague'))"},
+                  {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Late colleague')).click();true"},
+                  {'eval':"document.querySelector('[aria-label=\"Ответить: Late colleague\"]').click();true"},
+                  {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        self.edit('Keep my wording.\n\n🤖 _Hub, proofread by Ivan_')
+        self.page({'eval':"window.__themeField=document.querySelector('.tm-shared-compose textarea');__themeField.focus();__themeField.setSelectionRange(3,7);window.__themeInputs=0;__themeField.addEventListener('input',()=>__themeInputs++);window.__themeSaved=JSON.stringify(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')));document.documentElement.style.setProperty('--native-font-13','13px');dispatchEvent(new Event('hub-redraw'));true"})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-container')?.classList.contains('tm-core-native')"})[-1]['until'])
+        inspect="(()=>{const f=document.querySelector('.tm-shared-compose textarea'),s=document.querySelector('.tm-signature');return {same:f===__themeField,focused:document.activeElement===f,selection:[f.selectionStart,f.selectionEnd],text:f.value,signature:s?.textContent,hidden:s?.hidden,inputs:__themeInputs,saved:__themeSaved===JSON.stringify(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')))}})()"
+        got=self.page({'eval':inspect})[-1]['eval']
+        self.assertEqual(got,{'same':True,'focused':True,'selection':[3,7],'text':'Keep my wording.',
+                             'signature':'🤖 Hub, proofread by Ivan','hidden':False,'inputs':0,'saved':True})
+        self.page({'eval':"document.documentElement.style.removeProperty('--native-font-13');dispatchEvent(new Event('hub-redraw'));true"})
+        self.assertTrue(self.page({'until':"!document.querySelector('.tm-container')?.classList.contains('tm-core-native')"})[-1]['until'])
+        got=self.page({'eval':inspect})[-1]['eval']
+        self.assertEqual(got['text'],'Keep my wording.\n\n🤖 _Hub, proofread by Ivan_')
+        self.assertTrue(got['same'] and got['focused'] and got['hidden'] and got['saved'],got)
+        self.assertEqual(got['selection'],[3,7]);self.assertEqual(got['inputs'],0)
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+
     def test_native_reply_footer_uses_the_advertised_leading_slot(self):
         self.seed_inbox(start_editing=False, open_editor=False)
         self.feed({'kind':'config','inbox_protocol':{'version':1},'signature':'🤖 _Hub, proofread by Ivan_'})

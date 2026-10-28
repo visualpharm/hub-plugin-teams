@@ -348,3 +348,9 @@ A generic concatenated media-kind string loses voice transcripts and filenames. 
 
 ### Shared-core slot and input callbacks
 A composer slot and input-change callbacks are separate contracts. The shared core advertises composerLeading:1, renders leading nodes in .bar, and does not forward onChange; the original fork uses composerActions and .composer-actions. Recognize both footer slots, but scope CSS and callback compatibility to the actual host. Give grid children explicit areas so a page without the appearance module is valid too. Never assume an unknown browser test step executed: use the driver's supported click/eval operations and assert observable draft/delivery outcomes. The focused browser tests retain synthetic identities and never contact a provider.
+
+## Late host theme arrival
+
+The shared core can render Inbox before an appearance extension finishes loading. Sample the native CSS sentinels again on view render, stylesheet load and after the host redraw event. Keep one footer and one shared composer in both modes. When the signature moves to or from its preview, change only the displayed draft through the existing set API; emit no input event, rewrite no stored draft and preserve the active field/selection through paint. Hidden or disconnected views defer refresh until reopened.
+
+The real-core synthetic renderer reproduces the extension order; the older thin fixture preloaded all theme CSS and concealed it. Browser checks cover late enable/disable with a selected draft, same field identity, unchanged storage, zero synthetic input and no send. Existing signature/discard and delivery-receipt cases remain required.

@@ -55,6 +55,20 @@ let signature = "";         // подпись под черновиками ха
 // подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
 // web-1 draws the signature below the field (fixed, not editable): the field holds the body, the stored/sent text the whole reply
 const nativeFooter = () => !!ui?.root.classList.contains("tm-core-native");
+function syncHostStyles(root) {
+  const style=getComputedStyle(document.documentElement);
+  const modes={"tm-core-native":!!style.getPropertyValue("--native-font-13").trim(),
+               "tm-web1":!!style.getPropertyValue("--header-search-font").trim()};
+  let changed=false;
+  for(const [name,on] of Object.entries(modes)) {
+    changed ||= root.classList.contains(name)!==on;
+    root.classList.toggle(name,on);
+  }
+  return changed;
+}
+function refreshHostStyles() {
+  if(ui?.root.isConnected && syncHostStyles(ui.root))paint();
+}
 // Both host generations expose a real leading slot. composerActions is the
 // original fork's contract; composerLeading is the shared core's public API.
 const replyFooterSlot = () => !!hub.capabilities?.composerActions || hub.capabilities?.composerLeading === 1;
@@ -1880,8 +1894,9 @@ function sharedReply(m, st) {
     const trailing=hub.capabilities?.composerTrailing===1;
     const leading=el("div","tm-send-leading");
     if(replyFooterSlot()) {
-      if(nativeFooter()){const footer=el("div","tm-native-footer");st.signatureNode=el("span","tm-signature");footer.append(st.signatureNode,discard);leading.append(footer);}
-      else leading.append(discard);
+      // Keep one footer and composer when host styles arrive after the view.
+      const footer=st.replyFooter=el("div","tm-reply-footer");
+      st.signatureNode=el("span","tm-signature");footer.append(st.signatureNode,discard);leading.append(footer);
     }
     if(!trailing)leading.append(sendMenu);
     const box = st.box = textInput({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m), hint: "",
@@ -1954,7 +1969,7 @@ function sharedReply(m, st) {
     });
     // The shared core's leading slot uses .bar; the original fork uses
     // .composer-actions. Keep this host-specific layout on the owned reply only.
-    box.node.classList.toggle('tm-core-leading', nativeFooter() && hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions);
+    st.nativeMode=nativeFooter();
     if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
     // The shared composer refreshes its send/microphone action independently.
     // Keep its accessible name and reply layout in sync without replacing the field.
@@ -2021,7 +2036,19 @@ function sharedReply(m, st) {
     }
     wrap.append(field, feedback);
   }
-  st.box.set({});
+  const native=nativeFooter();
+  if(st.nativeMode!==native) {
+    // Only the presentation of the signature changes. Do not emit an input,
+    // rewrite the saved draft, or replace a field the owner is typing in.
+    const text=st.box.draft().text;
+    st.box.set({text:native ? replyBody(text,m) : text.trim() ? signed(text,m) : text});
+    st.nativeMode=native;
+  } else st.box.set({});
+  st.box.node.classList.toggle('tm-core-leading', native && hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions);
+  if(st.replyFooter) {
+    st.replyFooter.classList.toggle('tm-native-footer',native);
+    st.replyFooter.style.display=native ? '' : 'contents';
+  }
   if (st.toLine) {
     const current = msgs.get(m.id) || m, name = personName(current.from) || T("собеседник", "recipient");
     const channel = TEAMS_SRCS.includes(current.src) ? "Teams" : current.src === "email" ? T("Почта", "Mail", "Correo") : SRC[current.src] || current.src;
@@ -2051,7 +2078,7 @@ function sharedReply(m, st) {
   }
   replyLayout(st);
   const state = st.state, p = state?.proposal;
-  if (st.signatureNode) { st.signatureNode.textContent = signature.replace(/_([^_]+)_/g, "$1"); st.signatureNode.hidden = !(signature && m.sign); }
+  if (st.signatureNode) { st.signatureNode.textContent = signature.replace(/_([^_]+)_/g, "$1"); st.signatureNode.hidden = !(native && signature && m.sign); }
   st.discard.hidden=!(replyBody(st.text,m).trim() || st.files?.length || st.uploading);st.discard.disabled=!!(state?.control || state?.delivery);
   if (st.proposal) {
     st.proposal.dataset.rid = p?.rid || "";
@@ -2954,10 +2981,9 @@ function build(root) {
   ui?.resize?.disconnect();
   root.classList.add("tm-container");
   // web-1 style the plugin's classes itself (.app .tm-* in native.css); the plugin's own native-looking rules then step aside
-  root.classList.toggle("tm-core-native", !!getComputedStyle(document.documentElement).getPropertyValue("--native-font-13").trim());
   // оболочка web-1 (integrate/web-1, P4d) сама раскладывает поле ответа (native.css/header.css): свои правила композера плагин
   // тогда снимает (компаньон P4d); на ядре без неё они остаются
-  root.classList.toggle("tm-web1", !!getComputedStyle(document.documentElement).getPropertyValue("--header-search-font").trim());
+  syncHostStyles(root);
   const resize = new ResizeObserver(entries=>{
     root.classList.toggle("tm-narrow",entries[0].contentRect.width<=700);   // two columns from ~1024 px of window, as on Mac
     placeSearch();
@@ -3076,6 +3102,7 @@ function registerView() {
     async render(root, snap) {
       for (const r of taskBodies.values()) if (hub.taskBody) updateTaskBody(r, snap);
       if (!ui || ui.root !== root) { build(root); if (!loaded) restoreCache(); paint(); }
+      else if(syncHostStyles(root))paint();
       if (ui.lang !== document.documentElement.lang) { ui.lang = document.documentElement.lang; paint(); }
       const last = snap?.feeds?.teams || 0;
       if (!loaded || last > since) {
@@ -3107,6 +3134,9 @@ let badgeTimer = null;
 export default function register(h) {
   hub = h;
   bindHub(h);
+  // Theme options apply during this event; inspect after all listeners finish.
+  window.addEventListener('hub-redraw',()=>queueMicrotask(refreshHostStyles));
+  document.addEventListener('load',e=>{if(e.target?.tagName==='LINK' && e.target.rel==='stylesheet')refreshHostStyles();},true);
   newComposer = newMessage(h, textInput);
   window.addEventListener('storage',e=>{if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
