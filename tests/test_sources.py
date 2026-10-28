@@ -1092,3 +1092,103 @@ class MediaSummary(unittest.TestCase):
                 {"type": "image", "text": "щиток"}]
         self.assertEqual(unread_digest(msgs, 3), "Привет, когда придёте? · [голосовое] · щиток")
         self.assertEqual(unread_digest([], 2), "")
+
+
+class Revoked(unittest.TestCase):
+    """26.10 (d987429): собеседник удалил ждущее сообщение («Video note 1» у Jorge Lucero висела меткой): удалены все
+    ждущие — пункт закрывается; часть — удалённое уходит из текста и медиа, пункт остаётся тем же."""
+    BOX = "wa:whatsapp:5491100000031@c.us"
+
+    def setUp(self):
+        self._run = sources.run
+        sources._WA_READ.clear(); sources._WA_TEXT.clear(); sources._WA_OPENED.clear(); sources.GONE.clear()
+
+    def tearDown(self):
+        sources.run = self._run
+        sources.OPEN = {}
+        sources.GONE.clear()
+
+    def chat(self, messages, unread=0):
+        return {"chat_id": "5491100000031@c.us", "name": "Jorge", "new": len(messages), "unread": unread,
+                "last": "2026-10-10T11:40-03:00", "out_last_t": 150, "preview": "This message was deleted",
+                "messages": messages}
+
+    def test_all_waiting_revoked_closes_the_item(self):
+        sources.OPEN = {f"{self.BOX}:V1": [self.BOX, "2026-10-10T14:40:00Z"]}
+        sources.run = fake_run({"new": [self.chat([
+            {"id": "a", "t": 100, "type": "chat", "text": "Consulto", "cached": True},          # до его ответа
+            {"id": "R1", "t": 300, "type": "revoked", "revokes": "V1", "text": "", "cached": False}])]})
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(items, [])
+        self.assertEqual(sources.GONE, {f"{self.BOX}:V1"})
+
+    def test_revoked_before_owner_reply_is_not_evidence(self):
+        sources.OPEN = {f"{self.BOX}:V1": [self.BOX, "2026-10-10T14:40:00Z"]}
+        sources.run = fake_run({"new": [self.chat([
+            {"id": "R1", "t": 100, "type": "revoked", "revokes": "V0", "text": "", "cached": False}])]})
+        sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(sources.GONE, set())
+
+    def test_part_revoked_keeps_the_item_without_the_deleted_one(self):
+        sources.OPEN = {f"{self.BOX}:V1": [self.BOX, "2026-10-10T14:40:00Z"]}
+        sources.run = fake_run({"new": [self.chat([
+            {"id": "a", "t": 200, "type": "chat", "text": "Hola, una consulta", "cached": True},
+            {"id": "R1", "t": 300, "type": "revoked", "revokes": "V1", "text": "", "cached": False}])]})
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual([i["key"] for i in items], [f"{self.BOX}:V1"])   # тот же пункт, не новый
+        self.assertEqual(items[0]["text"], "Hola, una consulta")          # без «This message was deleted»
+        self.assertNotIn("media", items[0])
+        self.assertTrue(items[0]["revoked"])
+        self.assertEqual(sources.GONE, set())
+
+    def test_tick_closes_gone_and_reposts_the_shrunk_item(self):
+        st, out = {}, []
+        k1, k2 = f"{self.BOX}:V1", "tg:7:12"
+        base = {"src": "whatsapp", "where": "Mint", "from": "Jorge", "link": "", "mention": False, "tier": "B"}
+        main.tick(st, [{**base, "key": k1, "box": self.BOX, "text": "Hola", "at": "2026-10-10T14:40:00Z",
+                        "media": [{"id": "wa:V1", "kind": "video"}]},
+                       {**base, "key": k2, "box": "tg:7", "text": "", "at": "2026-10-10T14:41:00Z",
+                        "media": [{"id": "tg:12", "kind": "video"}]}], {}, NOW, out.append)
+        out.clear()
+        main.tick(st, [{**base, "key": k1, "box": self.BOX, "text": "Hola", "at": "2026-10-10T14:40:00Z",
+                        "revoked": True}], {}, NOW, out.append, gone={k2})
+        self.assertEqual([(p["kind"], p["id"], p.get("media"), p.get("revoked")) for p in out],
+                         [("msg", k1, None, None), ("answered", k2, None, True)])
+        self.assertEqual(list(st["open"]), [k1])
+
+    def test_run_sources_hands_gone_to_the_collector_loop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "sources.json"), "w") as f:
+                json.dump({"whatsapp": {}}, f)
+
+            def fn(cfg, now):
+                self.assertEqual(sources.OPEN, {"k": ["b", "t"]})
+                sources.GONE.add("k")
+                return [], set(), []
+            saved, own = dict(sources.SOURCES), main.OWN
+            sources.SOURCES.clear(); sources.SOURCES["whatsapp"] = {"fn": fn, "every": 0}
+            main.OWN = tmp
+            try:
+                _, gone = main.run_sources({"open": {"k": ["b", "t"]}}, NOW, put=lambda p: None)
+            finally:
+                sources.SOURCES.clear(); sources.SOURCES.update(saved); main.OWN = own
+        self.assertEqual(gone, {"k"})
+
+    def test_telegram_deleted_message_of_an_open_item_closes_it(self):
+        sources.OPEN = {"tg:77:12": ["tg:77", "2026-10-10T14:40:00Z"], "tg:78:20": ["tg:78", "2026-10-10T14:40:00Z"]}
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if cmd[1] == "new":
+                return "[]"
+            if cmd[2] == "77":
+                return json.dumps({"missing": ["12"], "waiting": []})
+            return json.dumps({"missing": ["20"], "waiting": ["19"]})   # удалено последнее, раньше ждёт ещё одно
+        sources.run = run
+        sources._TG_GONE.clear()
+        sources.telegram({}, NOW)
+        self.assertEqual(sources.GONE, {"tg:77:12"})
+        self.assertEqual([c[1:] for c in calls[1:]], [["gone", "77", "12"], ["gone", "78", "20"]])
+        sources.telegram({}, NOW)
+        self.assertEqual(len(calls), 4)   # проверка — не чаще раза в WA_READ_AGAIN на пункт

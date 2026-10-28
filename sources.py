@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 
 SOURCES = {}
 TIMEOUT = 90
+OPEN = {}      # открытые пункты сборщика (ключ -> [box, at]): кладёт run_sources перед чтением каналов
+GONE = set()   # ключи открытых пунктов, все ждущие сообщения которых собеседник удалил: сборщик их закрывает (d987429)
 
 
 def source(name, every=120):
@@ -193,6 +195,14 @@ def team_wait(r):
                 and not m.get("out") and (m.get("t") or after + 1) > after])
 
 
+def revoked(r):
+    """Сообщения, которые собеседник удалил после последнего ответа владельца (26.10, d987429): в хранилище вкладки
+    у удалённого своя запись type=revoked, а `wa new` кладёт в неё id исходного (revokes). [(id исходного, t)]."""
+    after = r.get("out_last_t") or 0
+    return [(m["revokes"], m.get("t") or 0) for m in r.get("messages") or [] if m.get("type") == "revoked"
+            and m.get("revokes") and (m.get("t") or after + 1) > after]
+
+
 def unread_digest(messages, n, limit=600, preview="", authors=False):
     """Резюме непрочитанного: тексты последних n входящих по порядку, медиа без подписи — словом («голосовое»,
     «фото»). Текст есть только у сообщений из сохранённой копии треда; у самого свежего без копии — строка из
@@ -281,6 +291,11 @@ def whatsapp(cfg, now):
         for r in rows:
             cid, text = r.get("chat_id") or "", clean_preview(r.get("preview") or "")
             n = r.get("unread") or 0
+            gone = revoked(r)
+            if gone:   # удалённое снимает счётчик непрочитанных; что из ждущего осталось — по его последнему ответу
+                n = max(n, team_wait(r))
+            box = f"wa:{ch}:{cid}"
+            dead = [f"{box}:{x}" for x, _t in gone]   # пункт удалённого: ничего не осталось — закрыть
             if not n and cid in _WA_OPENED and (r.get("out_last_t") or 0) < max(
                     [m.get("t") or 0 for m in r.get("messages") or []] or [0]):
                 n = _WA_OPENED[cid]   # прочитали мы сами (текст, картинки), а не он — сообщение всё ещё ждёт ответа
@@ -289,6 +304,7 @@ def whatsapp(cfg, now):
             if whole:
                 n = max(n, team_wait(r))
             if not cid or not n:
+                GONE.update(k for k in dead if k in OPEN)
                 continue   # всё прочитано или отвечено — внимания не требует
             wait = waiting({**r, "unread": n})
             def blind(ms):   # текстовые без текста; у последнего хватает строки из списка чатов
@@ -310,7 +326,11 @@ def whatsapp(cfg, now):
                       flush=True)
                 continue
             if r.get("messages") and not wait:
+                GONE.update(k for k in dead if k in OPEN)
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
+            latest = max(r.get("messages") or [{}], key=lambda m: m.get("t") or 0)
+            if gone and latest.get("type") == "revoked":
+                text = ""   # строка списка чатов — «This message was deleted», не текст ждущего
             voice = wa_voice(cfg, ch, cid, f"{ch}:{cid}:{(wait[-1].get('id') if wait else '') or r.get('last')}", wait)
             if voice:   # 14.10: расшифровка голосового — текст сообщения (по ней и срочность, и резюме); 24.10: «🎤 …»,
                 # не скачалось — так и пишем (а не «[голосовое]»: владелец решил бы, что расшифровки просто нет)
@@ -329,13 +349,17 @@ def whatsapp(cfg, now):
             group = cid.endswith("@g.us")
             t = tier(text)
             if t == "C" or (group and t != "A" and not whole):
+                GONE.update(k for k in dead if k in OPEN)
                 continue
             last = datetime.fromisoformat(r["last"]) if r.get("last") else now
-            box = f"wa:{ch}:{cid}"
             digits = re.sub(r"\D", "", cid.split("@")[0])
             boxes.add(box)
             # ключ — последнее ждущее сообщение: то же сообщение второй раз карточкой не станет
             mark = (wait[-1].get("id") if wait else "") or r.get("last")
+            # удалено последнее из ждущих, а его пункт открыт — пункт тот же, остальное уходит в него (не новый ключ)
+            kept = [x for x, at in gone if f"{box}:{x}" in OPEN and at >= max([m.get("t") or 0 for m in wait] or [0])]
+            if kept:
+                mark = kept[-1]
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
             # 26.10 (d985909): фото, видео, видео-заметки, документы — из хранилища вкладки, чат не открывается;
             # чего там нет — фото и стикеры, как раньше, из открытого чата
@@ -368,7 +392,8 @@ def whatsapp(cfg, now):
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
                           "from": r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
-                          "mention": False, **({"team": True} if team else {}), "ref": ref})
+                          "mention": False, **({"team": True} if team else {}), **({"revoked": True} if gone else {}),
+                          "ref": ref})
     if errors and not ok:
         raise OSError("; ".join(errors))
     return items, boxes, errors
@@ -913,7 +938,33 @@ def telegram(cfg, now):
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
                       "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
                               **contact_of(r.get("name"), text, group, wait)}})
+    tg_gone(cmd, boxes)
     return items, boxes, []
+
+
+_TG_GONE = {}   # ключ открытого пункта -> когда проверяли, не удалено ли его сообщение
+
+
+def tg_gone(cmd, boxes):
+    """26.10 (d987429): собеседник удалил ждущее сообщение — в Telegram оно пропадает целиком, непрочитанное снимается,
+    и чат уходит из `tgnew new`; пункт висел бы, пока владелец не ответит. Открытый пункт, чей чат больше не ждёт:
+    его сообщения нет (`tgnew gone`) и после ответа владельца не осталось ни одного входящего — пункт в GONE. Осталось
+    что-то — пункт не трогаем. Раз в WA_READ_AGAIN на пункт: каждый вызов — вход в Telegram."""
+    for k, (box, _at) in list(OPEN.items()):
+        if not str(box).startswith("tg:") or box in boxes or not k.startswith(box + ":"):
+            continue
+        mark = k[len(box) + 1:]
+        if not mark.isdigit() or time.time() - _TG_GONE.get(k, 0) < WA_READ_AGAIN:
+            continue
+        _TG_GONE[k] = time.time()
+        try:
+            got = json.loads(run([cmd, "gone", box[3:], mark], timeout=60) or "{}")
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        if mark in (got.get("missing") or []) and not got.get("waiting"):
+            GONE.add(k)
+    for k in [k for k in _TG_GONE if k not in OPEN]:
+        del _TG_GONE[k]
 
 
 # --- тело письма (12.10: «показана только тема — нет тела письма»), без цитат предыдущих писем --------------------

@@ -572,9 +572,10 @@ def msg_post(i, done, rules):
                if k in i}}
 
 
-def tick(st, items, owner_last, now, put=post, reacted=()):
+def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
     """Новое — в канал (по возрастанию времени), отвеченное владельцем (ответ в той же переписке позже или его
-    реакция на само сообщение) — пометить. Меняет st."""
+    реакция на само сообщение) — пометить; пункт, все ждущие сообщения которого собеседник удалил (gone, d987429), —
+    закрыть с revoked: это не ответ владельца. Меняет st."""
     seen = set(st.get("seen") or [])
     opened = st.setdefault("open", {})   # key → [box, at]: запощено, ещё не отвечено
     seen.update(opened)  # a bounded recent-ID cache never forgets retained work
@@ -596,7 +597,9 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
             # 26.10: и картинку, которую скачали позже (было «📎 … не скачалась» или ссылка) — тоже заново
             was = texts.get(i["key"])
             got = sorted(str(x.get("id")) for x in i.get("media") or [])
-            better = (i.get("text") and i["text"] != was) or (got and got != pics.get(i["key"], []))
+            # 26.10 (d987429): и когда собеседник удалил часть ждущего — убрать удалённое из текста и медиа
+            better = (i.get("text") and i["text"] != was) or (got and got != pics.get(i["key"], [])) \
+                or (i.get("revoked") and (got != pics.get(i["key"], []) or (i.get("text") or "") != was))
             if i["key"] in opened and better \
                     and not owner_last.get(i.get("box") or "", "") > i["at"]  \
                     and was is not None:
@@ -637,6 +640,9 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
         if owner_last.get(box, "") > at or k in reacted:
             put({"kind": "answered", "id": k})
             del opened[k]
+        elif k in gone:   # ждущее удалил сам собеседник — отвечать не на что
+            put({"kind": "answered", "id": k, "revoked": True})
+            del opened[k]
     newest = {}   # в переписке открыта одна карточка — последняя (пункты, оставшиеся до правки 16.10, закрываются сами)
     for k, (box, at) in opened.items():
         if str(box).startswith(("wa:", "mail:", "tg:")) and at >= newest.get(box, ("", ""))[1]:
@@ -671,15 +677,18 @@ def tick(st, items, owner_last, now, put=post, reacted=()):
 
 def run_sources(st, now, put=post, between=None):
     """Остальные каналы (sources.py), каждый сам по себе: сбой WhatsApp не мешает почте и Teams. Включены те, что есть
-    в sources.json. Возвращает (items, cleared); cleared оставлен для совместимости и всегда пуст:
-    исчезновение из списка непрочитанных не доказывает ответ."""
+    в sources.json. Возвращает (items, gone): gone — ключи открытых пунктов, все ждущие сообщения которых собеседник
+    удалил (источник это видит сам, d987429). Исчезновение из списка непрочитанных не доказывает ни ответа, ни
+    удаления — такие пункты остаются открытыми."""
     try:
         with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
             cfg = json.load(f)
     except (OSError, ValueError):
         return [], set()
     state = st.setdefault("src", {})
-    items, cleared = [], set()
+    items = []
+    sources.OPEN = dict(st.get("open") or {})
+    sources.GONE.clear()
     for name, src in sources.SOURCES.items():
         c = cfg.get(name)
         s = state.setdefault(name, {"fails": 0, "at": 0, "boxes": []})
@@ -704,7 +713,7 @@ def run_sources(st, now, put=post, between=None):
         # Чтение, архивирование, окно поиска и перезапуск меняют список непрочитанных.
         # Ни одно из них не подтверждает отправку ответа владельцем.
         s["boxes"] = sorted(boxes | (set(s["boxes"]) if errors else set()))
-    return items, cleared
+    return items, set(sources.GONE)
 
 
 def backfill_refs(st, reader, now, put=post):
@@ -1950,14 +1959,14 @@ def run():
             if queue:
                 send_replies(st, reader, queue)
         between()
-        extra, _cleared = run_sources(st, now, between=between)
+        extra, gone = run_sources(st, now, between=between)
         items += extra
         if teams_ok and st.get("fails", 0) >= FAIL_AFTER:
             post({"kind": "status", "ok": True, "at": iso(now)})
         if teams_ok:
             st["fails"] = 0
         prev_ok = st.get("last_ok")
-        fresh = tick(st, items, owner_last, now, reacted=reacted)
+        fresh = tick(st, items, owner_last, now, reacted=reacted, gone=gone)
         if not teams_ok:
             st["last_ok"] = prev_ok   # окно чтения Teams не сдвигаем, пока он не читался
         elif reader.last_in and (reader.last_in != st.get("last_in")
