@@ -4026,6 +4026,47 @@ class InboxWebAcceptance(PageInChrome):
             self.assertEqual(got['icon'],[20,20],(width,got));self.assertIn('/icons/edit.svg',got['mask']);self.assertFalse(got['sprite'],(width,got));self.assertEqual(got['overflow'],0,(width,got))
 
 
+    def test_copy_icons_follow_values_in_draft_why_and_verdict(self):
+        # hub-ios kit/copy-value.md (как web-look 0.3.73): значок «скопировать» за значением в разборе, пояснении над полем,
+        # черновике и его «Почему»; в ссылке — нет; текст тот же; нажатие кладёт значение в буфер и на 1,5 с даёт галочку
+        self.seed_inbox(start_editing=False,open_editor=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        draft='Bundle ID app.agentshub.client.proto, SKU hub-proto. https://example.test/m800001 ~/.claude/artifacts/hub/pinamar/smoke-run-2026-10-25.log'
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text=draft+'\n---\nПочему: Влито 66cb2db0, лог ~/.claude/x.log')
+        self.ev('ext.post',None,plugin='proactivity',channel='session',sender='hub',text=json.dumps({'kind':'item','post':post,'s':'draft','why':'Задача d837401 ждёт ответа.'}))
+        values="(sel=>[...document.querySelectorAll(sel+' .tm-copy-at')].map(n=>((n.parentNode.previousSibling?.textContent||'')+n.previousSibling.textContent).split(/\\s/).at(-1)))"
+        got=self.page({'until':"!!document.querySelector('.tm-guidance .tm-copy-at')&&!!document.querySelector('.tm-verdict .tm-copy-at')"},
+                      {'eval':"(()=>{const v="+values+";return {guidance:v('.tm-guidance'),verdict:v('.tm-verdict'),labels:[...document.querySelectorAll('.tm-copy-value')].map(b=>b.getAttribute('aria-label'))}})()"})
+        self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
+        self.assertEqual(got['guidance'],['66cb2db0','~/.claude/x.log'],got)
+        self.assertEqual(got['verdict'],['d837401'],got)
+        self.assertEqual(set(got['labels']),{'Копировать'},got)
+        for width in (390,1280):
+            got=self.page({'viewport':{'width':width,'height':844}},{'eval':"(()=>{const b=document.querySelector('.tm-verdict .tm-copy-value'),i=b.firstElementChild.getBoundingClientRect(),v=document.querySelector('.tm-verdict'),"
+                           "lh=parseFloat(getComputedStyle(v).lineHeight)||parseFloat(getComputedStyle(v).fontSize)*1.4,fs=parseFloat(getComputedStyle(v).fontSize);"
+                           "return {icon:i.width,square:Math.abs(i.width-i.height)<0.5,fs,lines:Math.round(v.getBoundingClientRect().height/lh),mask:getComputedStyle(b.firstElementChild).maskImage,select:getComputedStyle(b.parentNode).userSelect,bg:getComputedStyle(b).backgroundColor}})()"})[-1]['eval']
+            self.assertTrue(got['square'],got);self.assertGreaterEqual(got['icon'],got['fs'],got);self.assertLessEqual(got['icon'],got['fs']*1.3,got)
+            self.assertEqual(got['lines'],1,('значок не раздвигает строку и не уходит на вторую',got));self.assertIn('copy.svg',got['mask'])
+            self.assertEqual(got['select'],'none',got);self.assertEqual(got['bg'],'rgba(0, 0, 0, 0)',got)
+        got=self.page({'eval':"(async()=>{navigator.clipboard.writeText=async t=>{window.__copied=t};document.querySelector('.tm-verdict .tm-copy-value').click();await new Promise(r=>setTimeout(r,50));"
+                       "const now=document.querySelector('.tm-verdict .tm-copy-value');return {copied:window.__copied,state:now.dataset.copied,label:now.getAttribute('aria-label'),mask:getComputedStyle(now.firstElementChild).maskImage}})()"})[-1]['eval']
+        self.assertEqual(got['copied'],'d837401',got);self.assertEqual(got['state'],'true',got)
+        self.assertEqual(got['label'],'Скопировано',got);self.assertIn('check.svg',got['mask'])
+        got=self.page({'until':"document.querySelector('.tm-verdict .tm-copy-value').dataset.copied==='false'"})
+        self.assertTrue(got[-1]['until'],got)
+        # поле закрыто — черновик карточкой: значки в тексте и «Почему», текст тот же, в ссылке — нет
+        got=self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'},{'until':"!!document.querySelector('.tm-detail .tm-draft .tm-draft-text .tm-copy-at')"},
+                      {'eval':"(()=>{const v="+values+",t=document.querySelector('.tm-detail .tm-draft .tm-draft-text');return {draft:v('.tm-detail .tm-draft .tm-draft-text'),why:v('.tm-detail .tm-draft-why'),text:t.textContent,link:t.querySelector('a').querySelectorAll('.tm-copy-at').length}})()"})
+        self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
+        self.assertEqual(got['draft'],['app.agentshub.client.proto','hub-proto','~/.claude/artifacts/hub/pinamar/smoke-run-2026-10-25.log'],got)
+        self.assertEqual(got['why'],['66cb2db0','~/.claude/x.log'],got)
+        self.assertEqual(got['text'],draft,'значки не добавляют текста');self.assertEqual(got['link'],0,got)
+        # длинный путь на телефоне переносится по сегментам; значок — на строке с последним сегментом, не один
+        for width in (360,390):
+            got=self.page({'viewport':{'width':width,'height':844}},{'eval':"(()=>{const ats=[...document.querySelectorAll('.tm-detail .tm-draft .tm-draft-text .tm-copy-at')],t=ats.at(-1),tie=t.parentNode,r=document.createRange();r.selectNodeContents(tie.firstChild);"
+                           "const tail=r.getBoundingClientRect(),icon=t.getBoundingClientRect(),box=document.querySelector('.tm-detail .tm-draft .tm-draft-text').getBoundingClientRect();return {sameLine:Math.abs((tail.top+tail.bottom)/2-(icon.top+icon.bottom)/2)<6,inside:icon.right<=box.right+1,tail:tie.firstChild.textContent}})()"})[-1]['eval']
+            self.assertTrue(got['sameLine'],(width,got));self.assertTrue(got['inside'],(width,got));self.assertEqual(got['tail'],'25.log',got)
+
 def load_tests(loader, suite, pattern):
     suite = unittest.TestSuite(InboxWebAcceptance(n) for n in InboxWebAcceptance.__dict__ if n.startswith("test_"))
     suite.addTests(loader.loadTestsFromTestCase(SpoolFixtureAcceptance))

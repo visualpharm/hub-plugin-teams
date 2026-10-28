@@ -233,6 +233,21 @@
 .tm-icon-warning { --tm-icon: url("./icons/warning.svg"); }
 .tm-icon-double-tick { --tm-icon: url("./icons/double-tick.svg"); }
 .tm-icon-copy { --tm-icon: url("./icons/copy.svg"); }
+.tm-icon-check { --tm-icon: url("./icons/check.svg"); }
+/* Значок «скопировать» сразу за значением в разборе, пояснении, черновике и предложении (hub-ios kit/copy-value.md, как
+   web-look 0.3.73): word joiner перед значком — на строку один не уходит; в выделение и буфер не попадает; глиф чуть
+   крупнее строчных, по центру строки; зазор слева, знак препинания прилегает справа; строку не раздвигает; галочка
+   того же размера. */
+.tm-copy-tie { white-space: nowrap; }
+.tm-copy-at { -webkit-user-select: none; user-select: none; white-space: nowrap; }
+.tm-copy-at::before { content: "\2060"; }
+.tm-copy-value { position: relative; display: inline-flex; vertical-align: middle; min-width: 0; min-height: 0; margin-block: -4px; margin-inline: 2px -2px; padding: 0; border: 0; border-radius: 4px; background: none; box-shadow: none; color: var(--muted-foreground); font: inherit; line-height: 1; cursor: pointer; }
+.tm-copy-value::after { content: ""; position: absolute; inset: -4px 0; }
+.tm-copy-value > .tm-native-icon { width: 1.15em; height: 1.15em; }
+.tm-copy-value:is(:hover, [data-copied="true"]) { color: var(--foreground); background: none; }
+.tm-copy-value:focus-visible { outline: 2px solid var(--ring, currentColor); outline-offset: 0; }
+.tm-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.tm-copy-field { position: fixed; inset-inline-start: -100vw; inset-block-start: 0; width: 1px; height: 1px; opacity: 0; }
 .tm-icon-reply { --tm-icon: url("./icons/reply.svg"); }
 .tm-sent-chat.tm-mine-fail > .tm-draft-text { background: #b42318; }
 .tm-sent-chat.tm-mine-fail > .tm-draft-by { color: var(--foreground); }

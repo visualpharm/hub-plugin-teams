@@ -9,6 +9,7 @@
 import { stamp } from "/static/js/dom.js";
 import { T, bindHub } from "./ui-text.js";
 import { replyText } from "./reply-text.js";
+import { decorateValues, valueElement } from "./copy-values.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
 import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
@@ -1980,7 +1981,8 @@ function sharedReply(m, st) {
       st.proposal.dataset.sig = sig; st.proposal.replaceChildren();
       if (p) {
         const body = el("div", "tm-proposal-body");
-        body.append(replyText(el,p.text,"tm-proposed-text","p"), el("p", null, p.context), el("p", null, p.next_action));
+        // значки «скопировать» у значений — как в нативе (InboxInstruction: предложение и контекст)
+        body.append(decorateValues(el, replyText(el,p.text,"tm-proposed-text","p")), valueElement(el, "p", null, p.context), valueElement(el, "p", null, p.next_action));
         st.proposal.append(body, button("Apply draft", "", () => {
             try { const applied = state.apply(); st.text = withSignature(applied.text,m); saveDraft(m,st.text); st.box.set({text:replyBody(st.text,m)}); st.error = ""; }
             catch (e) { st.error = e.message; }
@@ -2175,9 +2177,9 @@ function draftBlock(m, r) {
   by.append(stamp(r.ts));
   const { text, why: note, carried } = splitDraft(r.text), moved = (carried || hubDrafts(m).carried) && !!text;
   const why = moved ? carriedWhy(note) : note;
-  d.append(by, replyText(el,text));
+  d.append(by, decorateValues(el, replyText(el,text)));
   if (moved && !quiet) d.append(el("div", "tm-draft-why tm-draft-carried", carriedLine()));
-  if (note && !quiet) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
+  if (note && !quiet) d.append(valueElement(el, "div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
@@ -2517,7 +2519,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   }
   // разбор proactivity — одной строкой вплотную над самой старой показанной репликой (у последнего сообщения, у которого он есть)
   const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post))).find(Boolean);
-  if (analysed) history.append(el("div", "tm-verdict", analysed));
+  if (analysed) history.append(valueElement(el, "div", "tm-verdict", analysed));
   if (h?.revealed && h.items) {
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
     const current=ms.map(m=>flat(m.text)).join(" ");
@@ -2586,7 +2588,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   // пояснение относится к прежнему черновику: пока хаб готовит новый, его не показываем (ревью ui-expert m572303)
   const guidance = composeFor && !draftStale(composeFor) && composing.get(composeFor.id)?.why;
   if (guidance) {
-    const explanation=el("div","tm-guidance");explanation.append(el("div",null,whyLine(guidance)));box.append(explanation);
+    const explanation=el("div","tm-guidance");explanation.append(valueElement(el,"div",null,whyLine(guidance)));box.append(explanation);
   }
   const suggestion = open.length ? suggestedReaction(open.includes(last) ? last : open[open.length - 1]) : null;
   if (suggestion) box.append(suggestion);

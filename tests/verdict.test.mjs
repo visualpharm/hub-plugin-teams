@@ -18,6 +18,6 @@ assert.equal(mergeVerdict(undefined, { why: 5 }), undefined);
 // показ: строка есть только в открытой переписке (detail), над историей, и берётся у последнего сообщения с разбором
 assert.match(src, /const analysed = detail && \[\.\.\.ms\]\.reverse\(\)\.map\(\(m\) => verdictLine\(verdicts\.get\(m\.post\)\)\)\.find\(Boolean\);/);
 // внутри прижатого вниз блока истории, перед подгруженными и текущими репликами
-assert.ok(src.indexOf('history.append(el("div", "tm-verdict", analysed))') > src.indexOf('const history = el("div", "tm-history")'));
+assert.ok(src.indexOf('history.append(valueElement(el, "div", "tm-verdict", analysed))') > src.indexOf('const history = el("div", "tm-history")'));
 assert.match(readFileSync(new URL("../web/teams.css", import.meta.url), "utf8"), /\.tm-verdict \{/);
 console.log("verdict ok");

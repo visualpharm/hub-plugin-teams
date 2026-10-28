@@ -19,3 +19,5 @@ Media list glyphs image, mic, video and doc reuse the unchanged native0597a826 I
 Edit (compose) is the unchanged native icon-edit asset, the «New message» button. The shared page's own icon sprite has no «edit» symbol on every core, so the plugin carries its own mask instead of referencing `#i-edit`.
 
 Idea is the unchanged native0597a826 icon-idea asset: the field's «Private draft instruction» mode toggle. The «Draft» action keeps the sparkles, so one action has one glyph.
+
+Check is the unchanged native icon-check asset (hub-ios Resources/Assets.xcassets): the copied state of the inline copy icon after values, the same size as the copy glyph it replaces for 1.5 s.
