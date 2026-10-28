@@ -10,6 +10,41 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_native_reply_footer_uses_the_advertised_leading_slot(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({'kind':'config','inbox_protocol':{'version':1},'signature':'🤖 _Hub, proofread by Ivan_'})
+        self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm',
+                   'from':'Review colleague','text':'Please check the footer.','reply':True,'sign':True,
+                   'at':datetime.now(timezone.utc).isoformat(),'inbox':self.token})
+        self.page({'eval':"dispatchEvent(new Event('online'));true"},
+                  {'until':"document.querySelector('.tm-line .tm-text')?.textContent.includes('Please check the footer.')"},
+                  {'eval':"[...document.querySelectorAll('.tm-draft-options button')].find(b=>b.textContent==='Закрыть ответ')?.click();document.documentElement.style.setProperty('--native-font-13','13px');document.querySelector('.tm-container').classList.add('tm-core-native');true"},
+                  {'eval':"document.querySelector('[aria-label=\"Ответить: Review colleague\"]').click();true"},
+                  {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
+        # The host supplies composerLeading, not the historical composerActions.
+        # Signature and Discard belong in that supported slot, not a hidden menu.
+        got=self.page({'eval':"(()=>{const f=document.querySelector('.tm-shared-compose form'),s=f.querySelector('.tm-signature'),d=f.querySelector('.tm-discard');return {signature:s?.textContent,hidden:s?.hidden,discard:!!d,options:f.querySelectorAll('.tm-send-options').length,draft:f.querySelector('textarea').value}})()"})[-1]['eval']
+        self.assertEqual(got.get('signature'),'🤖 Hub, proofread by Ivan',got)
+        self.assertFalse(got['hidden'],got)
+        self.assertTrue(got['discard'],got)
+        self.assertEqual(got['options'],1,got)
+        self.assertEqual(got['draft'],'',got)
+        self.assertEqual(self.non_history_actions(),[])
+        for width in (360,390,834,1240):
+            measured=self.page({'viewport':{'width':width,'height':780}},
+                {'eval':"(()=>{const f=document.querySelector('.tm-core-leading'),s=f.querySelector('.tm-signature'),a=f.querySelector('.bar > .send,.bar > .mic'),t=f.querySelector('textarea'),r=n=>n.getBoundingClientRect();return {signatureBottom:r(s).bottom,actionTop:r(a).top,textBottom:r(t).bottom,signatureTop:r(s).top,clipped:s.scrollWidth>s.clientWidth+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+            self.assertLessEqual(measured['signatureBottom'],measured['actionTop']+1,(width,measured))
+            self.assertLessEqual(measured['textBottom'],measured['signatureTop']+1,(width,measured))
+            self.assertFalse(measured['clipped'],(width,measured))
+            self.assertEqual(measured['overflow'],0,(width,measured))
+        self.page({'eval':"(()=>{const t=document.querySelector('.tm-shared-compose textarea');t.value='Local reply only';t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Local reply only')
+        self.acknowledge(self.queued('draft_control'))
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-core-leading .tm-discard')?.disabled===false"})[-1]['until'])
+        self.page({'eval':"document.querySelector('.tm-core-leading .tm-discard').click();true"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'')
+        self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
+
     def test_list_media_matches_native_labels_icons_and_thumbnails(self):
         self.seed_inbox(start_editing=False)
         cases=[('Photo',{'kind':'image','url':'/api/file?path=photo.png'},''),
@@ -2778,10 +2813,10 @@ class InboxWebAcceptance(PageInChrome):
     def test_discard_clears_only_local_draft_and_stays_cleared_after_reload(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Discard this local reply')
         self.page({'until':"document.querySelector('.tm-shared-compose .composer [aria-label=\"Удалить черновик\"]')?.disabled===false"},   # the editor control settles first
-                  {'tapSelector':'.tm-shared-compose .composer [aria-label="Удалить черновик"]'})
+                  {'eval':"document.querySelector('.tm-shared-compose .composer .tm-discard').click();true"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'')
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
-        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'tapSelector':'.tm-person'})
+        self.page({'go':'about:blank'},{'until':"location.href==='about:blank' && document.readyState==='complete'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'eval':"document.querySelector('.tm-person').click();true"})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]['eval'],'')
         self.edit('New reply after discard')
         got=self.page({'viewport':{'width':402,'height':874}},{'eval':"(()=>{const b=document.querySelector('.tm-discard'),r=b.getBoundingClientRect();return {visible:!b.hidden,width:r.width,height:r.height,inComposer:!!b.closest('.composer'),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
@@ -3748,7 +3783,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-1]["eval"])
         self.feed({"kind": "sent", "id": "source-a", "rid": q["rid"], "submitted_inbox": self.token,
                    "inbox": {**self.token, "held": False, "holder": None, "edit_version": 2}, "receipt": {"id": "synthetic-confirmed-receipt"}})
-        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"tapSelector": "[aria-label='Sent conversations']"},
+        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"eval": "document.querySelector('[aria-label=\"Sent conversations\"]').click();true"},
                         {"until": "!!document.querySelector('.tm-person')"}, {"eval": "document.querySelector('.tm-person').click();true"},
                         {"until": "!!document.querySelector('.tm-mine-ok')"},
                         {"eval": "document.querySelector('.tm-mine-ok')?.textContent"})

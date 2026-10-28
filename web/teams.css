@@ -499,18 +499,18 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-send-weekends input { width:18px; height:18px; margin:0; flex-shrink:0; }
 .tm-weekend-feedback { margin:4px 8px 8px; font-size:16px; line-height:1.4; text-wrap:pretty; }
 .tm-send-date { width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 8px; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):not(.tm-core-leading):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "discard entry actions options" "feedback feedback feedback feedback" "error error error error"; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):not(.tm-core-leading):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "discard entry attach actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) .tm-send-leading > .tm-discard { grid-area: discard; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-trailing:not(.rec) > .composer-actions > :nth-last-child(2) { grid-area: actions; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .tm-send-options { grid-area: options; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(.tm-send-options) {
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):not(.tm-core-leading):has(.tm-send-options) {
   grid-template-columns: auto minmax(0,1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "entry entry entry entry" "discard . actions options" "feedback feedback feedback feedback" "error error error error";
 }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) {
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):not(.tm-core-leading):has(> .attach:not([hidden])):has(.tm-send-options) {
   grid-template-columns: auto minmax(0,1fr) 44px 44px 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" "discard . attach actions options" "feedback feedback feedback feedback feedback" "error error error error error";
 }
@@ -556,11 +556,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 
 /* Send is a labelled capsule beside its menu chevron, as in the native composer. */
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) { grid-template-columns: auto minmax(0, 1fr) auto; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) auto 44px; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px auto 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):not(.tm-core-leading):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) auto 44px; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):not(.tm-core-leading):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px auto 44px; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):not(.tm-core-leading):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px auto 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "entry entry entry entry" ". discard actions options" "feedback feedback feedback feedback" "error error error error"; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px 44px auto 44px;
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):not(.tm-core-leading):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: minmax(0, 1fr) 44px 44px auto 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" ". attach discard actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send { width: auto; min-width: 44px; padding: 0 14px 0 10px; border: 0; border-radius: 22px; gap: 6px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send[data-label]::after { content: attr(data-label); }
@@ -603,6 +603,28 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-signature { flex: 1; min-width: 0; font-style: italic; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-signature[hidden] { display: none; }
 .tm-native-footer .tm-discard { flex: none; margin-left: auto; }
+/* Shared-core leading slot: the whole signature is readable above the actions,
+   as in the native reply field. The fork's composer-actions layout is unchanged. */
+.tm-core-native .tm-shared-compose .tm-to-field > form.composer.tm-core-leading:not(.rec) {
+  grid-template-columns: auto minmax(0,1fr);
+  grid-template-areas: "reply reply" "pending pending" "entry entry" "attach actions" "error error";
+  grid-template-rows: auto;
+}
+.tm-core-native .tm-core-leading > .prompt { grid-area: entry; }
+.tm-core-native .tm-core-leading > .pending { grid-area: pending; }
+.tm-core-native .tm-core-leading > .reply-bar { grid-area: reply; }
+.tm-core-native .tm-core-leading > .attach { grid-area: attach; }
+.tm-core-native .tm-shared-compose form.composer.tm-core-leading:not(.rec) > .bar:not(.reply-bar) {
+  grid-area: actions; display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 0 2px; align-items: center;
+}
+.tm-core-native .tm-core-leading .tm-native-footer { display: contents; }
+.tm-core-native .tm-core-leading .tm-signature {
+  grid-column: 1 / -1; grid-row: 1; white-space: normal; overflow: visible; padding-block: 6px;
+}
+.tm-core-native .tm-core-leading .tm-discard { grid-column: 1; grid-row: 2; justify-self: end; }
+.tm-core-native .tm-core-leading .tm-send-options { grid-column: 3; grid-row: 2; }
+.tm-core-native .tm-core-leading > .bar > .send, .tm-core-native .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
+.tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
 /* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» (ревью ui-expert m572303, п. 3) */
 .tm-shared-compose form.composer > .composer-actions:has(.tm-native-footer) > .spacer { display: none; }
 @media (max-width: 899px) {

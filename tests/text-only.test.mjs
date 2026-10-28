@@ -58,6 +58,18 @@ s = stub(""); make({ capabilities: {}, input: () => s.box })({ text: "" });
 assert.deepEqual(s.calls, [], "пустой текст — поле не трогаем");
 make({ capabilities: {}, input: () => ({ node: field().node }) })({ text: "x" });   // старое ядро без set/draft — не падает
 
+// The shared core does not forward onChange: actual input reaches the plugin
+// exactly once; a fork that owns this callback must not get a second listener.
+for (const [capabilities, count] of [[{composerLeading:1},1],[{composerLeading:1,composerActions:1},0]]) {
+  const changes=[], listeners=[];
+  const textarea={value:'Owner edit',addEventListener:(type,fn)=>listeners.push([type,fn])};
+  const node={querySelector:()=>textarea};
+  make({capabilities,input:()=>({node})})({onChange:text=>changes.push(text)});
+  assert.equal(listeners.length,count);
+  for (const [type,fn] of listeners) { assert.equal(type,'input'); fn(); }
+  assert.deepEqual(changes,count ? ['Owner edit'] : []);
+}
+
 // все текстовые поля плагина идут через textInput
 assert.ok(src.includes('st.box = textInput({ key: "reply:"'));
 assert.ok(src.includes('st.instructBox = textInput({ key: "instruction:"'));
