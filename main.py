@@ -1681,7 +1681,15 @@ def thread_refresh(st, reader, owner_last, put=post, now=None, teams_ok=True):
         LAST_OUT[box] = max(LAST_OUT.get(box, 0), float(t or 0))
     for box, at in (owner_last or {}).items():
         LAST_OUT[box] = max(LAST_OUT.get(box, 0), _unix(at))
-    w = st.get("thread_watch") or {}
+    if "thread_watch" not in st:   # первый круг после обновления: переписки, открытые владельцем за сутки (hist)
+        w = st["thread_watch"] = {}
+        for skey, t in sorted((st.get("hist") or {}).items(), key=lambda kv: kv[1]):
+            key, _, rest = skey.partition("|")
+            box = thread_box((st.get("refs") or {}).get(key))
+            if box and rest == "|" and now - t <= THREAD_WATCH:
+                # что ему показали, не знаем — ждём только исходящего позже нынешнего
+                w[box] = {"key": key, "since": t, "at": t, "fp": None, "tries": 0, "out": LAST_OUT.get(box, 0)}
+    w = st["thread_watch"]
     for box in list(w):
         x = w[box]
         if now - x.get("since", 0) > THREAD_WATCH:

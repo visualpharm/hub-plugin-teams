@@ -133,6 +133,16 @@ class ThreadRefresh(unittest.TestCase):
         self.assertEqual(len(self.threads()), 2)
         self.assertEqual(self.threads()[-1]["items"][-1]["text"], "ответ")
 
+    def test_conversations_opened_before_the_update_are_watched_from_now_on(self):
+        self.st["hist"] = {f"{KEY}||": T0, f"{KEY}||datos": T0, "чужой||": T0}
+        sources.OUT[BOX] = T0 - 600   # ответ, который он уже видел
+        main.thread_refresh(self.st, R(), {}, self.out.append, now=T0 + main.THREAD_REFRESH)
+        self.assertEqual(self.out, [])
+        self.assertEqual(list(self.st["thread_watch"]), [BOX])
+        self.reply_elsewhere(T0 + main.THREAD_REFRESH + 10)
+        main.thread_refresh(self.st, R(), {}, self.out.append, now=T0 + main.THREAD_REFRESH + 60)
+        self.assertEqual(self.threads()[-1]["items"][-1]["text"], "Te paso los datos")
+
     def test_sources_record_last_outgoing(self):
         real = sources.run
         rows = [{"chat_id": "5491100000000@c.us", "name": "Финка", "unread": 0, "out_last_t": 1234,
