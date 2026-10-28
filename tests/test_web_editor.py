@@ -10,6 +10,42 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def test_quick_draft_recovery_survives_shared_button_and_files_only(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        state = "[...document.querySelectorAll('.tm-quick-trigger')].map(n=>({managed:n.classList.contains('tm-quick-managed'),saved:n.classList.contains('tm-quick-has-draft'),label:n.getAttribute('aria-label')}))"
+        initial = self.page({'eval':state})[-1]['eval']
+        self.assertTrue(initial)
+        self.assertTrue(all(n['managed'] and not n['saved'] for n in initial), initial)
+        self.page({'eval':"localStorage.setItem('hub.inbox.quick.v1:hub:files',JSON.stringify([{path:'synthetic/keep.pdf',name:'keep.pdf'}]));dispatchEvent(new StorageEvent('storage',{key:'hub.inbox.quick.v1:hub:files'}));true"})
+        saved = self.page({'eval':state})[-1]['eval']
+        self.assertTrue(all(n['saved'] for n in saved), saved)
+        self.page({'eval':"document.querySelector('.tm-quick-trigger').click();true"},
+                  {'until':"!!document.querySelector('.tm-quick[open] textarea')"})
+        self.assertIn('keep.pdf', self.page({'eval':"document.querySelector('.tm-quick').textContent"})[-1]['eval'])
+        self.page({'eval':"const t=document.querySelector('.tm-quick textarea');t.value='Retain older Hub draft';t.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.tm-quick-close').click();true"})
+        self.assertEqual(self.page({'eval':"localStorage.getItem('hub.inbox.quick.v1:hub')"})[-1]['eval'], 'Retain older Hub draft')
+        self.page({'go':'about:blank'},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},
+                  {'until':"!!document.querySelector('.tm-quick-trigger')"},
+                  {'eval':"document.querySelector('.tm-quick-trigger').click();true"})
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-quick textarea').value"})[-1]['eval'], 'Retain older Hub draft')
+        self.assertIn('keep.pdf', self.page({'eval':"document.querySelector('.tm-quick').textContent"})[-1]['eval'])
+        self.assertFalse([e for e in self.non_history_actions() if e['type'] in ('ext.post','message.received')])
+
+    def test_quick_recovery_refusal_retains_draft_then_acceptance_clears_marker(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.page({'eval':"document.querySelector('.tm-quick-trigger').click();const t=document.querySelector('.tm-quick textarea');t.value='Recovery delivery fixture';t.dispatchEvent(new Event('input',{bubbles:true}));true"})
+        act=self.web.act
+        with mock.patch.object(self.web,'act',side_effect=lambda path,body:(403,'Synthetic quick refusal') if path=='/api/send' else act(path,body)):
+            self.page({'eval':"document.querySelector('.tm-quick button[type=submit]').click();true"},
+                      {'until':"document.querySelector('.tm-quick .error-text')?.textContent.includes('Synthetic quick refusal')"})
+        self.assertEqual(self.page({'eval':"localStorage.getItem('hub.inbox.quick.v1:hub')"})[-1]['eval'], 'Recovery delivery fixture')
+        self.page({'eval':"document.querySelector('.tm-quick button[type=submit]').click();true"},
+                  {'until':"!document.querySelector('.tm-quick[open]')"})
+        self.assertIsNone(self.page({'eval':"localStorage.getItem('hub.inbox.quick.v1:hub')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-quick-has-draft')"})[-1]['eval'])
+        sent=[e for e in self.spooled() if e['type']=='message.received']
+        self.assertEqual(len(sent),1);self.assertEqual(sent[0]['data']['to'],'hub')
+
     def test_late_native_theme_preserves_the_reply_field_and_caret(self):
         self.seed_inbox(start_editing=False, open_editor=False)
         self.feed({'kind':'config','inbox_protocol':{'version':1,'editor_cas':True},'signature':'🤖 _Hub, proofread by Ivan_'})
