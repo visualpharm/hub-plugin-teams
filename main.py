@@ -1630,6 +1630,10 @@ def send_one(st, reader, q, put=post, now=None):
             return
         put({"kind": "react_failed" if emoji else "send_failed", "id": q["id"], "rid": q["rid"], "error": short(e)})
         return
+    except sources.NotSent as e:   # отказ до транспорта доказан — не «итог неизвестен»: черновик с причиной (21.10)
+        put({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": short(e)})
+        print(f"teams: ответ {q['rid']} не отправлен (отказ до отправки): {e}", file=sys.stderr, flush=True)
+        return
     except Exception as e:   # noqa: BLE001
         reader.close()
         put({"kind": "react_failed" if emoji else "send_failed", "id": q["id"], "rid": q["rid"], "error": short(e)})

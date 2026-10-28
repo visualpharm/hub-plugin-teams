@@ -86,7 +86,9 @@ def run(cmd, timeout=TIMEOUT):
     out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     if out.returncode:
         lines = [x for x in (out.stderr or out.stdout).splitlines() if x.strip()]
-        raise OSError((lines[-1] if lines else f"код {out.returncode}")[:200])
+        e = OSError((lines[-1] if lines else f"код {out.returncode}")[:200])
+        e.full = lines[-1] if lines else ""   # целиком: пометка «reconcile before retry» стоит в конце строки
+        raise e
     return out.stdout
 
 
@@ -96,7 +98,7 @@ def expand(p):
 
 # --- новый адресат в Контакты Mac (20.10, Иван m643740): send заводит карточку по --who «имя» и --about «дело» ------
 _SEND_HELP = {}
-CONTACT_KEYS = ("who", "about", "authors")   # в ref — только для send: отпечаток адреса (target_of) их не учитывает
+CONTACT_KEYS = ("who", "about", "authors", "title")   # в ref — только для send: отпечаток адреса (target_of) их не учитывает
 
 
 def send_knows(cmd, flag):
@@ -342,6 +344,7 @@ def whatsapp(cfg, now):
                 text = "[голосовое]"
             ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
                    **contact_of(r.get("name"), text, group, wait),
+                   **({"title": r["name"]} if r.get("name") and wa_named(cid) else {}),
                    **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
                       and isinstance(cfg["accounts"].get(ch), str) else {}),
                    **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
@@ -893,6 +896,52 @@ def human(message):
     return re.sub(r"^(?:send failed|Blocked|Not sent):\s*", "", msg).strip() or "не отправлено"
 
 
+class NotSent(OSError):
+    """Команда отправки отказала до транспорта — доказанно ничего не ушло (группа без названия, чат не открылся,
+    текст не совпал). Не «итог неизвестен»: main отвечает send_blocked, разбор кладёт черновик с причиной."""
+
+
+def wa_named(chat_id):
+    """Группа или @lid: send wa открывает их только по названию в списке чатов (по номеру — нельзя)."""
+    return str(chat_id or "").strip().endswith(("@g.us", "@lid"))
+
+
+def wa_title(ref):
+    """Название чата в списке WhatsApp Web — для группы и @lid: send wa открывает их только по нему (--title).
+    Адрес пункта, опубликованного до 21.10, названия не несёт — берём из списка чатов (`wa chats`, без открытия
+    чата). Не нашлось однозначно — NotSent: отправлять некуда, ничего не ушло."""
+    to = ref.get("to") or ""
+    if not wa_named(to):
+        return ""
+    if ref.get("title"):
+        return ref["title"]
+    digits = re.sub(r"\D", "", to.split("@")[0])
+    try:
+        rows = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "chats", digits, "--json",
+                               "--channel", ref["wa"]], timeout=60) or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        rows = []
+    rows = [x for x in rows if isinstance(x, dict) and x.get("name")]
+    exact = [x for x in rows if x.get("chat_id") == to]
+    names = {x["name"] for x in (exact or (rows if to.endswith("@lid") else []))}
+    if len(names) != 1:
+        raise NotSent("Не нашёл этот чат WhatsApp в списке чатов по названию — ничего не отправлено")
+    return names.pop()
+
+
+def wa_send(cmd, files):
+    """send wa: отказ команды до отправки (send failed: WhatsApp Web: … без «reconcile before retry» — драйвер
+    не нажал «отправить») — NotSent; итог неизвестен (пометка reconcile, сбой процесса, таймаут) — OSError как был.
+    Несколько файлов: первый мог уйти, отказ — о следующем, итог неизвестен."""
+    try:
+        return run(cmd, timeout=180)
+    except OSError as e:
+        line = getattr(e, "full", "") or str(e)
+        if len(files) <= 1 and re.match(r"send failed: WhatsApp Web: ", line) and not re.search(r"(?i)reconcile", line):
+            raise NotSent(str(e)) from None
+        raise
+
+
 class Held(OSError):
     """Команда отправки отказала, ничего не отправив: ночь или выходной. Не ошибка — плагин перенесёт (main.hold)."""
 
@@ -912,6 +961,8 @@ def held(message):
 def reply(ref, text, files=None, reply_to=None, quote=None):
     try:
         return _reply(ref, text, files or [], reply_to, quote)
+    except NotSent as e:
+        raise NotSent(human(e)) from None
     except OSError as e:
         why = held(e)
         if why:
@@ -929,8 +980,9 @@ def _reply(ref, text, files=(), reply_to=None, quote=None):
     if ref.get("wa"):
         if reply_to and quote:
             text = f"> {' '.join(quote.split())[:300]}\n{text}"
-        return run([ref["send"], "wa", "--to", ref["to"], "--channel", ref["wa"], "--text", text, *fl,
-                    *contact_flags(ref["send"], who, ref.get("about"))], timeout=180)
+        title = wa_title(ref)   # группа и @lid открываются только по названию в списке чатов
+        return wa_send([ref["send"], "wa", "--to", ref["to"], "--channel", ref["wa"], *(["--title", title] if title else []),
+                        "--text", text, *fl, *contact_flags(ref["send"], who, ref.get("about"))], files)
     if ref.get("tg"):
         rt = ["--reply-to", reply_to] if reply_to and str(reply_to).isdigit() else []
         return run([ref["send"], "tg", "--to", ref["tg"], "--text", text, *fl, *rt,

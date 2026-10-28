@@ -790,7 +790,8 @@ class ContactFlags(unittest.TestCase):
 
     def test_group_names_the_author_of_the_message_answered(self):
         wait = [{"id": "a1", "from": "Ana"}, {"id": "b2", "from": "Beto"}]
-        ref = {"wa": "whatsapp", "to": "1@g.us", "send": "/bin/send", **sources.contact_of("Vecinos", "Ana: hola", True, wait)}
+        ref = {"wa": "whatsapp", "to": "1@g.us", "send": "/bin/send", "title": "Vecinos",
+               **sources.contact_of("Vecinos", "Ana: hola", True, wait)}
         sources.reply(ref, "Hola")
         self.assertEqual(self.flags(self.calls[-1])["--who"], "Beto")
         sources.reply(ref, "Sí", reply_to="a1", quote="hola")
