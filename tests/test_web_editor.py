@@ -1325,7 +1325,7 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'eval':"document.querySelector('"+menu+"').open=true;true"},{'until':"document.querySelector('"+menu+"').open"},
                       {'eval':"(()=>{const m=document.querySelector('"+menu+"'),r=[...m.querySelectorAll('.tm-agent-row')];return {agents:r.map(o=>o.value),titles:r.map(o=>o.textContent),value:r.find(o=>o.getAttribute('aria-checked')==='true')?.value,"
                              "latest:m.querySelector('.tm-latest-thread').textContent,disabled:m.querySelector('.tm-latest-thread').disabled,"
-                             "covers:(()=>{const e=document.querySelector('.tm-earlier')?.getBoundingClientRect(),b=m.querySelector('.tm-handoff-menu').getBoundingClientRect();return !!e&&!(b.bottom<=e.top||b.top>=e.bottom||b.right<=e.left||b.left>=e.right)})()}})()"})
+                             "covers:(()=>{const e=document.querySelector('.tm-history-top')?.getBoundingClientRect(),b=m.querySelector('.tm-handoff-menu').getBoundingClientRect();return !!e&&!(b.bottom<=e.top||b.top>=e.bottom||b.right<=e.left||b.left>=e.right)})()}})()"})
         self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
         self.assertTrue(got[-2]['until'],got)
         got=got[-1]['eval']
@@ -1469,7 +1469,7 @@ class InboxWebAcceptance(PageInChrome):
                   {'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]'),r=b.getBoundingClientRect();b.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',clientX:r.x+5,clientY:r.y+5,bubbles:true}));return true})()"},
                   {'sleep':700})
         got=self.page({'eval':"document.querySelector('.tm-tip')?.textContent || ''"})
-        self.assertEqual(got[-1]['eval'],'Черновик от хаба')
+        self.assertEqual(got[-1]['eval'],'Черновик')
         self.p14_shot('teams-hold-label-402',402)
         self.page({'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]');b.dispatchEvent(new PointerEvent('pointerup',{pointerType:'touch',bubbles:true}));b.click();return true})()"},{'sleep':300},{'touch':False})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='ask'],'A long press only names the icon')
@@ -2733,10 +2733,12 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         self.assertEqual(self.queued('history')['id'],'source-a')   # short conversation: its top is in view
         self.assertFalse(self.page({'eval':"!!document.querySelector('button.tm-earlier')"})[-1]['eval'])
-        self.assertEqual(self.page({'eval':"document.querySelector('.tm-earlier').textContent"})[-1]['eval'],'Подгружаем…')
+        # while the first request is out: a muted spinner with the word, not a grey bar
+        got=self.page({'eval':"(()=>{const r=document.querySelector('.tm-history-top');return {text:r.textContent,spinner:!!r.querySelector('.tm-spinner'),bg:getComputedStyle(r).backgroundColor,cls:r.className}})()"})[-1]['eval']
+        self.assertEqual(got['text'],'Подгружаем…',got);self.assertTrue(got['spinner'],got);self.assertEqual(got['bg'],'rgba(0, 0, 0, 0)',got);self.assertNotIn('tm-earlier',got['cls'])
         self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[{'id':'older-one','text':'Earlier visible without a click'}]})
         self.page({'wait':'Earlier visible without a click'})
-        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-earlier')"})[-1]['eval'])   # nothing earlier: no label either
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-history-top')"})[-1]['eval'])   # nothing earlier: no label either
 
     def test_history_waits_for_the_reader_to_reach_the_top_and_keeps_the_reading_place(self):
         self.seed_inbox(start_editing=False)
@@ -2762,10 +2764,54 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         self.queued('history')
         self.feed({'kind':'thread_failed','id':'source-a','error':'Synthetic history refused'})
-        self.page({'wait':'Подгружаем'})
-        got=self.page({'eval':"({text:document.querySelector('.tm-history').textContent,error:!!document.querySelector('.tm-history-error,.tm-alert'),color:getComputedStyle(document.querySelector('.tm-earlier')).color})"})[-1]['eval']
-        self.assertNotIn('Synthetic history refused',got['text']);self.assertFalse(got['error'])
+        self.page({'until':"!document.querySelector('.tm-history-top .tm-spinner')"})   # a refusal takes the spinner away: nothing hangs
+        got=self.page({'eval':"({text:document.querySelector('.tm-history').textContent,error:!!document.querySelector('.tm-history-error,.tm-alert')})"})[-1]['eval']
+        self.assertNotIn('Synthetic history refused',got['text']);self.assertNotIn('Подгружаем',got['text']);self.assertFalse(got['error'])
         self.assertEqual(self.queued('history')['id'],'source-a')   # the repeat comes without a tap
+
+    def test_reply_field_keeps_sparkle_and_send_together_without_the_enter_hint(self):
+        # ui-expert m727340: ✨ and ↑ side by side at the bottom right, ↑ always there (grey while empty); no «Enter: …» hint
+        self.seed_inbox()
+        self.page({'viewport':{'width':1024,'height':874}})
+        if not self.page({'eval':"!!document.querySelector('.tm-to-field.tm-has-cluster')"})[-1]['eval']:
+            self.skipTest('this core draws the composer slots itself; the corner group is only for cores without them (verified live on flagman)')
+        probe=("(()=>{const f=document.querySelector('.tm-shared-compose .tm-to-field'),c=f.querySelector('form.composer').getBoundingClientRect(),"
+               "s=f.querySelector('.tm-instruction-toggle'),sr=s.getBoundingClientRect(),b=f.querySelector('form.composer .bar > button.send'),"
+               "slot=f.querySelector('.tm-send-arrow'),pr=slot.getBoundingClientRect(),br=b&&b.getBoundingClientRect();"
+               "return {sparkleLeftOfSlot:sr.right<=pr.left+1,gap:pr.left-sr.right,bottomS:c.bottom-sr.bottom,bottomSlot:c.bottom-pr.bottom,right:c.right-pr.right,"
+               "send:b?{left:br.left,right:br.right,bottom:c.bottom-br.bottom,width:br.width,round:getComputedStyle(b).borderRadius,label:b.dataset.label,bg:getComputedStyle(b).backgroundColor,hit:b.contains(document.elementFromPoint(br.left+br.width/2,br.top+br.height/2))}:null,"
+               "slotShown:getComputedStyle(slot).visibility,hint:f.querySelector('form.composer .hint').textContent}})()")
+        got=self.page({'eval':probe})[-1]['eval']
+        self.assertTrue(got['sparkleLeftOfSlot'],got);self.assertLessEqual(got['gap'],6,got);self.assertLess(abs(got['bottomSlot']-got['bottomS']),8,got);self.assertLess(got['right'],48,got)
+        self.assertEqual(got['hint'],'',got)
+        self.edit('Typed reply')
+        got=self.page({'until':"document.querySelector('.tm-to-field .composer .bar > button.send') && getComputedStyle(document.querySelector('.tm-send-arrow')).visibility==='hidden'"},{'eval':probe})
+        got=got[-1]['eval']
+        send=got['send'];self.assertIsNotNone(send,got)
+        self.assertTrue(send['hit'],got);self.assertEqual(send['width'],36,got);self.assertEqual(send['round'],'50%',got)
+        self.assertLessEqual(abs(send['bottom']-got['bottomSlot']),2,got)   # ↑ takes the slot beside ✨
+
+    def test_hidden_draft_is_its_text_and_time_only(self):
+        # ui-expert m727340 п.10: no «plugin proactivity · N ago», no «Почему / Missing» paragraph under a hidden draft
+        self.seed_inbox(start_editing=False)
+        for mid in ('archive-a','archive-b'):
+            self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+        post=self.page({'until':"document.querySelectorAll('.tm-person').length>=2"},{'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='archive-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Hidden draft text\n---\nПочему: объяснение.\nMissing: цена')
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['archive-a','archive-b']}))
+        self.page({'tapSelector':'[data-folder=archive]'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('archive-a')).click();true"},{'until':"!!document.querySelector('.tm-detail .tm-draft')"})
+        got=self.page({'eval':"(()=>{const d=document.querySelector('.tm-detail .tm-draft');return {text:d.textContent,why:!!d.querySelector('.tm-draft-why'),time:!!d.querySelector('.tm-draft-by .ago')}})()"})[-1]['eval']
+        self.assertEqual(got['text'].split('Hidden draft text')[0].strip(),'только что',got);self.assertIn('Hidden draft text',got['text']);self.assertNotIn('Missing',got['text']);self.assertNotIn('Почему',got['text'])
+        self.assertFalse(got['why'],got);self.assertTrue(got['time'],got)
+
+    def test_restore_is_a_button_with_an_icon_and_the_word(self):
+        self.seed_inbox(start_editing=False)
+        for mid in ('archive-a','archive-b'):
+            self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['archive-a','archive-b']}))
+        self.page({'tapSelector':'[data-folder=archive]'},{'until':"document.querySelectorAll('.tm-person').length===2"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('archive-a')).click();true"},{'until':"!!document.querySelector('.tm-detail .tm-thread > .tm-acts .tm-action')"})
+        got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-detail .tm-thread > .tm-acts .tm-action'),r=b.getBoundingClientRect();return {label:b.textContent.trim(),icon:!!b.querySelector('.tm-native-icon'),height:r.height,radius:getComputedStyle(b).borderRadius,bg:getComputedStyle(b).backgroundColor}})()"})[-1]['eval']
+        self.assertEqual(got['label'],'Вернуть во входящие',got);self.assertTrue(got['icon'],got);self.assertGreaterEqual(got['height'],44,got);self.assertNotEqual(got['bg'],'rgba(0, 0, 0, 0)',got)
 
     def test_first_send_waits_for_editor_confirmation_without_second_click(self):
         self.seed_inbox(start_editing=False)
@@ -3153,7 +3199,7 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         self.edit("Keep my exact draft")
         self.acknowledge(self.queued("draft_control"))
-        for width in (360,402,834,992):
+        for width in (360,402,640,700):   # one column (view ≤700px)
             got=self.page({"viewport":{"width":width,"height":874}},{"sleep":100},
               {"eval":"(()=>{const header=document.querySelector('.view-nav'),h=document.querySelector('.tm-thread > .tm-head'),back=document.querySelector('.tm-close-conversation');return {outer:header.getBoundingClientRect().height,top:h.getBoundingClientRect().top,back:back.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
             self.assertEqual(got['outer'],0,got);self.assertLess(got['top'],30,got);self.assertGreaterEqual(got['back'],44,got);self.assertEqual(got['overflow'],0,got)
@@ -3170,7 +3216,7 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_conversation_title_centers_and_owns_one_options_menu(self):
         self.seed_inbox(start_editing=False)
-        for width in (320,360,402,834,992):
+        for width in (320,360,402,640,700):   # one column (view ≤700px): the title is centred; two columns from there on
             self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
             got=self.page({'eval':"(()=>{const h=document.querySelector('.tm-detail .tm-head'),n=h.querySelector('.tm-from'),r=n.getBoundingClientRect(),b=h.getBoundingClientRect();return {offset:r.x+r.width/2-b.x-b.width/2,menus:h.querySelectorAll(':scope > details').length,titleMenu:!!n.closest('.tm-conversation-options'),targets:[...h.querySelectorAll(':scope > a,:scope > button,:scope > details > summary')].filter(n=>n.checkVisibility()).map(n=>{const r=n.getBoundingClientRect();return {width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}}),overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
             self.assertAlmostEqual(got['offset'],0,delta=1,msg=(width,got));self.assertEqual(got['menus'],1,got);self.assertTrue(got['titleMenu'],got)
@@ -3468,9 +3514,9 @@ class InboxWebAcceptance(PageInChrome):
                 got = self.page({"shot": str(Path(self.state) / f"detail-{width}.png"), "width": width, "height": 900},
                                 {"eval": "({root:document.querySelector('.tm-container').clientWidth,detail:document.querySelector('.tm-detail').clientWidth,list:getComputedStyle(document.querySelector('.tm-list-pane')).display,overflow:document.documentElement.scrollWidth-innerWidth})"})
                 row = got[-1]["eval"]
-                single = row["root"] <= 900
+                single = row["root"] <= 700
                 self.assertEqual(row["list"], "none" if single else "flex", row)
-                self.assertGreaterEqual(row["detail"], row["root"] - 1 if single else 560, row)
+                self.assertGreaterEqual(row["detail"], row["root"] - 1 if single else 360, row)
                 self.assertEqual(row["overflow"], 0, row)
         self.shot("tablet-detail")
 

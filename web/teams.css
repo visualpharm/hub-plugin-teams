@@ -279,8 +279,8 @@
   .tm-detail-open .tm-list-pane { display: none; }
   .tm-detail { flex: 1; padding: var(--space-4); }
 }
-/* Keep a 560px reading/editor pane beside the 336px conversation list. */
-@container (max-width: 900px) {
+/* Two columns while the list keeps 336px and the conversation at least 360px (a 1024px window leaves the view ~750px). */
+@container (max-width: 700px) {
   .tm-empty-detail { display: none; }
   .tm { display: flex; }
   .tm-list-pane { flex: 1; background: var(--background); }
@@ -444,6 +444,24 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-to-field > .tm-send-options > summary { width: 32px; height: 40px; }
 .tm-to-field:has(> .tm-send-options:not(.tm-mode-off)) > form.composer:not(.rec) > .bar { padding-right: 32px; }
 .tm-to-field:has(> form.composer.rec) > .tm-send-options { display: none; }
+/* ✨ и ↑ рядом справа внизу, справа от них — варианты отправки (как в натив-клиенте). ↑ — собственная «Отправить» поля, поставленная в слот
+   группы кругом без слова; пустое поле — микрофон ядра левее и серая заглушка ↑ в слоте. Слоты (от правого края): ⌄ 6–34, ↑ 36–72, ✨ 74–110.
+   «Варианты отправки» остаются и на телефоне: там нет долгого нажатия натив-клиента, а оболочка прячет summary ≤760. */
+.tm-to-field.tm-has-cluster > .tm-field-actions { position: absolute; right: 6px; bottom: 6px; z-index: 4; display: flex; align-items: flex-end; gap: 2px; }
+.tm-field-actions > .tm-instruction-toggle { position: static; flex: none; }
+.tm-field-actions > .tm-send-options { position: relative; right: auto; bottom: auto; flex: none; display: block; order: 3; }
+.tm-field-actions > .tm-send-options > summary { width: 28px; height: 36px; }
+.tm-field-actions > .tm-instruction-toggle { order: 1; }
+.tm-send-arrow { order: 2; flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--muted); color: var(--muted-foreground); }
+.tm-send-arrow .tm-native-icon { width: 18px; height: 18px; }
+.tm-to-field.tm-has-cluster > form.composer .bar > button.btn.round.send { position: absolute; right: 36px; bottom: 6px; z-index: 5; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; min-width: 0; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%; gap: 0; background: var(--primary); color: var(--primary-foreground, #fff); }
+.tm-to-field.tm-has-cluster > form.composer .bar > button.btn.round.send::after, .tm-to-field.tm-has-cluster > form.composer .bar > button.btn.round.send[data-label]::after { content: none; }
+.tm-to-field.tm-has-cluster > form.composer .bar > button.btn.round.send .icon { display: none; }
+.tm-to-field.tm-has-cluster > form.composer .bar > button.btn.round.send::before { content: ""; width: 18px; height: 18px; background: currentColor; mask: url("icons/send-now.svg") center / contain no-repeat; }
+.tm-to-field.tm-has-cluster:has(> form.composer:not(.tm-mode-off) .bar > button.send) .tm-send-arrow { visibility: hidden; }
+.tm-to-field.tm-has-cluster > form.composer:has(textarea:placeholder-shown) .bar > button.btn.round.send { background: var(--muted); color: var(--muted-foreground); }
+.tm-to-field.tm-has-cluster > form.composer:not(.rec) > .bar { padding-right: 116px; }
+.tm-to-field.tm-has-cluster:has(> form.composer.rec) > .tm-field-actions { display: none; }
 .tm-send-menu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 30; width: min(300px, calc(100vw - 32px)); max-height: 55dvh; overflow: auto; padding: 8px; border-radius: 12px; border: 1px solid var(--border); background: var(--background); box-shadow: var(--shadow-lift); }
 .tm .tm-send-menu > .btn, .tm .tm-send-later > .btn { width: 100%; min-height: 44px; text-align: left; justify-content: flex-start; white-space: normal; font-size:16px; }
 .tm-send-now > svg, .tm-send-archive > svg { width:20px; height:20px; flex-shrink:0; color:var(--primary); }
@@ -536,8 +554,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
 .tm .tm-earlier { background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); }
-/* Открытая переписка: раннее подгружается само у верха — не кнопка, а тихая метка постоянной высоты (не двигает ленту). */
-.tm .tm-earlier.tm-earlier-auto { display: flex; align-items: center; justify-content: center; align-self: stretch; min-height: 28px; padding: 0; border-radius: 0; background: none; color: var(--muted-foreground); font-size: var(--text-sm, 13px); }
+/* Открытая переписка: раннее подгружается само у верха — не кнопка и не плашка, а приглушённый спиннер со словом постоянной
+   высоты (не двигает ленту); класс не `tm-earlier`, чтобы оболочка не красила его как кнопку. */
+.tm .tm-history-top { display: flex; align-items: center; justify-content: center; gap: 8px; align-self: stretch; min-height: 28px; margin: 0; padding: 0; background: none; color: var(--muted-foreground); font-size: var(--text-sm, 13px); }
+.tm-detail .tm-history > .tm-history-top { margin-top: auto; }   /* короткая переписка прижата книзу, как с кнопкой */
+.tm .tm-history-top .tm-spinner { width: 12px; height: 12px; border-width: 2px; }
 
 /* Page toolbar (⚡ and search), as in the native header. */
 .view-toolbar > .tm-quick-trigger { width: 34px; height: 34px; border: 0; border-radius: 17px; background: var(--card); padding: 9px; cursor: pointer; }

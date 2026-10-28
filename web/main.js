@@ -294,7 +294,7 @@ function retryHistory(id) {
   const h=historyState(id);
   clearTimeout(h.retryTimer);
   h.tries=(h.tries || 0)+1;
-  h.retryTimer=setTimeout(() => { const m=msgs.get(id); if (m && h.error && !h.loading && ui?.root.querySelector(`.tm-earlier-auto[data-history="${CSS.escape(id)}"]`)) loadEarlier(m); }, 1000*(h.tries<=HISTORY_BACKOFF.length ? HISTORY_BACKOFF[h.tries-1] : 60));
+  h.retryTimer=setTimeout(() => { const m=msgs.get(id); if (m && h.error && !h.loading && ui?.root.querySelector(`.tm-history-top[data-history="${CSS.escape(id)}"]`)) loadEarlier(m); }, 1000*(h.tries<=HISTORY_BACKOFF.length ? HISTORY_BACKOFF[h.tries-1] : 60));
 }
 const earlierWatch = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
   for (const e of entries) {
@@ -1771,7 +1771,7 @@ function sharedReply(m, st) {
       else leading.append(discard);
     }
     if(!trailing)leading.append(sendMenu);
-    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m),
+    const box = st.box = hub.input({ key: "reply:" + encodeURIComponent(draftKey(m)), files: st.files, to: personName(m.from) || "recipient", text: replyBody(st.text,m), hint: "",
       label: T("Ответ: ","Reply to ") + (personName(m.from) || T("собеседнику","recipient")), placeholder: T("Ответ", "Reply"), attachments: acceptsFiles(m), maxLength: 1500,
       leading: ()=>leading, trailing: trailing ? ()=>sendMenu : undefined,
       sentLabel: "Reply retained.",
@@ -1859,7 +1859,8 @@ function sharedReply(m, st) {
     field.append(to, box.node);
     // hub.input на этом ядре может не рисовать слот leading/trailing — тогда «Варианты отправки» рядом с полем ставим сами;
     // где слот рисуется (кнопка уже внутри поля), второй не добавляем
-    if (!box.node.contains(sendMenu)) field.append(sendMenu);
+    const slotless = !box.node.contains(sendMenu);
+    if (slotless) field.append(sendMenu);
     if (st.state) {
       // Private instruction to the Hub — a mode of the same field, not a row of its own (Иван m646880 п.2): the corner
       // icon switches the field between the reply to the contact and the instruction; Enter / send revises the draft,
@@ -1875,7 +1876,7 @@ function sharedReply(m, st) {
         } catch (e) { return { error: e.message }; }
         return {};
       };
-      const ibox = st.instructBox = hub.input({ key: "instruction:" + encodeURIComponent(draftKey(m)), to: personName(m.from) || "recipient",
+      const ibox = st.instructBox = hub.input({ key: "instruction:" + encodeURIComponent(draftKey(m)), to: personName(m.from) || "recipient", hint: "",
         label: T("Личное указание к черновику", "Private draft instruction"), placeholder: T("Расскажи ему о…", "Tell them about…"),
         attachments: false, maxLength: 2000, send: revise,
         // the instruction stays in the field after a revision (it can be run again): only the draft changes
@@ -1891,6 +1892,15 @@ function sharedReply(m, st) {
       toggle.append(nativeIcon("draft"));
       toggle.title = T("Личное указание к черновику", "Private draft instruction");
       field.append(ibox.node, toggle);
+    }
+    // Ядро без слота leading/trailing: значки справа внизу ставим сами одной группой, как в натив-клиенте — ✨ и ↑ рядом,
+    // справа от них — варианты отправки. ↑ — собственная кнопка отправки поля (css ставит её в этот слот и красит в круг);
+    // пока поле пусто, там микрофон ядра, а в слоте стоит серая заглушка ↑ (не кнопка: aria-hidden, disabled).
+    if (slotless) {
+      const arrow = el("span", "tm-send-arrow"); arrow.setAttribute("aria-hidden", "true"); arrow.append(nativeIcon("send-now"));
+      const cluster = el("div", "tm-field-actions");
+      cluster.append(...[st.toggle, arrow, sendMenu].filter(Boolean));
+      field.append(cluster); field.classList.add("tm-has-cluster");
     }
     wrap.append(field, feedback);
   }
@@ -2109,13 +2119,16 @@ function draftBlock(m, r) {
   const stale = draftStale(m) && latestDraft(m) === r;
   const d = el("div", "tm-draft" + (stale ? " tm-draft-old" : ""));
   if (stale) d.append(staleMark());
-  const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${agentTitle((hub.snapshot().sessions || []).find((s) => s.name === r.by)) || r.by} · `);
+  // автор — только сессия хаба; служебное имя плагина («plugin proactivity») владельцу не показываем. Черновик, который уже
+  // нельзя отправить (переписка скрыта или закрыта), — только текст и время, без заметки «Почему»
+  const quiet = !canReply(m), author = agentTitle((hub.snapshot().sessions || []).find((s) => s.name === r.by));
+  const by = el("div", "tm-draft-by", quiet ? "" : `${T("Черновик ответа","Draft reply")} · ${author ? author + " · " : ""}`);
   by.append(stamp(r.ts));
   const { text, why: note, carried } = splitDraft(r.text), moved = (carried || hubDrafts(m).carried) && !!text;
   const why = moved ? carriedWhy(note) : note;
   d.append(by, replyText(el,text));
-  if (moved) d.append(el("div", "tm-draft-why tm-draft-carried", carriedLine()));
-  if (note) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
+  if (moved && !quiet) d.append(el("div", "tm-draft-why tm-draft-carried", carriedLine()));
+  if (note && !quiet) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
@@ -2391,7 +2404,7 @@ function quickSend() {
         notice.hidden=true;
       } catch {notice.textContent=T('Черновик останется только в открытой странице.','This draft can only be kept while this page stays open.');notice.hidden=false;}
     }
-    const box=hub.input({key:'quick:'+to,to,text,files,label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
+    const box=hub.input({key:'quick:'+to,to,text,files,hint:'',label:T('Сообщение хабу','Message Hub'),placeholder:T('Задача или вопрос хабу','Task or question for Hub'),
       onChange(value){persistQuick({text:value,files:box.draft?.().files || files});},
       onFilesChange(draft){files=draft.files;persistQuick(draft);},
       onSent(){
@@ -2439,8 +2452,11 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   if (historyAvailable && canReply(last) && (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id)))) {
     if (detail && earlierWatch) {
       // переписка открыта: метка над ней, без кнопки — раннее берётся, когда метка в виде
-      const row=el("div","tm-earlier tm-earlier-auto",h?.loading || h?.error ? T("Подгружаем…","Loading earlier messages…","Cargando…") : "");
+      // спиннер и слово — только пока первый запрос идёт: отказ и тихие повторы метку не рисуют (как в натив-клиенте:
+      // «Подгружаем…» только у `waiting`), а пустая метка остаётся для наблюдателя
+      const row=el("div","tm-history-top");
       row.setAttribute("role","status");row.dataset.history=last.id;
+      if (h?.loading && !h.tries) row.append(el("span","tm-spinner"),el("span",null,T("Подгружаем…","Loading earlier messages…","Cargando…")));
       if (h?.error) row.title=h.error;
       history.append(row);earlierWatch.observe(row);
     } else {
@@ -2495,7 +2511,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     go.addEventListener("click", () => { handoffChoice.open = false; });
     handoff.append(go, handoffChoice);
     // I-16: не прячется после первого запроса — повтор просит хаб переделать (например, сменился день)
-    const dr = action(T("Черновик от хаба","Draft by Hub"), "draft", () => askDraft(target), `${T("Черновик ответа для","Draft reply for")} ${personName(target.from)}`);
+    const dr = action(T("Черновик","Draft"), "draft", () => askDraft(target), `${T("Черновик ответа для","Draft reply for")} ${personName(target.from)}`);
     dr.disabled = busy || !/^p\d+$/.test(target.post || "");
     acts.append(dr);
     acts.append(handoff);
@@ -2505,7 +2521,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     acts.prepend(react);
     acts.prepend(action(T("Убрать","Archive"), "archive", () => hide(open.map((m) => m.id), true), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
-    acts.append(button(T("Вернуть","Restore"), "quiet", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));
+    acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));
   }
   if (safeLink(last.link)) {
     const a = el("a", "tm-link");
@@ -2831,7 +2847,7 @@ function build(root) {
   // тогда снимает (компаньон P4d); на ядре без неё они остаются
   root.classList.toggle("tm-web1", !!getComputedStyle(document.documentElement).getPropertyValue("--header-search-font").trim());
   const resize = new ResizeObserver(entries=>{
-    root.classList.toggle("tm-narrow",entries[0].contentRect.width<=900);
+    root.classList.toggle("tm-narrow",entries[0].contentRect.width<=700);   // two columns from ~1024 px of window, as on Mac
     placeSearch();
     for (const st of composing.values()) replyLayout(st);
   });
@@ -2873,7 +2889,7 @@ function build(root) {
   if (hub.capabilities?.composerTransport === 1) {
     prompt = el("div", "tm-whole-prompt");
     promptFeedback = el("p", "tm-editor-feedback"); promptFeedback.setAttribute("role", "status");
-    const input = hub.input({ key: "whole-inbox", to: hubName(), label: T("Спросить про Inbox", "Ask about your whole Inbox"), placeholder: T("Спросить про Inbox", "Ask about Inbox"),
+    const input = hub.input({ key: "whole-inbox", to: hubName(), hint: "", label: T("Спросить про Inbox", "Ask about your whole Inbox"), placeholder: T("Спросить про Inbox", "Ask about Inbox"),
       attachments: false, maxLength: 1500, sentLabel: "Queued for Inbox review.",
       onChange(text) { promptState.text = text; },
       async send() {
