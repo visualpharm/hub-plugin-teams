@@ -667,6 +667,7 @@ async function sync() {
       }
     }
     for (const [id, old] of replaced) carryCompose(msgs.get(id), msgs.get(old));
+    for (const id of [...composing.keys()]) reshapeCompose(msgs.get(id));
     failed = "";
     loaded = true;
     // Not awaited: the hold it may need is acknowledged by a later sync.
@@ -1699,6 +1700,7 @@ function replyLayout(st) {
 
 function sharedReply(m, st) {
   if (!st.root) {
+    st.shape = composeShape(m);
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
     const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
     const optionsBody=st.options=el("div","tm-draft-options");
@@ -2083,6 +2085,18 @@ function replacedBy(oldId, m) {
 }
 // Поле ответа закрытого сообщения, где владелец ничего не набрал, открывается у заменившего его (черновик хаба
 // придёт туда же — adoptOffer); набранное остаётся у прежнего: оно не done, пока есть черновик владельца
+// Поле ответа собирается один раз, а вложения и защищённый редактор зависят от config сборщика. Открытое из кэша списка,
+// пока канал ещё читается, поле собралось без них и так и оставалось (кнопки вложения нет до повторного открытия) —
+// после чтения пересобрать его с тем же текстом и курсором. Поле с редактором, файлами или отправкой в пути не трогаем.
+const composeShape = m => JSON.stringify([acceptsFiles(m), guardedReply(m)]);
+function reshapeCompose(m) {
+  const st = m && composing.get(m.id);
+  if (!st?.shape || st.shape === composeShape(m) || st.state || st.files?.length || st.uploading || st.closing || deliveryPending(m)) return;
+  const focused = !!st.root?.contains(document.activeElement);
+  composing.delete(m.id);
+  openCompose(m, st.suggested ? undefined : st.text, st.why, focused);
+}
+
 function carryCompose(m, old) {
   const st = old && composing.get(old.id);
   if (!m || !st || hasOwnerDraft(old) || st.files?.length || st.uploading || st.state?.control || st.state?.delivery) return;

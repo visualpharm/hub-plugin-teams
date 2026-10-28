@@ -799,7 +799,7 @@ class InboxWebAcceptance(PageInChrome):
                     self.assertEqual(row['visibleHeight'],32,(width,folder,row))
                     self.assertNotIn(row['fill'],('transparent','rgba(0, 0, 0, 0)'),row)
                     self.assertGreaterEqual(row['rounding'],16,row)
-                    self.assertEqual((row['iconWidth'],row['iconHeight']),(16,16),row)
+                    self.assertEqual((row['iconWidth'],row['iconHeight']),(20,20),row)   # visible glyph ≥14 (ui-expert m585255)
                     self.assertTrue(row['hit'],row)
         self.assertEqual(self.non_history_actions(),[])
 
@@ -992,7 +992,7 @@ class InboxWebAcceptance(PageInChrome):
             self.seed_inbox(start_editing=False);self.open_external_source('telegram')
             self.page({'viewport':{'width':320,'height':874}},
                 {'until':"!!document.querySelector('.tm-shared-compose .mic')"},
-                {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});navigator.mediaDevices.getUserMedia=()=>Promise.resolve(new AudioContext().createMediaStreamDestination().stream);true"},
+                {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});window.__mic=new AudioContext();navigator.mediaDevices.getUserMedia=()=>Promise.resolve(__mic.createMediaStreamDestination().stream);true"},
                 {'tapSelector':'.tm-shared-compose .mic'})
             self.assertTrue(self.page({'until':"!!document.querySelector('.tm-shared-compose [data-rec-clock]')"})[-1]['until'])
             self.assertEqual(self.page({'eval':"document.documentElement.scrollWidth-innerWidth"})[-1]['eval'],0)
@@ -1269,8 +1269,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-3]['until'],got[-1]['eval'])
         self.assertEqual(got[-2]['eval'],'Черновик к прежнему сообщению — сверь с новым. Просит проверить навигацию')
         self.assertNotIn('Хаб пишет черновик',got[-1]['eval'])
-        post_b=self.page({'eval':find%"'source-b'"})[-1]['eval']
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='proactivity',reply_to=post_b,
+        post_b=self.page({'sleep':1100},{'eval':find%"'source-b'"})[-1]['eval']   # a later draft: feed ts is in seconds
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post_b,
                 text=f'Да, посмотрю сегодня вечером.\n---\nПеренесён из {post}: черновик к прежнему сообщению этой переписки — сверь с новым.\nПочему: просит проверить навигацию')
         got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Да, посмотрю сегодня вечером.'"},
                       {'eval':"document.querySelector('.tm-guidance')?.textContent||''"},{'eval':"document.body.innerText"})
@@ -1497,6 +1497,31 @@ class InboxWebAcceptance(PageInChrome):
         self.p14_shot('teams-hold-label-402',402)
         self.page({'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]');b.dispatchEvent(new PointerEvent('pointerup',{pointerType:'touch',bubbles:true}));b.click();return true})()"},{'sleep':300},{'touch':False})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='ask'],'A long press only names the icon')
+
+    def test_phone_header_circles_match_folder_icons_readable_and_back_shadow_not_cut(self):
+        # ui-expert m585255 (kit/icons.md): (1) on a phone ⚡ and search are the same 44 circle with a 22 icon; (2) folder tile
+        # icons at least 14 visible (the sf-regular glyph fills ~72% of its box: box 20); (3) the back circle's shadow is not cut off
+        self.seed_inbox(start_editing=False)
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-person')"})
+        circle="n=>{const r=n.getBoundingClientRect(),i=n.querySelector('svg,.icon,.tm-native-icon').getBoundingClientRect();return [r.width,r.height,i.width,i.height]}"
+        for theme in ('light','dark'):
+            got=self.page({'media':theme},{'viewport':{'width':402,'height':874}},{'until':"!!document.querySelector('.view-toolbar .tm-search-toggle')?.checkVisibility()"},
+                          {'eval':"(()=>{const c="+circle+",q=[...document.querySelectorAll('.view-toolbar > .tm-quick-trigger')].find(n=>n.checkVisibility()),t=document.querySelector('.view-toolbar .tm-search-toggle');"
+                                 "const b=[...document.querySelectorAll('.hub-header .sidebar-toggle,.view-nav .sidebar-toggle')].find(n=>n.checkVisibility()),h=b?.closest('.hub-header,.view-nav,.head'),br=b?.getBoundingClientRect(),hr=h?.getBoundingClientRect();"
+                                 "const cover=!b?[]:document.elementsFromPoint(br.left+br.width/2,hr.bottom+4).filter(n=>n.closest('.tm-container')).filter(n=>{const s=getComputedStyle(n).backgroundColor;return s!=='transparent'&&!/rgba\\(.*, 0\\)$/.test(s)}).map(n=>n.className);"
+                                 "return {quick:q&&c(q),search:c(t),folders:[...document.querySelectorAll('.tm-bar :is(.tm-folder,.tm-sort > summary,.tm-new-trigger)')].filter(n=>n.checkVisibility()).map(n=>n.querySelector('svg,.icon,.tm-native-icon').getBoundingClientRect().width),cover}})()"})
+            self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
+            if got['quick']:self.assertEqual(got['quick'],got['search'],(theme,got))
+            self.assertEqual(got['search'],[44,44,22,22],(theme,got))
+            self.assertTrue(got['folders'] and all(w*.72>=14 for w in got['folders']),(theme,got))
+            self.assertEqual(got['cover'],[],(theme,'Nothing of the Inbox paints over the shadow under the header',got))
+            # the letter header: ⚡ and the source link are header icon buttons too
+            got=self.page({'eval':"document.querySelector('.tm-person').click();true"},{'until':"!!document.querySelector('.tm-detail .tm-head > .tm-quick-trigger')?.checkVisibility()"},
+                          {'eval':"(()=>{const c="+circle+";return [...document.querySelectorAll('.tm-detail .tm-head > :is(.tm-quick-trigger,.tm-link)')].filter(n=>n.checkVisibility()).map(n=>c(n).slice(2))})()"})
+            self.assertTrue(got[-2]['until'],got);self.assertTrue(got[-1]['eval'] and all(i==[22,22] for i in got[-1]['eval']),(theme,got[-1]['eval']))
+            self.p14_shot(f'teams-header-thread-402-{theme}',402)
+            self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-person')"})
+            self.p14_shot(f'teams-header-list-402-{theme}',402)
 
     def test_conversation_source_context_does_not_repeat_category_or_provider(self):
         self.seed_inbox(start_editing=False)
@@ -2628,7 +2653,7 @@ class InboxWebAcceptance(PageInChrome):
         with mock.patch.dict(os.environ,{'VOICE_CMD':'true'}):
             self.seed_inbox(start_editing=False);self.page({'tapSelector':'.tm-quick-trigger'},
               {'until':"!!document.querySelector('.tm-quick .mic')"},
-              {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});navigator.mediaDevices.getUserMedia=()=>Promise.resolve(new AudioContext().createMediaStreamDestination().stream);true"},
+              {'eval':"navigator.permissions.query=()=>Promise.resolve({state:'granted'});window.__mic=new AudioContext();navigator.mediaDevices.getUserMedia=()=>Promise.resolve(__mic.createMediaStreamDestination().stream);true"},
               {'tapSelector':'.tm-quick .mic'}, {'until':"!!document.querySelector('.tm-quick [data-rec-clock]')"},
               {'tapSelector':'.tm-quick-close'})
             got=self.page({'eval':"({open:!!document.querySelector('.tm-quick[open]'),recording:!!document.querySelector('.tm-quick .rec'),notice:!document.querySelector('.tm-quick-notice').hidden})"})[-1]['eval']
