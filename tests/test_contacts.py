@@ -67,5 +67,21 @@ class Search(unittest.TestCase):
             contacts.send("teams:u1", "x", cfg, files=["/a/1.png"])   # файл в Teams вложением нельзя
 
 
+    def test_send_new_passes_name_and_topic_for_the_contact_card(self):
+        real = contacts.sources.send_knows
+        contacts.sources.send_knows = lambda cmd, flag: True
+        try:
+            cfg = {"telegram": {"send": "send"}, "whatsapp": {"send": "send"}}
+            contacts.send("tg:77", "\nПривет, это Иван\nпро аренду", cfg, name="Лена Иванова")
+            contacts.send("wa:whatsapp:5491@c.us", "Hola", cfg, name="")
+            contacts.send("wa:whatsapp:123@g.us", "Hola", cfg, name="Лена и дети")
+        finally:
+            contacts.sources.send_knows = real
+        self.assertEqual(self.calls[0][-4:], ["--who", "Лена Иванова", "--about", "Привет, это Иван"])
+        self.assertEqual(self.calls[1][-2:], ["--about", "Hola"])
+        self.assertNotIn("--who", self.calls[1])
+        self.assertNotIn("--who", self.calls[2])   # имя группы — не имя человека
+
+
 if __name__ == "__main__":
     unittest.main()

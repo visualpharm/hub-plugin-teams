@@ -52,7 +52,7 @@ export function newMessage(hub) {
       if (!s.to) { s.status = T("Выберите адресата", "Choose a recipient"); draw(s); return; }
       if (!s.text.trim()) { s.status = T("Введите сообщение", "Enter a message"); s.ui.text.focus(); draw(s); return; }
       if (s.to.src === "email" && !s.subject.trim()) { s.status = T("Введите тему письма", "Enter a subject"); s.ui.subject.focus(); draw(s); return; }
-      s.pending = {kind:"send_new",rid:id(),to:s.to.to,text:s.text,...(s.to.src === "email" ? {subject:s.subject} : {})};
+      s.pending = {kind:"send_new",rid:id(),to:s.to.to,text:s.text,...(s.to.name ? {name:s.to.name} : {}),...(s.to.src === "email" ? {subject:s.subject} : {})};
       s.pendingName = s.to.name;
     }
     const pending = s.pending;

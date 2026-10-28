@@ -84,17 +84,22 @@ def _teams(q, cfg, mcp):
             for u in data.get("value") or [] if u.get("id")]
 
 
-def send(to, text, cfg, mcp=None, me=None, files=(), subject=""):
-    """Отправка новому собеседнику по ключу из поиска. Кидает OSError с причиной."""
+def send(to, text, cfg, mcp=None, me=None, files=(), subject="", name=""):
+    """Отправка новому собеседнику по ключу из поиска. Кидает OSError с причиной. name — имя из поиска: send заведёт
+    по нему карточку в Контактах Mac (--who), дело — тема или первая строка (--about)."""
     kind, _, rest = to.partition(":")
     fl = [x for f in files for x in ("--file", f)]
+    about = subject.strip() or next((x for x in (text or "").splitlines() if x.strip()), "")
     if kind == "tg" and rest:
         send_cmd = expand((cfg.get("telegram") or {}).get("send") or "~/.claude/bin/send")
-        return run([send_cmd, "tg", "--to", rest, "--text", text, *fl], timeout=180)
+        return run([send_cmd, "tg", "--to", rest, "--text", text, *fl, *sources.contact_flags(send_cmd, name, about)],
+                   timeout=180)
     if kind == "wa" and rest.count(":") >= 1:
         ch, _, chat = rest.partition(":")
         send_cmd = expand((cfg.get("whatsapp") or {}).get("send") or "~/.claude/bin/send")
-        return run([send_cmd, "wa", "--to", chat, "--channel", ch, "--text", text, *fl], timeout=180)
+        who = "" if chat.endswith("@g.us") else name   # имя группы — не имя человека
+        return run([send_cmd, "wa", "--to", chat, "--channel", ch, "--text", text, *fl,
+                    *sources.contact_flags(send_cmd, who, about)], timeout=180)
     if kind == "mail" and rest.count(":") >= 1:
         acct, _, addr = rest.partition(":")
         if not subject.strip():

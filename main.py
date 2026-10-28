@@ -246,7 +246,8 @@ class Choice:
                     isinstance(body.get("text"), str) and body["text"] or files):
                 self.sends.append({"send_new": body["to"][:300], "rid": body["rid"],
                                    "text": body["text"] if isinstance(body.get("text"), str) else "",
-                                   "files": files, "subject": str(body.get("subject") or "")[:200], "ts": ev.get("ts") or 0})
+                                   "files": files, "subject": str(body.get("subject") or "")[:200], "ts": ev.get("ts") or 0,
+                                   **({"name": body["name"][:120]} if isinstance(body.get("name"), str) and body["name"] else {})})
         elif isinstance(body, dict) and body.get("kind") == "ask" and body.get("what") in ("draft", "work") and all(
                 isinstance(body.get(k), str) and body[k] for k in ("rid", "post")) and re.fullmatch(r"p\d+", body["post"]):
             # ✨ / «Разобрать» в приложении: поручение хабу шлёт плагин от своего имени — в ленте это не слово владельца
@@ -503,7 +504,8 @@ def load_colleagues():
 def target_of(ref):
     """Отпечаток адреса переписки: клиент возвращает его с кнопкой источника («прочитано») — исполняем только для той
     же переписки, сменился адрес — отказ (17.10, codex m472773)."""
-    return hashlib.sha1(json.dumps(ref or {}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+    ref = {k: v for k, v in (ref or {}).items() if k not in sources.CONTACT_KEYS}   # имя/тема для send — не адрес
+    return hashlib.sha1(json.dumps(ref, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 
 
 def msg_post(i, done, rules):
@@ -1440,7 +1442,7 @@ def send_new(st, reader, q, put=post, now=None):
                 reader.connect(st)
             mcp_ = reader.mcp
         contacts.send(q["send_new"], (q.get("text") or "")[:POST_MAX], source_cfg(), mcp_, (st.get("me") or {}).get("id"),
-                      q.get("files") or [], q.get("subject") or "")
+                      q.get("files") or [], q.get("subject") or "", name=q.get("name") or "")
     except Exception as e:   # noqa: BLE001
         reader.close()
         outs[q["rid"]] = {"state": "failed", "to": q["send_new"], "error": short(e)}

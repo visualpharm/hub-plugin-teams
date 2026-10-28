@@ -94,6 +94,57 @@ def expand(p):
     return os.path.expanduser(p)
 
 
+# --- новый адресат в Контакты Mac (20.10, Иван m643740): send заводит карточку по --who «имя» и --about «дело» ------
+_SEND_HELP = {}
+CONTACT_KEYS = ("who", "about", "authors")   # в ref — только для send: отпечаток адреса (target_of) их не учитывает
+
+
+def send_knows(cmd, flag):
+    """Понимает ли команда send флаг. Старая версия на незнакомом флаге откажет, а повторять отправку нельзя — поэтому
+    сверяем заранее по её --help (ничего не отправляет); ответ помним до смены файла команды."""
+    try:
+        key = (cmd, os.stat(cmd).st_mtime)
+    except OSError:
+        key = (cmd, None)
+    if key not in _SEND_HELP:
+        try:
+            out = subprocess.run([cmd, "--help"], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
+            _SEND_HELP[key] = (out.stdout or "") + (out.stderr or "")
+        except (OSError, subprocess.SubprocessError):
+            _SEND_HELP[key] = ""
+    return bool(re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", _SEND_HELP[key]))
+
+
+def one_line(s, limit=80):
+    s = " ".join(str(s or "").split()).lstrip("…").strip()
+    return s if len(s) <= limit else s[:limit - 1].rstrip() + "…"
+
+
+def person(name):
+    """Имя для карточки: пусто, если это только номер или id (такой карточки не заводим — send положит номер в ожидание)."""
+    name = one_line(name)
+    return name if re.search(r"[^\d\s+()\-@.]", name) and not re.fullmatch(r"@?\w+@(?:c|g)\.us", name) else ""
+
+
+def contact_flags(cmd, who="", about=""):
+    """--who/--about для send wa|tg: пустое не передаём; команда их не знает — не передаём ничего."""
+    who, about = person(who), one_line(about)
+    if not (who or about) or not send_knows(cmd, "--who") or not send_knows(cmd, "--about"):
+        return []
+    return [*(["--who", who] if who else []), *(["--about", about] if about else [])]
+
+
+def contact_of(name, about, group=False, wait=()):
+    """Поля ref для карточки контакта: у личной переписки — имя собеседника; в группе — автор последнего ждущего
+    сообщения (и авторы по id — ответ на конкретное), иначе без имени."""
+    authors = {str(m["id"]): person(m.get("from") or m.get("author")) for m in wait or ()
+               if m.get("id") and person(m.get("from") or m.get("author"))} if group else {}
+    who = (person((wait[-1] if wait else {}).get("from") or (wait[-1] if wait else {}).get("author")) if group
+           else person(name))
+    return {**({"who": who} if who else {}), **({"about": one_line(about)} if one_line(about) else {}),
+            **({"authors": dict(list(authors.items())[-20:])} if authors else {})}
+
+
 KIND_NAMES = {"ptt": ("голосовое", "голосовых"), "audio": ("аудио", "аудио"), "image": ("фото", "фото"),
               "video": ("видео", "видео"), "document": ("файл", "файлов"), "sticker": ("стикер", "стикеров"),
               "chat": ("текст", "текстовых"), "location": ("геопозиция", "геопозиций"),
@@ -280,6 +331,7 @@ def whatsapp(cfg, now):
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
                           "mention": False, **({"team": True} if team else {}),
                           "ref": {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+                                  **contact_of(r.get("name"), text, group, wait),
                                   **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
                                      and isinstance(cfg["accounts"].get(ch), str) else {}),
                                   **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
@@ -544,7 +596,8 @@ def telegram(cfg, now):
                       "text": text[:1200], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
                       **({"media": media} if media else {}), **({"links": links} if links else {}),
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
-                      "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send")}})
+                      "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+                              **contact_of(r.get("name"), text, group, wait)}})
     return items, boxes, []
 
 
@@ -770,13 +823,17 @@ def _reply(ref, text, files=(), reply_to=None, quote=None):
     вернётся ошибкой во вкладку); почта — ответом всем в ту же цепочку; файлы — вложениями (--file). Ответ на
     конкретное сообщение: Telegram — настоящим ответом (--reply-to), WhatsApp — цитатой текстом."""
     fl = [x for f in files for x in ("--file", f)]
+    who = (ref.get("authors") or {}).get(str(reply_to)) if reply_to else None
+    who = who or ref.get("who") or ""   # ответ на конкретное сообщение группы — его автор
     if ref.get("wa"):
         if reply_to and quote:
             text = f"> {' '.join(quote.split())[:300]}\n{text}"
-        return run([ref["send"], "wa", "--to", ref["to"], "--channel", ref["wa"], "--text", text, *fl], timeout=180)
+        return run([ref["send"], "wa", "--to", ref["to"], "--channel", ref["wa"], "--text", text, *fl,
+                    *contact_flags(ref["send"], who, ref.get("about"))], timeout=180)
     if ref.get("tg"):
         rt = ["--reply-to", reply_to] if reply_to and str(reply_to).isdigit() else []
-        return run([ref["send"], "tg", "--to", ref["tg"], "--text", text, *fl, *rt], timeout=180)
+        return run([ref["send"], "tg", "--to", ref["tg"], "--text", text, *fl, *rt,
+                    *contact_flags(ref["send"], who, ref.get("about"))], timeout=180)
     if ref.get("mail"):
         subject = ref.get("subject") or ""
         if not re.match(r"(?i)re:", subject):

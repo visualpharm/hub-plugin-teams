@@ -445,6 +445,8 @@ class Replies(unittest.TestCase):
             self.assertEqual(len(c.sends), 1)                        # чужой, слишком длинный, несуществующий — мимо
             c.line(line({"kind": "send_new", "rid": "r9", "to": "a@b.c", "text_file": good}))
             self.assertEqual(c.sends[-1].get("text"), long)
+            c.line(line({"kind": "send_new", "rid": "r10", "to": "tg:77", "text": "Hola", "name": "Лена"}))
+            self.assertEqual(c.sends[-1].get("name"), "Лена")   # имя из поиска — для карточки контакта (send --who)
         finally:
             for p in (good, big):
                 os.unlink(p)
@@ -1016,14 +1018,14 @@ class Later(unittest.TestCase):
         real_s, real_send, real_cfg, real_save = C.search, C.send, main.source_cfg, main.save
         sent = []
         C.search = lambda q, cfg, mcp=None, only=None: ([{"src": "telegram", "to": "tg:77", "name": "Лена", "hint": ""}], [])
-        C.send = lambda to, text, cfg, mcp=None, me=None, files=(), subject="": sent.append((to, text, list(files)))
+        C.send = lambda to, text, cfg, mcp=None, me=None, files=(), subject="", **kw: sent.append((to, text, list(files), kw))
         main.source_cfg = lambda: {"telegram": {}}
         main.save = lambda st: None
         try:
             st = {"me": {"id": "me"}}
             now = time.time()
             main.send_replies(st, self.R(), [{"contacts": "Лена", "rid": "c1", "ts": now, "src": "telegram"}], self.out.append)
-            q = {"send_new": "tg:77", "rid": "n1", "text": "Привет", "files": [], "subject": "", "ts": now}
+            q = {"send_new": "tg:77", "rid": "n1", "text": "Привет", "files": [], "subject": "", "ts": now, "name": "Лена"}
             main.send_replies(st, self.R(), [q], self.out.append)
             main.send_replies(st, self.R(), [q], self.out.append)   # тот же rid — второй раз не уйдёт, итог повторится
             main.send_replies(st, self.R(), [{**q, "ts": now - 3600}], self.out.append)   # старая просьба из журнала — молча
@@ -1031,7 +1033,7 @@ class Later(unittest.TestCase):
             C.search, C.send, main.source_cfg, main.save = real_s, real_send, real_cfg, real_save
         self.assertEqual(self.out[0]["kind"], "contacts")
         self.assertEqual(self.out[0]["items"][0]["to"], "tg:77")
-        self.assertEqual(sent, [("tg:77", "Привет", [])])
+        self.assertEqual(sent, [("tg:77", "Привет", [], {"name": "Лена"})])
         self.assertEqual([p["kind"] for p in self.out], ["contacts", "sent", "sent"])
         self.assertEqual(self.out[1], self.out[2])
 
@@ -1042,7 +1044,7 @@ class Later(unittest.TestCase):
         C = main.contacts
         real = (C.send, main.source_cfg, main.save)
         sent = []
-        C.send = lambda to, text, cfg, mcp=None, me=None, files=(), subject="": sent.append(to)
+        C.send = lambda to, text, cfg, mcp=None, me=None, files=(), subject="", **kw: sent.append(to)
         main.source_cfg = lambda: {"telegram": {}}
         main.save = lambda st: None
         try:

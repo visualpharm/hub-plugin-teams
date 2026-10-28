@@ -278,8 +278,13 @@ class Telegram(unittest.TestCase):
         self.assertEqual(boxes, {"tg:3123499"})
         calls = []
         sources.run = lambda cmd, timeout=0: calls.append(cmd) or ""
-        sources.reply(items[0]["ref"], "Да, вечером")
-        self.assertEqual(calls[0][1:], ["tg", "--to", "3123499", "--text", "Да, вечером"])
+        knows, sources.send_knows = sources.send_knows, lambda cmd, flag: True
+        try:
+            sources.reply(items[0]["ref"], "Да, вечером")
+        finally:
+            sources.send_knows = knows
+        self.assertEqual(calls[0][1:], ["tg", "--to", "3123499", "--text", "Да, вечером",
+                                        "--who", "Лена", "--about", "Привет · Пришлёшь договор?"])   # 20.10: карточка контакта
 
     def test_work_group_read_whole_with_authors(self):
         sources.run = fake_run({"new": [
@@ -600,6 +605,75 @@ class MailFiles(unittest.TestCase):
         got = mail_files(payload)
         self.assertEqual([f["name"] for f in got], ["a.jpg", "doc.pdf"])
         self.assertEqual(got[0]["att"], "X1")
+
+
+class ContactFlags(unittest.TestCase):
+    """20.10 (Иван m643740): send заводит нового адресата в Контакты Mac по --who/--about — передаём их в ответах."""
+    def setUp(self):
+        self._run, self._knows = sources.run, sources.send_knows
+        self.calls = []
+        sources.run = lambda cmd, timeout=0: self.calls.append(cmd) or "ok"
+        sources.send_knows = lambda cmd, flag: True
+
+    def tearDown(self):
+        sources.run, sources.send_knows = self._run, self._knows
+
+    def flags(self, cmd):
+        return {cmd[i]: cmd[i + 1] for i in range(len(cmd) - 1) if cmd[i] in ("--who", "--about")}
+
+    def test_reply_to_a_person_passes_name_and_topic(self):
+        ref = {"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send", **sources.contact_of("Juan Pérez", "Hola,\nmañana voy")}
+        sources.reply(ref, "Dale")
+        self.assertEqual(self.flags(self.calls[-1]), {"--who": "Juan Pérez", "--about": "Hola, mañana voy"})
+        ref = {"tg": "77", "send": "/bin/send", **sources.contact_of("Лена", "x" * 200)}
+        sources.reply(ref, "Ок", reply_to="12")
+        f = self.flags(self.calls[-1])
+        self.assertEqual(f["--who"], "Лена")
+        self.assertLessEqual(len(f["--about"]), 80)
+        self.assertIn("--reply-to", self.calls[-1])
+
+    def test_number_only_or_empty_name_gives_no_who(self):
+        for name in ("", "+54 9 223 555-1234", "5491@c.us"):
+            sources.reply({"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send", **sources.contact_of(name, "Hola")}, "x")
+            self.assertNotIn("--who", self.calls[-1], name)
+            self.assertEqual(self.flags(self.calls[-1]), {"--about": "Hola"})
+        sources.reply({"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send"}, "x")   # старый ref — без флагов
+        self.assertEqual(self.flags(self.calls[-1]), {})
+
+    def test_group_names_the_author_of_the_message_answered(self):
+        wait = [{"id": "a1", "from": "Ana"}, {"id": "b2", "from": "Beto"}]
+        ref = {"wa": "whatsapp", "to": "1@g.us", "send": "/bin/send", **sources.contact_of("Vecinos", "Ana: hola", True, wait)}
+        sources.reply(ref, "Hola")
+        self.assertEqual(self.flags(self.calls[-1])["--who"], "Beto")
+        sources.reply(ref, "Sí", reply_to="a1", quote="hola")
+        self.assertEqual(self.flags(self.calls[-1])["--who"], "Ana")
+        ref = {"tg": "-100", "send": "/bin/send", **sources.contact_of("Чат", "текст", True, [{"id": 5}])}
+        sources.reply(ref, "Да")
+        self.assertNotIn("--who", self.calls[-1])   # автор неизвестен — без имени; имя группы не годится
+
+    def test_old_send_without_flags_gets_none(self):
+        sources.send_knows = lambda cmd, flag: False
+        sources.reply({"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send", **sources.contact_of("Juan", "Hola")}, "x")
+        self.assertEqual(self.calls[-1], ["/bin/send", "wa", "--to", "5491@c.us", "--channel", "whatsapp", "--text", "x"])
+
+    def test_send_knows_reads_help_without_sending(self):
+        import tempfile
+        sources.send_knows = self._knows
+        with tempfile.TemporaryDirectory() as d:
+            new, old = os.path.join(d, "new"), os.path.join(d, "old")
+            for path, body in ((new, "usage: send [--who WHO] [--about ABOUT]"), (old, "usage: send [--whoever X]")):
+                with open(path, "w") as f:
+                    f.write(f"#!/bin/sh\n[ \"$1\" = --help ] && echo '{body}' && exit 0\necho SENT >> {d}/log\n")
+                os.chmod(path, 0o755)
+            self.assertTrue(sources.send_knows(new, "--who") and sources.send_knows(new, "--about"))
+            self.assertFalse(sources.send_knows(old, "--who"))
+            self.assertFalse(sources.send_knows(os.path.join(d, "missing"), "--who"))
+            self.assertFalse(os.path.exists(os.path.join(d, "log")))
+
+    def test_contact_fields_do_not_change_the_address_print(self):
+        import main
+        ref = {"wa": "whatsapp", "to": "5491@c.us", "send": "/bin/send"}
+        self.assertEqual(main.target_of(ref), main.target_of({**ref, **sources.contact_of("Juan", "Hola")}))
 
 
 if __name__ == "__main__":
