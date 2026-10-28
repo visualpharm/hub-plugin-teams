@@ -169,6 +169,72 @@ class Mentions(unittest.TestCase):
         self.assertEqual(out[0]["ref"]["root"], "root7")
 
 
+class MentionAddressee(unittest.TestCase):
+    """24.10: поиск по первому имени владельца выносил в Inbox сообщения его тёзке — теперь сообщение читается
+    целиком и берётся, только если обращено к владельцу."""
+
+    CH = {"c1": {"team": "Dev", "channel": "Backend", "teamId": "t"}}
+
+    def hit(self, mid, summary):
+        return {"summary": summary, "resource": {"id": mid, "createdDateTime": "2026-10-09T10:01:00Z", "webLink": "l",
+                "channelIdentity": {"channelId": "c1", "teamId": "t"},
+                "from": {"emailAddress": {"name": "alex", "address": "alex@x"}}}}
+
+    def full(self, mid, html, mentions=(), reply_to=None):
+        return {"id": mid, "replyToId": reply_to, "body": {"content": html},
+                "mentions": [{"id": i, "mentionText": t, "mentioned": {"user": {"id": u, "displayName": t}}}
+                             for i, (t, u) in enumerate(mentions)]}
+
+    def run_with(self, hits, roots=None, replies_root=None):
+        calls = []
+
+        class M(Fake):
+            def call(me, tool, args, empty_ok=False):
+                calls.append(tool)
+                if tool == "get-channel-message":
+                    if args["chatMessageId"] in (roots or {}):
+                        return roots[args["chatMessageId"]]
+                    raise OSError("ms365 get-channel-message: 404")
+                if tool == "list-channel-messages":
+                    return {"value": replies_root or []}
+                return Fake.call(me, tool, args, empty_ok)
+        out = collect.channel_mentions(M(hits=hits), CUT, "me@x", "Owner", self.CH, me="me")
+        return out, calls
+
+    def test_namesake_mention_is_not_the_owners_item(self):
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> Other админки нету")],
+                               {"1": self.full("1", '<p><at id="0">Owner Other</at>&nbsp;админки нету</p>',
+                                               [("Owner Other", "u-other")])})
+        self.assertEqual(out, [])
+
+    def test_owner_mentioned_by_id_even_by_first_name_only(self):
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> глянь")],
+                               {"1": self.full("1", '<p><at id="0">Owner</at> глянь</p>', [("Owner", "me")])})
+        self.assertEqual([i["text"] for i in out], ["Owner глянь"])
+
+    def test_plain_address_without_tag_stays(self):
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0>, глянь")], {"1": self.full("1", "<p>Owner, глянь</p>")})
+        self.assertEqual(len(out), 1)
+
+    def test_name_inside_an_address_is_not_an_address(self):
+        out, _ = self.run_with([self.hit("1", "Алина, ищите по началу адреса («<c0>owner</c0>.pe»)")],
+                               {"1": self.full("1", "<p>Алина, ищите по началу адреса («owner.pe»)</p>",
+                                               [("Алина", "u-alina")])})
+        self.assertEqual(out, [])
+
+    def test_reply_is_found_among_replies_and_answers_go_to_its_thread(self):
+        reply = self.full("9", '<p><at id="0">Owner</at> посмотри</p>', [("Owner", "me")])
+        reply.pop("replyToId")
+        out, calls = self.run_with([self.hit("9", "<c0>Owner</c0> посмотри")], {},
+                                   [{"id": "root7", "replies": [reply]}])
+        self.assertEqual(out[0]["ref"]["root"], "root7")
+        self.assertEqual(calls, ["search-query", "get-channel-message", "list-channel-messages"])
+
+    def test_unreadable_message_is_kept_as_before(self):
+        out, _ = self.run_with([self.hit("1", "<c0>Owner</c0> Other вопрос")], {}, [])
+        self.assertEqual(len(out), 1)                     # не прочли — не теряем: решит разборщик
+
+
 class Tick(unittest.TestCase):
     def item(self, k, at, box="b"):
         return {"key": k, "box": box, "src": "dm", "where": "Личка", "from": "P", "text": "t", "at": at,

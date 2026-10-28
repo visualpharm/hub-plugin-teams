@@ -380,7 +380,8 @@ class Reader:
         self.next_since = {channel_key(cid): since.get(channel_key(cid)) or iso(now) for cid in watched}
         self.last_in = collect.latest_incoming(self.mcp, me["id"])
         if me["name"]:
-            items += collect.channel_mentions(self.mcp, cutoff, me["mail"], me["name"], self.channels, skip=set(watched))
+            items += collect.channel_mentions(self.mcp, cutoff, me["mail"], me["name"], self.channels, skip=set(watched),
+                                              me=me["id"])
         return items, owner_last, reacted
 
 

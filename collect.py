@@ -91,6 +91,40 @@ def mentions_me(m, me):
     return any(((x.get("mentioned") or {}).get("user") or {}).get("id") == me for x in m.get("mentions") or [])
 
 
+def addressed_to_me(m, me, name):
+    """Сообщение канала, найденное поиском по имени, обращено к владельцу (24.10, d839917): поиск по первому имени
+    находит и тёзку — упомянут другой пользователь с тем же именем, и слово внутри текста (адрес «имя.фамилия»). Упомянут он сам — да; иначе имя должно остаться обращением в тексте, когда из него вычтены
+    упоминания других людей («Имя, глянь» без тега — да)."""
+    if mentions_me(m, me):
+        return True
+    text = plain((m.get("body") or {}).get("content"))
+    for x in m.get("mentions") or []:
+        if x.get("mentionText"):
+            text = text.replace(x["mentionText"], " ")
+    return bool(re.search(r"(?<![\w.@])" + re.escape(name) + r"(?![\w@]|\.\w)", text, re.I))
+
+
+def channel_message(mcp, team, channel, mid, cache=None):
+    """Сообщение канала по id из поиска: корень — get-channel-message, ответ в треде — среди replies последних
+    сообщений канала (поиск id корня не отдаёт). Не нашли или сбой — None: решаем как раньше, по тексту поиска."""
+    try:
+        return mcp.call("get-channel-message", {"teamId": team, "channelId": channel, "chatMessageId": mid})
+    except (OSError, ValueError):
+        pass
+    cache = {} if cache is None else cache
+    try:
+        if channel not in cache:
+            cache[channel] = mcp.call("list-channel-messages", {"teamId": team, "channelId": channel, "top": 50,
+                                                                "expand": "replies"}).get("value") or []
+    except (OSError, ValueError):
+        cache[channel] = []
+    for root in cache[channel]:
+        for r in root.get("replies") or []:
+            if r.get("id") == mid:
+                return {**r, "replyToId": r.get("replyToId") or root.get("id")}
+    return None
+
+
 def replies_to_me(m, me):
     """Ответ с цитатой (attachment messageReference) на сообщение владельца."""
     for a in m.get("attachments") or []:
@@ -219,14 +253,15 @@ def bot(mail):
     return not address or address.endswith("@teams.microsoft.com") or (mail.get("name") or "") in ("Workflows", "Power Automate")
 
 
-def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25):
+def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25, me=None):
     """Упоминания владельца в каналах — поиском Graph по его имени (обход всех каналов — десятки вызовов в минуту).
     Поиск находит и сообщения, где он просто участник, поэтому берём только те, где имя есть в самом тексте. Чаты
     (у них в поиске channelId — это id чата, а teamId нет) читает chats(); боты (Workflows и др., адрес
-    @teams.microsoft.com) — карточки со списком людей, не упоминания (владелец 12.10: «из воркфлоу не надо»)."""
+    @teams.microsoft.com) — карточки со списком людей, не упоминания (владелец 12.10: «из воркфлоу не надо»).
+    me — id владельца: сообщение читаем целиком и берём, только если оно обращено к нему (addressed_to_me)."""
     body = {"requests": [{"entityTypes": ["chatMessage"], "query": {"queryString": name}, "from": 0, "size": size}]}
     data = mcp.call("search-query", {"body": body})
-    out = []
+    out, cache = [], {}
     for cont in (data.get("value") or [{}])[0].get("hitsContainers") or []:
         for h in cont.get("hits") or []:
             r = h.get("resource") or {}
@@ -241,6 +276,10 @@ def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25
             summary = plain(h.get("summary"))
             if name.lower() not in summary.lower():
                 continue
+            full = channel_message(mcp, ch["teamId"], ch["channelId"], r.get("id"), cache) if me and r.get("id") else None
+            if full is not None and not addressed_to_me(full, me, name):
+                continue
+            root = (full or {}).get("replyToId") or r.get("replyToId") or r.get("id")
             c = (channels or {}).get(ch["channelId"])
             out.append({"key": key(ch["channelId"], r.get("id")), "box": None, "src": "mention",
                         "where": f"{c['team']} › {c['channel']}" if c else "Канал Teams",
@@ -249,7 +288,7 @@ def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25
                         # куда отвечать: поиск отдаёт канал и сообщение; корень треда — replyToId (иначе само сообщение —
                         # корень). Без адреса запись была без «Ответить» и реакции (владелец 12.10, бот Workflows)
                         **({"ref": {"team": c["teamId"], "channel": ch["channelId"],
-                                    "root": r.get("replyToId") or r.get("id"), "msg": r.get("id")}}
+                                    "root": root, "msg": r.get("id")}}
                            if c and c.get("teamId") and r.get("id") else {})})
     return out
 
