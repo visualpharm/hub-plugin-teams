@@ -462,17 +462,30 @@ class Delivery(unittest.TestCase):
                     self.assertEqual(caught.exception.reason,{'new-incoming':'newer_messages','new-owner':'newer_messages'}
                                      .get(change,'source_changed'))
 
-    def test_automatic_reply_respects_current_contact_hours_before_transport(self):
+    def test_automatic_teams_reply_waits_only_for_the_night_not_the_weekend(self):
+        """Владелец 18.10 (m501890): Teams коллегам — любой день, только не 23:00–08:00. Рабочие часы владельца
+        (будни 08–20) автоответ в Teams не держат: ответ субботы 03:40 ушёл на понедельник (d806858)."""
         from datetime import datetime,timezone
-        st=state(); st['hours']={'from':'08:00','to':'20:00','weekends':False}
-        q=self.request(st,'auto',True); out=[]
-        with patch.object(main,'save'),patch.object(main,'preflight_guarded'),patch.object(main,'deliver') as send, \
-                patch.object(main.hours,'local',side_effect=lambda now:now):
-            main.send_replies(st,None,[q],out.append,datetime(2026,10,17,12,tzinfo=timezone.utc))
-            send.assert_not_called()
-        self.assertEqual(out[0]['kind'],'scheduled')
-        self.assertEqual(out[0]['held'],'hours')
-        self.assertIn(q['rid'],st['later'])
+        cases=((datetime(2026,10,24,3,40,tzinfo=timezone.utc),'2026-10-24T08:00:00Z'),   # суббота ночью — утро той же субботы
+               (datetime(2026,10,24,12,0,tzinfo=timezone.utc),None),                     # суббота днём — сразу
+               (datetime(2026,10,25,22,59,tzinfo=timezone.utc),None),                    # воскресенье вечером — сразу
+               (datetime(2026,10,25,23,30,tzinfo=timezone.utc),'2026-10-26T08:00:00Z'),  # воскресенье ночью — утро понедельника
+               (datetime(2026,10,21,21,0,tzinfo=timezone.utc),None))                     # будни после 20:00 владельца — сразу
+        for now,want in cases:
+            with self.subTest(now=now):
+                st=state(); st['hours']={'from':'08:00','to':'20:00','weekends':False}
+                q=self.request(st,'auto',True); out=[]
+                with patch.object(main,'save'),patch.object(main,'preflight_guarded'), \
+                        patch.object(main,'deliver',return_value={'id':'external-1'}) as send, \
+                        patch.object(main.hours,'local',side_effect=lambda now:now):
+                    main.send_replies(st,None,[q],out.append,now)
+                if want:
+                    send.assert_not_called()
+                    self.assertEqual((out[0]['kind'],out[0]['held'],out[0]['at']),('scheduled','hours',want))
+                    self.assertEqual(st['later'][q['rid']]['at'],want)
+                else:
+                    send.assert_called_once()
+                    self.assertNotIn(q['rid'],st.get('later') or {})
 
     def test_preflight_failure_is_not_silently_retried_from_journal_after_restart(self):
         st=state(); q=self.request(st)

@@ -1774,9 +1774,8 @@ def send_guarded(st, reader, q, put=post, now=None):
         return
     save(st)  # crash after this point is unresolved, even with another request ID
     if q.get('automatic'):
-        who=(st.get('who') or {}).get(q['id']) or {}
         local=hours.local(now)
-        permitted=hours.next_allowed(hours.rule(st.get('hours'),who.get('contact')),local)
+        permitted=hours.next_allowed(hours.TEAMS,local)  # защищённый путь — только Teams: ночь ждёт утра, выходные нет
         if permitted > local:
             inbox_delivery.finish(st,claim,'held')
             st.setdefault('later',{})[q['rid']]={**q,'at':iso(permitted.astimezone(timezone.utc))}

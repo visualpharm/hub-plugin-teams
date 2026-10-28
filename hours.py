@@ -12,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 DEFAULT = {"from": "08:00", "to": "20:00", "weekends": False}
 GATE_OPENS = 8 * 60   # команда send не шлёт WhatsApp и Telegram до 08:00
 CAP = 8               # отказов гейта подряд, после которых говорим владельцу: правила не дают отправить вовсе
+# Teams — рабочий чат коллег: любой день, только не ночью 23:00–08:00 (владелец 18.10, m501890). Рабочие часы
+# владельца (окно и выходные) — для WhatsApp, Telegram и почты; к автоответу в Teams их не применяем.
+TEAMS = (GATE_OPENS, 23 * 60, True)
 
 
 def minutes(hhmm):
