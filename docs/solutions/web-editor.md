@@ -344,3 +344,7 @@ The core updates every `.ago` node to a verbose relative string. Compact Inbox l
 
 ## Media-only list previews
 A generic concatenated media-kind string loses voice transcripts and filenames. Match native LetterRow: first attachment label then a14px type glyph, real caption text without a glyph,44px thumbnail with8px gap. Keep detail attachment labels/player behavior separate. Test photo/voice/transcript/video/file/caption rows and navigation without provider reads; capture explicit theme palettes, since browser media emulation alone does not override saved Hub themes.
+
+
+### Shared-core slot and input callbacks
+A composer slot and input-change callbacks are separate contracts. The shared core advertises composerLeading:1, renders leading nodes in .bar, and does not forward onChange; the original fork uses composerActions and .composer-actions. Recognize both footer slots, but scope CSS and callback compatibility to the actual host. Give grid children explicit areas so a page without the appearance module is valid too. Never assume an unknown browser test step executed: use the driver's supported click/eval operations and assert observable draft/delivery outcomes. The focused browser tests retain synthetic identities and never contact a provider.

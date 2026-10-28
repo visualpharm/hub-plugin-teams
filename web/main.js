@@ -55,6 +55,9 @@ let signature = "";         // подпись под черновиками ха
 // подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
 // web-1 draws the signature below the field (fixed, not editable): the field holds the body, the stored/sent text the whole reply
 const nativeFooter = () => !!ui?.root.classList.contains("tm-core-native");
+// Both host generations expose a real leading slot. composerActions is the
+// original fork's contract; composerLeading is the shared core's public API.
+const replyFooterSlot = () => !!hub.capabilities?.composerActions || hub.capabilities?.composerLeading === 1;
 const replyBody = (text, m) => {
   const value = String(text || "");
   return nativeFooter() && signature && m?.sign && value.trim().endsWith(signature) ? value.trim().slice(0, -signature.length).trimEnd() : value;
@@ -231,6 +234,12 @@ const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable 
 // For a text-only destination the plugin hides it and stops files before the field's own listeners (textarea, form).
 const textInput = opts => {
   const box = hub.input(opts);
+  // The shared core exposes the leading slot but does not forward onChange.
+  // Keep actual owner edits in the plugin's durable draft and guarded editor.
+  if (hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions && opts.onChange) {
+    const field = box?.node?.querySelector('textarea');
+    field?.addEventListener('input', () => opts.onChange(field.value));
+  }
   // ядро flagman начального text в hub.input не берёт — без этого черновик хаба не вставал в поле; кладём его через set (API 1.28)
   if (opts.text && box?.set && box.draft && !box.draft().text) box.set({ text: opts.text });
   if (opts.attachments !== false || hub.capabilities?.composerFiles || !box?.node) return box;
@@ -1778,7 +1787,7 @@ function sharedReply(m, st) {
       st.box.set({text:"",files:[]});paint();
     },T("Удалить черновик","Discard draft"));
     discard.append(nativeIcon("trash"));
-    if(!hub.capabilities?.composerActions)optionsBody.append(discard);
+    if(!replyFooterSlot())optionsBody.append(discard);
     if (st.state) { st.proposal = el("div", "tm-proposal"); wrap.append(st.proposal); }
     const sendMenu=st.sendMenu=el("details","tm-send-options"),sendToggle=el("summary","btn quiet");
     sendToggle.setAttribute("aria-label",T("Варианты отправки","Send options"));sendToggle.append(nativeIcon("chevron-down"));
@@ -1870,7 +1879,7 @@ function sharedReply(m, st) {
     // The installed plugin also serves frozen core pages without a trailing slot.
     const trailing=hub.capabilities?.composerTrailing===1;
     const leading=el("div","tm-send-leading");
-    if(hub.capabilities?.composerActions) {
+    if(replyFooterSlot()) {
       if(nativeFooter()){const footer=el("div","tm-native-footer");st.signatureNode=el("span","tm-signature");footer.append(st.signatureNode,discard);leading.append(footer);}
       else leading.append(discard);
     }
@@ -1943,6 +1952,9 @@ function sharedReply(m, st) {
       },
       onSent() { if (composing.get(m.id) === st) box.set({text:replyBody(st.text,m),...(!st.uploading ? {files:st.files} : {})}); },
     });
+    // The shared core's leading slot uses .bar; the original fork uses
+    // .composer-actions. Keep this host-specific layout on the owned reply only.
+    box.node.classList.toggle('tm-core-leading', nativeFooter() && hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions);
     if (box.draft) { const current=box.draft();st.files=current.files;st.uploading=current.uploading; }
     // The shared composer refreshes its send/microphone action independently.
     // Keep its accessible name and reply layout in sync without replacing the field.
