@@ -340,18 +340,19 @@ def whatsapp(cfg, now):
                 text = ""   # у картинки без подписи заглушек нет — клиент рисует вложение
             elif voice and not digest:
                 text = "[голосовое]"
+            ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+                   **contact_of(r.get("name"), text, group, wait),
+                   **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
+                      and isinstance(cfg["accounts"].get(ch), str) else {}),
+                   **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
+                      if cfg.get("react") and (r.get("messages") or [{}])[-1].get("id") else {})}
+            context = wa_context(ref, wait, f"{box}:{mark}")
             items.append({"key": f"{box}:{mark}", "box": box, "src": "whatsapp", "tier": t, "unread": n,
-                          **({"media": media} if media else {}),
+                          **({"media": media} if media else {}), **({"context": context} if context else {}),
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
                           "from": r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
-                          "mention": False, **({"team": True} if team else {}),
-                          "ref": {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
-                                  **contact_of(r.get("name"), text, group, wait),
-                                  **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
-                                     and isinstance(cfg["accounts"].get(ch), str) else {}),
-                                  **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
-                                     if cfg.get("react") and (r.get("messages") or [{}])[-1].get("id") else {})}})
+                          "mention": False, **({"team": True} if team else {}), "ref": ref})
     if errors and not ok:
         raise OSError("; ".join(errors))
     return items, boxes, errors
@@ -363,6 +364,46 @@ WA_READ_AGAIN = 10 * 60
 _WA_TEXT = {}     # (чат, сообщение) -> текст, дочитанный из чата: копия треда может отстать от списка чатов
 _WA_WHO = {}      # (чат, сообщение) -> автор (группы: кто пишет)
 _WA_BLANK = {}    # (чат, сообщение) -> когда: чат прочитан, а реплика пришла без текста — читать её снова бесполезно
+
+
+_WA_CTX = {}      # ключ поста -> (когда, context): копию треда читаем раз на сообщение; пусто — снова через WA_READ_AGAIN
+WA_KINDS = {"voice": "ptt", "image": "image", "video": "video", "document": "document", "sticker": "sticker"}
+
+
+def wa_context(ref, wait, key):
+    """Реплики до ждущих (20.10, d665535, как tg_context): разборщику нужно, на что отвечает собеседник, — обычно это
+    ответы владельца, а `wa new` отдаёт только входящие. Берём сохранённую копию треда (`wa thread --cached`: чат не
+    открывается, синих галочек нет) и только строки, прошедшие verified_wa_history (source v1, номер аккаунта канала
+    из sources.json); без номера аккаунта или с непроверенной копией — пусто. Копия может отставать от чата (его ответ
+    с телефона попадёт в неё со следующим чтением чата) — context лишь подсказка разборщику, ни отправка, ни защиты
+    (inbox_guard, сверка источника) на него не опираются: они читают историю сами."""
+    if not isinstance(ref.get("account"), str):
+        return []
+    got = _WA_CTX.get(key)
+    if got and (got[1] or time.time() - got[0] < WA_READ_AGAIN):
+        return got[1]
+    who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
+    try:
+        data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
+                               "--limit", "40", "--channel", ref["wa"]], timeout=60) or "{}")
+        rows = verified_wa_history(ref, data)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        rows = []
+    ids = [m.get("id") for m in rows]
+    first = min([ids.index(m.get("id")) for m in wait if m.get("id") in ids] or [len(rows)])
+
+    def at(m):
+        try:
+            return iso_utc(datetime.strptime(m.get("when") or "", "%I:%M %p, %m/%d/%Y"))
+        except ValueError:
+            return ""
+    out = fit_context({"at": at(m), "from": "" if m.get("out") else (m.get("author") or ""), "me": bool(m.get("out")),
+                       "text": m.get("body"), "kind": WA_KINDS.get(m.get("kind") or "", "")}
+                      for m in rows[:first] if m.get("kind") != "system")
+    _WA_CTX[key] = (time.time(), out)
+    while len(_WA_CTX) > 500:
+        _WA_CTX.pop(next(iter(_WA_CTX)))
+    return out
 
 
 def wa_read(cfg, ch, cmd, r, wait, n):
@@ -578,16 +619,23 @@ def tg_context(r, wait):
     msgs = [m for m in r.get("messages") or [] if m.get("type") not in SERVICE_TYPES]
     ids = [m.get("id") for m in msgs]
     first = ids.index(wait[0].get("id")) if wait and wait[0].get("id") in ids else len(msgs)
+    return fit_context({"at": iso_utc(datetime.fromtimestamp(m["t"], timezone.utc)) if m.get("t") else "",
+                        "from": "" if m.get("out") else (m.get("from") or ""), "me": bool(m.get("out")),
+                        "text": m.get("text"), "kind": m.get("type")} for m in msgs[:first])
+
+
+def fit_context(rows):
+    """Реплики по порядку -> context поста: текст в одну строку до 240 знаков, медиа без подписи — словом, пустые
+    пропускаются; всего до CONTEXT_MAX знаков JSON, новые важнее — не влезло, без старых."""
     out, size = [], 0
-    for m in reversed(msgs[:first]):
+    for m in reversed(list(rows)):
         text = " ".join((m.get("text") or "").split())[:240]
         if not text:
-            one = KIND_NAMES.get(m.get("type") or "", ("", ""))[0]
+            one = KIND_NAMES.get(m.get("kind") or "", ("", ""))[0]
             text = f"[{one}]" if one and one != "текст" else ""
         if not text:
             continue
-        e = {"at": iso_utc(datetime.fromtimestamp(m["t"], timezone.utc)) if m.get("t") else "",
-             "from": "" if m.get("out") else (m.get("from") or ""), "me": bool(m.get("out")), "text": text}
+        e = {"at": m.get("at") or "", "from": m.get("from") or "", "me": bool(m.get("me")), "text": text}
         size += len(json.dumps(e, ensure_ascii=False)) + 2
         if size > CONTEXT_MAX:
             break

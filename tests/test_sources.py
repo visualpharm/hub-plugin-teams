@@ -223,6 +223,49 @@ class WhatsApp(unittest.TestCase):
         items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
         self.assertEqual(items[0]["text"], "Hola · Me llamás?")
 
+    def test_owner_replies_before_unread_come_as_context_from_the_verified_saved_copy(self):
+        """20.10 (d665535): разборщик не видел прежних реплик владельца у пунктов WhatsApp — `wa new` отдаёт только
+        входящие. Контекст — из сохранённой копии треда (--cached: чат не открывается), только строки с source v1
+        и номером аккаунта канала; непроверенная копия контекста не даёт."""
+        sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear(); getattr(sources, "_WA_CTX", {}).clear()
+        cid, acct = "5491100000009@c.us", "5491100000099"
+
+        def row(mid, out, body, kind="text", when="7:32 PM, 10/10/2026"):
+            return {"id": mid, "out": out, "body": body, "kind": kind, "when": when, "author": "",
+                    "source": {"version": 1, "channel": "whatsapp", "account": acct, "peer": cid,
+                               "raw_id": f"{'true' if out else 'false'}_{cid}_{mid}",
+                               "captured_at": "2026-10-10T19:40:00-03:00"}}
+        copy = {"chat_id": cid, "title": "Пабло", "messages": [
+            row("a", False, "Te hago 340000 todo el trabajo"), row("b", True, "Dale, está ok. Pasame el CBU"),
+            row("s", False, "", kind="system"), row("v", False, "", kind="voice"),
+            row("c", False, "Lo ideal sería guardar energía")]}
+        chat = {"chat_id": cid, "name": "Пабло", "new": 1, "unread": 1, "last": "2026-10-10T19:36-03:00",
+                "out_last_t": 150, "preview": "Lo ideal sería guardar energía",
+                "messages": [{"id": "c", "t": 300, "type": "chat", "text": "Lo ideal sería guardar energía", "cached": True}]}
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            return json.dumps(copy if "thread" in cmd else [chat])
+        sources.run = run
+        cfg = {"channels": ["whatsapp"], "accounts": {"whatsapp": acct}}
+        items, _, _ = sources.whatsapp(cfg, NOW)
+        self.assertEqual(items[0]["text"], "Lo ideal sería guardar energía")
+        self.assertEqual([(c["me"], c["text"]) for c in items[0]["context"]],
+                         [(False, "Te hago 340000 todo el trabajo"), (True, "Dale, está ok. Pasame el CBU"),
+                          (False, "[голосовое]")])
+        self.assertTrue(items[0]["context"][0]["at"].startswith("2026-10-1"))
+        self.assertEqual(main.msg_post(items[0], False, {})["context"], items[0]["context"])
+        self.assertTrue(all("--cached" in c for c in calls if "thread" in c))   # чат ради контекста не открываем
+        sources.whatsapp(cfg, NOW)
+        self.assertEqual(len([c for c in calls if "thread" in c]), 1)            # копию читаем раз на сообщение
+        # копия без source v1 (или чужой аккаунт) — не история этого чата: контекста нет
+        sources._WA_CTX.clear()
+        copy["messages"] = [{k: v for k, v in m.items() if k != "source"} for m in copy["messages"]]
+        self.assertNotIn("context", sources.whatsapp(cfg, NOW)[0][0])
+        sources._WA_CTX.clear()
+        self.assertNotIn("context", sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0][0])   # номер аккаунта не задан
+
     def test_unread_media_without_text_still_shows(self):
         sources.run = fake_run({"new": [
             {"chat_id": "5491100000004@c.us", "name": "Электрик", "new": 3, "unread": 1,
