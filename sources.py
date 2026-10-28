@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 SOURCES = {}
 TIMEOUT = 90
 OPEN = {}      # открытые пункты сборщика (ключ -> [box, at]): кладёт run_sources перед чтением каналов
+OUT = {}       # переписка (box) -> время последнего исходящего владельца (unix, out_last_t): сборщик по нему
+               # дочитывает открытую владельцем переписку (main.thread_refresh)
 GONE = set()   # ключи открытых пунктов, все ждущие сообщения которых собеседник удалил: сборщик их закрывает (d987429)
 
 
@@ -295,6 +297,8 @@ def whatsapp(cfg, now):
             if gone:   # удалённое снимает счётчик непрочитанных; что из ждущего осталось — по его последнему ответу
                 n = max(n, team_wait(r))
             box = f"wa:{ch}:{cid}"
+            if cid and r.get("out_last_t"):
+                OUT[box] = max(OUT.get(box, 0), r["out_last_t"])
             dead = [f"{box}:{x}" for x, _t in gone]   # пункт удалённого: ничего не осталось — закрыть
             if not n and cid in _WA_OPENED and (r.get("out_last_t") or 0) < max(
                     [m.get("t") or 0 for m in r.get("messages") or []] or [0]):
@@ -895,6 +899,8 @@ def telegram(cfg, now):
     items, boxes = [], set()
     for r in rows:
         cid, n = r.get("chat_id") or "", r.get("unread") or 0
+        if cid and r.get("out_last_t"):
+            OUT[f"tg:{cid}"] = max(OUT.get(f"tg:{cid}", 0), r["out_last_t"])
         team = work_group(cfg, cid, r.get("name"), r.get("group"))
         whole = whole_group(cfg, cid, r.get("name"), r.get("group"))
         if whole:

@@ -1565,30 +1565,43 @@ def history(st, reader, q, put=post, now=None):
     for k in [k for k, t in seen.items() if now - t > 86400]:
         del seen[k]
     try:
-        if ref.get("wa") or ref.get("mail") or ref.get("tg"):
-            if ref.get("wa") and not ref.get("account"):
-                # Old stored reply refs keep their destination; bind history to
-                # the configured account without asking the source to name it.
-                try:
-                    with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
-                        accounts = (json.load(f).get("whatsapp") or {}).get("accounts") or {}
-                    ref = {**ref, "account": accounts.get(ref["wa"])}
-                except (OSError, ValueError, AttributeError):
-                    pass  # missing binding is refused by sources.history
-            items = sources.history(ref, limit, before, search)
-        else:
-            if not reader.mcp:
-                reader.connect(st)
-            if before_at or search or limit != 20:   # листание/поиск/свой размер страницы
-                items = collect.history(reader.mcp, ref, st["me"]["id"], limit, before_at, search)
-            else:
-                items = collect.history(reader.mcp, ref, st["me"]["id"])
+        items = thread_items(st, reader, ref, limit, before, before_at, search)
     except Exception as e:   # noqa: BLE001 — истории нет, сообщение всё равно видно
-        if not (ref.get("wa") or ref.get("mail") or ref.get("tg")):
-            reader.close()
         print(f"teams: переписка {key} не прочитана: {e}", file=sys.stderr, flush=True)
         put({"kind": "thread_failed", "id": key, "reset_history": True, "error": short(e)})
         return
+    publish_thread(key, items, put, before, search, limit)
+    if not (before or before_at or search) and limit == 20:
+        watch_thread(st, key, ref, items, now)
+
+
+def thread_items(st, reader, ref, limit=20, before=None, before_at=None, search=None):
+    """Переписка вокруг сообщения: WhatsApp — только сохранённая копия (`--cached`, чат не открывается), Telegram и
+    почта — их команды, Teams — Graph. Сбой — исключение; у Teams соединение закрывается."""
+    if ref.get("wa") or ref.get("mail") or ref.get("tg"):
+        if ref.get("wa") and not ref.get("account"):
+            # Old stored reply refs keep their destination; bind history to
+            # the configured account without asking the source to name it.
+            try:
+                with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
+                    accounts = (json.load(f).get("whatsapp") or {}).get("accounts") or {}
+                ref = {**ref, "account": accounts.get(ref["wa"])}
+            except (OSError, ValueError, AttributeError):
+                pass  # missing binding is refused by sources.history
+        return sources.history(ref, limit, before, search)
+    try:
+        if not reader.mcp:
+            reader.connect(st)
+        if before_at or search or limit != 20:   # листание/поиск/свой размер страницы
+            return collect.history(reader.mcp, ref, st["me"]["id"], limit, before_at, search)
+        return collect.history(reader.mcp, ref, st["me"]["id"])
+    except Exception:
+        reader.close()
+        raise
+
+
+def publish_thread(key, items, put, before=None, search=None, limit=20):
+    """Посты {"kind": "thread", id, part, of, items} по длине поста (клиенты берут последний набор с этим id)."""
     parts, cur, size = [], [], 0
     for it in items:
         it = {**it, "text": it["text"] if len(it["text"]) <= HISTORY_TEXT else it["text"][:HISTORY_TEXT].rstrip() + "…",
@@ -1604,6 +1617,97 @@ def history(st, reader, q, put=post, now=None):
         put({"kind": "thread", "id": key, "part": n, "of": len(parts), "items": part,
              **({"before": before} if before else {}), **({"search": search} if search else {}),
              "more": len(items) >= limit and not search})   # страница полная — старше, возможно, ещё есть
+
+
+# 26.10 (d1034600, Иван m1025707): ответ в переписку ушёл мимо плагина (`send wa` другой сессии, телефон) — в открытой
+# владельцем переписке его не было до следующего запроса history (до 2 ч). Переписку, которую владелец открывал
+# (пост thread), сборщик дочитывает сам, когда видит в ней новое исходящее, и публикует новый набор thread.
+THREAD_WATCH = 24 * 3600   # после последнего открытия владельцем
+THREAD_REFRESH = 300       # одну переписку дочитываем не чаще
+THREAD_TRIES = 3           # копия WhatsApp могла ещё не получить ответ: столько раз перечитываем, потом ждём нового
+THREAD_MAX = 50
+LAST_OUT = {}              # переписка -> время последнего исходящего (unix), как его видят источники
+
+
+def thread_box(ref):
+    """Переписка (box сборщика) по адресу ответа; почта — нет: исходящего в ней сборщик не видит."""
+    ref = ref or {}
+    if ref.get("wa") and ref.get("to"):
+        return f"wa:{ref['wa']}:{ref['to']}"
+    if ref.get("tg"):
+        return f"tg:{ref['tg']}"
+    if ref.get("chat"):
+        return collect.key(ref["chat"], "")
+    if ref.get("channel") and ref.get("root"):
+        return collect.key(ref["channel"], ref["root"])
+    return None
+
+
+def thread_print(items):
+    """Отпечаток показанного: время, автор, текст, id (служебные поля копии — время захвата и т. п. — не в счёт)."""
+    rows = [[it.get("at"), bool(it.get("me")), it.get("text"), it.get("id"), it.get("media")] for it in items]
+    return hashlib.sha1(json.dumps(rows, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _unix(at):
+    if isinstance(at, (int, float)):
+        return float(at)
+    try:
+        return datetime.fromisoformat(str(at).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def watch_thread(st, key, ref, items, now):
+    """Владелец открыл переписку: запомнить её (последний открытый пункт), что уже показано и последнее исходящее."""
+    box = thread_box(ref)
+    if not box:
+        return
+    w = st.setdefault("thread_watch", {})
+    mine = max([_unix(it.get("at")) for it in items if it.get("me")] or [0])
+    w[box] = {"key": key, "since": now, "at": now, "fp": thread_print(items), "tries": 0,
+              "out": max(LAST_OUT.get(box, 0), mine, (w.get(box) or {}).get("out", 0))}
+    for b in sorted(w, key=lambda b: w[b]["since"])[:max(0, len(w) - THREAD_MAX)]:
+        del w[b]
+
+
+def thread_refresh(st, reader, owner_last, put=post, now=None, teams_ok=True):
+    """Новое исходящее в открытой владельцем переписке — дочитать её и опубликовать thread заново (без его просьбы).
+    Исходящее видят источники: WhatsApp и Telegram — out_last_t (sources.OUT), Teams — owner_last. Не чаще
+    THREAD_REFRESH на переписку; набор не изменился — ничего не публикуем (копия WhatsApp могла отстать: перечитаем
+    до THREAD_TRIES раз). WhatsApp — только сохранённая копия, чат не открывается."""
+    now = now or time.time()
+    for box, t in list(sources.OUT.items()):
+        LAST_OUT[box] = max(LAST_OUT.get(box, 0), float(t or 0))
+    for box, at in (owner_last or {}).items():
+        LAST_OUT[box] = max(LAST_OUT.get(box, 0), _unix(at))
+    w = st.get("thread_watch") or {}
+    for box in list(w):
+        x = w[box]
+        if now - x.get("since", 0) > THREAD_WATCH:
+            del w[box]
+            continue
+        out = LAST_OUT.get(box, 0)
+        if out <= x.get("out", 0) or now - x.get("at", 0) < THREAD_REFRESH:
+            continue
+        ref = (st.get("refs") or {}).get(x["key"])
+        if not ref or thread_box(ref) != box or (not teams_ok and not (ref.get("wa") or ref.get("tg"))):
+            continue
+        x["at"] = now
+        try:
+            items = thread_items(st, reader, ref)
+        except Exception as e:   # noqa: BLE001 — владелец не просил: в лог, не в канал
+            print(f"teams: переписка {x['key']} не дочитана после исходящего: {e}", file=sys.stderr, flush=True)
+            continue
+        fp = thread_print(items)
+        if fp == x.get("fp"):
+            x["tries"] = x.get("tries", 0) + 1
+            if x["tries"] >= THREAD_TRIES:
+                x["out"], x["tries"] = out, 0
+            continue
+        publish_thread(x["key"], items, put)
+        x.update(fp=fp, out=out, tries=0)
+        print(f"teams: переписка {x['key']} — новое исходящее, история обновлена", file=sys.stderr, flush=True)
 
 
 def tomb(st, rid):
@@ -1967,6 +2071,7 @@ def run():
             st["fails"] = 0
         prev_ok = st.get("last_ok")
         fresh = tick(st, items, owner_last, now, reacted=reacted, gone=gone)
+        thread_refresh(st, reader, owner_last, teams_ok=teams_ok)
         if not teams_ok:
             st["last_ok"] = prev_ok   # окно чтения Teams не сдвигаем, пока он не читался
         elif reader.last_in and (reader.last_in != st.get("last_in")
