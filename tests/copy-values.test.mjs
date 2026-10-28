@@ -141,7 +141,7 @@ await assert.rejects(copyText("c3", { navigator: {}, document: {} }));
 // main.js: значки в предложении, заметке «Почему здесь» и строке разбора; черновик — в поле ответа, лента реплик — без них.
 assert.match(src, /import \{ decorateValues, valueElement \} from "\.\/copy-values\.js";/);
 assert.match(src, /decorateValues\(el, replyText\(el,p\.text,"tm-proposed-text","p"\)\), valueElement\(el, "p", null, p\.context\), valueElement\(el, "p", null, p\.next_action\)/);
-assert.match(src, /valueElement\(el, "div", "tm-draft-why"/);
+assert.match(src, /valueElement\(el, "div", "tm-draft-why tm-note-body"/);
 assert.match(src, /valueElement\(el, "div", "tm-verdict", analysed\)/);
 assert.equal((src.match(/decorateValues\(|valueElement\(/g) || []).length, 5, "ровно 5 мест");
 const css = readFileSync(new URL("../web/teams.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");

@@ -39,10 +39,19 @@
 .tm-text.tm-task-text { white-space: normal; min-width: 0; }
 .tm-text.tm-clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 .tm-note { margin: 0; color: var(--muted-foreground); font-size: var(--text-xs); }
-.tm-draft { padding: var(--space-2) var(--space-3); border-left: 3px solid var(--primary); border-radius: var(--radius);
-  background: var(--muted); }
 .tm-draft-by { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .tm-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* заметка разбора — плашкой-подсказкой первым блоком переписки, как натив HintPlate (поле 12, скругление 16) */
+.tm-note-box { padding: 12px; border-radius: 16px; background: var(--bubble-incoming, light-dark(#e5e5ea, #2c2c2e)); }
+.tm-note-box .tm-note-body { margin-top: 0; color: var(--foreground); }
+.tm-detail .tm-history > .tm-note-box ~ .tm-history-top { margin-top: 0; }
+.tm-note-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; color: var(--foreground); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.tm-note-label { font-weight: 600; flex: none; }
+.tm-note-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.tm-note-toggle[aria-expanded=true] .tm-note-label { flex: 1 1 auto; }
+.tm-note-chevron { flex: none; width: 16px; height: 16px; }
+.tm-note-toggle[aria-expanded=true] .tm-note-chevron { transform: rotate(180deg); }
+.tm-note-body[hidden] { display: none; }
 .tm-draft-why { margin-top: var(--space-2); color: var(--muted-foreground); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .tm-acts { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .tm-link { margin-left: auto; font-size: var(--text-sm); color: var(--muted-foreground); }
@@ -99,7 +108,7 @@
 .tm-bar .seg { overflow-x: auto; }   /* на телефоне фильтры не раздвигают страницу — прокручиваются сами */
 .tm, .tm-top, .tm-list { min-width: 0; }   /* .tm — элемент grid вида: без этого на телефоне шире экрана */
 .tm-card { max-width: 100%; box-sizing: border-box; }
-.tm-draft .tm-acts, .tm-mine .tm-acts { margin-top: var(--space-2); }
+.tm-mine .tm-acts { margin-top: var(--space-2); }
 .tm-bar .seg button { white-space: nowrap; }
 @media (max-width: 760px) {
   .tm-top { padding: var(--space-3) var(--space-4); gap: var(--space-2); }
@@ -206,7 +215,6 @@
 .tm-conversation-search .btn .icon { width: 20px; height: 20px; }
 .tm-src, .tm-count { padding: 0; background: transparent; color: var(--foreground); border-radius: 0; }
 .tm-head :is(.ago,.tm-age), .tm-where, .tm-src, .tm-count, .tm-draft-by, .tm-note, .tm-hint { font-size: var(--text-base); }
-.tm-draft { border: 0; padding: var(--space-3); }
 .tm-team legend { text-transform: none; letter-spacing: normal; font-size: var(--text-base); }
 .tm .btn.small, .tm .seg button, .tm-find, .tm-chan { min-height: var(--control-size, 44px); font-size: var(--text-base); }
 .tm-detail { position: relative; display: flex; min-width: 0; min-height: 0; padding: var(--space-4); }
@@ -260,7 +268,6 @@
 .tm-forwarded { color: var(--muted-foreground); padding-inline: 6px; }
 .tm-received-reactions { display: flex; gap: 4px; flex-wrap: wrap; }
 .tm-received-reactions > span { padding: 2px 7px; border-radius: 14px; background: var(--muted); }
-.tm-guidance { flex: none; padding-top: 8px; color: var(--foreground); white-space: pre-line; }
 .tm-verdict { padding: 0; color: var(--foreground); overflow-wrap: anywhere; }
 .tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
 .tm-detail .tm-divider { justify-content: center; }
@@ -568,7 +575,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-search-toggle .icon { width: 22px; height: 22px; }
 .tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
 .tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
-.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-guidance, .tm-verdict, .tm-draft, .tm-rich-text) { font-size: 14px; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-note-box, .tm-verdict, .tm-rich-text) { font-size: 14px; }
 .tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }

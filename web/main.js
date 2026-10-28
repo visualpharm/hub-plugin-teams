@@ -1594,6 +1594,26 @@ function line(m, source=m, named=false) {
 
 let focusId = null;   // после перерисовки поставить курсор в поле ответа этого сообщения
 
+// Заметка разбора хаба — одна строка-кнопка «Почему здесь · начало … ˅»; нажатие раскрывает заметку на месте, повтор сворачивает
+const openNotes = new Set();
+function whyNote(m, line) {
+  const id = `tm-note-${String(m.id).replace(/[^\w-]/g, "_")}`, open = openNotes.has(id);
+  const wrap = el("div", "tm-note-box");
+  const head = el("span", "tm-note-head", line), chevron = nativeIcon("chevron-down");
+  chevron.classList.add("tm-note-chevron");
+  const toggle = button("", "tm-note-toggle", () => {
+    const now = body.hidden;
+    body.hidden = !now; head.hidden = now; toggle.setAttribute("aria-expanded", String(now));
+    now ? openNotes.add(id) : openNotes.delete(id);
+  }, "");
+  toggle.append(el("span", "tm-note-label", T("Почему здесь", "Why it's here", "Por qué está aquí")), head, chevron);
+  toggle.setAttribute("aria-expanded", String(open)); toggle.setAttribute("aria-controls", id);
+  const body = valueElement(el, "div", "tm-draft-why tm-note-body", line);
+  body.id = id; body.hidden = !open; head.hidden = open;
+  wrap.append(toggle, body);
+  return wrap;
+}
+
 function openCompose(m, text, why = "", focus = true) {
   startCompose(m, text, why, focus);
   paint();
