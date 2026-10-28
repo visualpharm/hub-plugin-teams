@@ -58,6 +58,16 @@ class WholeInbox(unittest.TestCase):
         self.assertTrue(all('Use only verified source facts' in t for t in told))
         self.assertIn('p134',told[-1])
 
+    def test_whole_inbox_goes_to_inbox_agent_when_live_else_hub(self):
+        for sessions,want in (({'canonical':{'kind':'hub','state':'idle'},'inbox':{'kind':'work','state':'idle'}},'inbox'),
+                              ({'canonical':{'kind':'hub','state':'idle'},'inbox':{'kind':'work','state':'removed'}},'hub'),
+                              ({'canonical':{'kind':'hub','state':'idle'}},'hub')):
+            snapshot={'sessions':sessions,'feeds':{}}
+            with patch('core.journal.load_state',return_value=snapshot),patch.object(main,'save'), \
+                    patch.object(main.spool,'put') as put:
+                main.manage_inbox({'open':{}},{'rid':'to-'+want,'text':'Review all Inbox'},lambda _:None)
+            self.assertEqual(put.call_args[0][3]['to'],want)
+
     def test_missing_posts_and_source_failure_stay_visible_not_all_handled(self):
         st={'open':{'unloaded':['thread','date']},'src':{'email':{'fails':1}}}
         snapshot={'sessions':{'canonical':{'kind':'hub','state':'idle'}},'feeds':{}}

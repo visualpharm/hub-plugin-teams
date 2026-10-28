@@ -1010,9 +1010,9 @@ def ask_hub(st, q, put=post, tell=None, now=None):
     save(st)
 
 
-def to_hub(text):
+def to_hub(text, to="hub"):
     spool.put(os.path.join(STATE, "spool"), "message.received", None,
-              {"to": "hub", "text": text, "channel": "plugin", "owner": False, "sender": NAME}, src=f"ext:{NAME}")
+              {"to": to, "text": text, "channel": "plugin", "owner": False, "sender": NAME}, src=f"ext:{NAME}")
 
 
 def revise_hub(st,q,put=post,tell=None):
@@ -1099,7 +1099,7 @@ def manage_inbox(st,q,put=post,tell=None):
                 +json.dumps({'rid':q['rid'],'part':n+1,'of':len(batches),'owner_text':q['text'],
                             'coverage':coverage,'items':part},ensure_ascii=False)
                 +'\n'+assistant_contract(st))
-        (tell or to_hub)(prompt)
+        (tell or (lambda text:to_hub(text,inbox_requests.triager(snapshot))))(prompt)
         record['parts_sent'].append(n)
         save(st)
     record['state']='dispatched'

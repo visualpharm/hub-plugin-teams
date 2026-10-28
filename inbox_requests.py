@@ -16,6 +16,12 @@ def hub_identity(snapshot, require_generation=False):
     raise ValueError('Canonical Hub identity unavailable')
 
 
+def triager(snapshot):
+    """Кому уходит разбор всего Inbox: быстрому разборщику `inbox` (как «auto» у proactivity), иначе хабу."""
+    row=snapshot.get('sessions',{}).get('inbox')
+    return 'inbox' if row and row.get('state') not in ('removed','closed','failed') else 'hub'
+
+
 def source(posts, post, key, name):
     found = next((p for p in posts if p.get('id') == post and p.get('by') == 'плагин '+name),None)
     try:
