@@ -1192,3 +1192,83 @@ class Revoked(unittest.TestCase):
         self.assertEqual([c[1:] for c in calls[1:]], [["gone", "77", "12"], ["gone", "78", "20"]])
         sources.telegram({}, NOW)
         self.assertEqual(len(calls), 4)   # проверка — не чаще раза в WA_READ_AGAIN на пункт
+
+
+class BookNames(unittest.TestCase):
+    """26.10 (d1047350): контакт переименован в Контактах Mac, а Inbox показывал прежний заголовок чата WhatsApp Web —
+    имя собеседника личного чата берётся из книги (whatsapp.names_cmd), заголовок чата — запасной."""
+    CID = "5491100000031@c.us"
+
+    def setUp(self):
+        self._run = sources.run
+        sources._BOOK.clear()
+        sources._BOOK_FAIL[0] = 0.0
+        self.asked = []
+
+    def tearDown(self):
+        sources.run = self._run
+        sources._BOOK.clear()
+        sources._BOOK_CMD[0] = None
+        sources._BOOK_FAIL[0] = 0.0
+
+    def fake(self, book, chats):
+        table = {"new": chats}
+        def run(cmd, timeout=90):
+            if cmd[0] == "/fake/names":
+                self.asked.append(cmd[1:])
+                if isinstance(book, Exception):
+                    raise book
+                return json.dumps({d: book[d] for d in cmd[1:] if d in book})
+            return fake_run(table)(cmd, timeout)
+        sources.run = run
+
+    def chats(self):
+        return [{"chat_id": self.CID, "name": "Pablo Electricista", "new": 1, "unread": 1,
+                 "last": "2026-10-10T11:30-03:00", "preview": "Podés pasar mañana a las 10?"},
+                {"chat_id": "120363777@g.us", "name": "Obra", "new": 1, "unread": 1,
+                 "last": "2026-10-10T11:31-03:00", "preview": "Urgente: se cortó la luz"}]
+
+    def test_name_comes_from_the_book_and_chat_title_is_fallback(self):
+        self.fake({"5491100000031": "Pablo eSun"}, self.chats())
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"], "names_cmd": "/fake/names"}, NOW)
+        got = {i["box"]: i for i in items}
+        self.assertEqual(got[f"wa:whatsapp:{self.CID}"]["from"], "Pablo eSun")
+        self.assertEqual(got[f"wa:whatsapp:{self.CID}"]["ref"].get("who"), "Pablo Electricista")   # send --who как было
+        self.assertEqual(got["wa:whatsapp:120363777@g.us"]["from"], "Obra")   # группа — без книги
+        self.assertEqual(self.asked, [["5491100000031"]])
+        # без книги — заголовок чата, как было
+        sources._BOOK.clear()
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual({i["box"]: i["from"] for i in items}[f"wa:whatsapp:{self.CID}"], "Pablo Electricista")
+
+    def test_book_is_asked_once_per_window_and_a_failure_falls_back_quietly(self):
+        self.fake({"5491100000031": "Pablo eSun"}, self.chats())
+        cfg = {"channels": ["whatsapp"], "names_cmd": "/fake/names"}
+        sources.whatsapp(cfg, NOW)
+        sources.whatsapp(cfg, NOW)
+        self.assertEqual(len(self.asked), 1)   # второй такт — из памяти
+        sources._BOOK.clear()
+        self.fake(OSError("Contacts недоступны"), self.chats())
+        with contextlib.redirect_stderr(io.StringIO()):
+            items, _, errors = sources.whatsapp(cfg, NOW)
+            sources.whatsapp(cfg, NOW)
+        self.assertEqual(errors, [])   # не поломка источника: имя из чата
+        self.assertEqual({i["box"]: i["from"] for i in items}[f"wa:whatsapp:{self.CID}"], "Pablo Electricista")
+        self.assertEqual(len(self.asked), 2)   # упала — следующая попытка не на каждом такте
+
+    def test_history_names_the_peer_from_the_book(self):
+        src = {"version": 1, "channel": "whatsapp", "account": "456", "peer": self.CID,
+               "captured_at": "2026-10-15T10:00:00+00:00"}
+        data = {"chat_id": self.CID, "messages": [
+            {"id": "A1", "out": False, "when": "9:35 AM, 10/12/2026", "author": "Pablo Electricista", "body": "hola",
+             "source": {**src, "raw_id": f"false_{self.CID}_A1"}},
+            {"id": "A2", "out": True, "when": "9:36 AM, 10/12/2026", "author": "Ivan B", "body": "dale",
+             "source": {**src, "raw_id": f"true_{self.CID}_A2"}}]}
+        sources._BOOK_CMD[0] = "/fake/names"
+        def run(cmd, timeout=90):
+            if cmd[0] == "/fake/names":
+                return json.dumps({"5491100000031": "Pablo eSun"})
+            return json.dumps(data)
+        sources.run = run
+        got = sources.history({"wa": "whatsapp", "to": self.CID, "account": "456", "cmd": "/fake/wa"})
+        self.assertEqual([(m["from"], m["me"]) for m in got], [("Pablo eSun", False), ("Ivan B", True)])

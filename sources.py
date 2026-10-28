@@ -269,6 +269,41 @@ def media_summary(kinds, n):
     return ", ".join(parts) if parts else f"Непрочитанных: {n} (фото, голосовое или файл)"
 
 
+# --- имя собеседника WhatsApp — из адресной книги владельца (26.10, d1047350: контакт переименован в Контактах Mac,
+# а Inbox показывал прежний заголовок чата WhatsApp Web). whatsapp.names_cmd — команда «<cmd> <цифры>…» → JSON
+# {цифры: имя}; номера без карточки в ответе нет. Нет команды или она упала — имя из заголовка чата, как раньше.
+_BOOK = {}           # цифры номера -> (когда спрошено, имя или "")
+_BOOK_CMD = [None]   # команда из последнего whatsapp(cfg): ею же пользуется history(), у которой нет cfg
+_BOOK_FAIL = [0.0]   # когда команда упала: следующая попытка — через BOOK_EVERY, не на каждом такте
+BOOK_EVERY = 10 * 60
+
+
+def book_names(cmd, numbers, now=None):
+    """{цифры: имя из книги} для номеров; спрашивает книгу только о незнакомых или старше BOOK_EVERY."""
+    now = time.time() if now is None else now
+    numbers = [d for d in dict.fromkeys(numbers) if d]
+    stale = [d for d in numbers if now - _BOOK.get(d, (0, ""))[0] >= BOOK_EVERY]
+    if cmd and stale and now - _BOOK_FAIL[0] >= BOOK_EVERY:
+        try:
+            got = json.loads(run([cmd, *stale], timeout=60) or "{}")
+            if not isinstance(got, dict):
+                raise ValueError("не словарь")
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
+            _BOOK_FAIL[0] = now
+            print(f"whatsapp: имена из книги ({cmd}): {e}"[:300], file=sys.stderr, flush=True)
+        else:
+            for d in stale:
+                _BOOK[d] = (now, " ".join(str(got.get(d) or "").split())[:80])
+            while len(_BOOK) > 5000:
+                _BOOK.pop(next(iter(_BOOK)))
+    return {d: _BOOK[d][1] for d in numbers if _BOOK.get(d, (0, ""))[1]}
+
+
+def wa_peer(cid):
+    """Цифры собеседника личного чата WhatsApp (…@c.us); группа и @lid — "" (номера нет)."""
+    return re.sub(r"\D", "", cid.split("@")[0]) if (cid or "").endswith("@c.us") else ""
+
+
 # --- WhatsApp: `wa new` — читает только список чатов открытой вкладки, ничего не открывает и не отмечает прочитанным ---
 @source("whatsapp", every=120)
 def whatsapp(cfg, now):
@@ -278,6 +313,7 @@ def whatsapp(cfg, now):
     cmd = expand(cfg.get("cmd") or "~/.claude/bin/wa")
     labels = cfg.get("labels") or {}
     items, boxes, errors, ok = [], set(), [], 0
+    _BOOK_CMD[0] = expand(cfg["names_cmd"]) if cfg.get("names_cmd") else None
     for ch in cfg.get("channels") or ["whatsapp"]:
         try:
             rows = json.loads(run([cmd, "new", "--channel", ch, "--hours", "24", "--json"]) or "[]")
@@ -290,6 +326,7 @@ def whatsapp(cfg, now):
             errors.append(f"{labels.get(ch, ch)}: {msg}")
             continue
         ok += 1
+        names = book_names(_BOOK_CMD[0], [wa_peer(r.get("chat_id") or "") for r in rows])
         for r in rows:
             cid, text = r.get("chat_id") or "", clean_preview(r.get("preview") or "")
             n = r.get("unread") or 0
@@ -394,7 +431,7 @@ def whatsapp(cfg, now):
                           **({"media": media} if media else {}), **({"context": context} if context else {}),
                           **({"links": links} if links else {}),
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
-                          "from": r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
+                          "from": names.get(wa_peer(cid)) or r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
                           "mention": False, **({"team": True} if team else {}), **({"revoked": True} if gone else {}),
                           "ref": ref})
@@ -442,7 +479,8 @@ def wa_context(ref, wait, key):
             return iso_utc(datetime.strptime(m.get("when") or "", "%I:%M %p, %m/%d/%Y"))
         except ValueError:
             return ""
-    out = fit_context({"at": at(m), "from": "" if m.get("out") else (m.get("author") or ""), "me": bool(m.get("out")),
+    name = book_names(None, [wa_peer(ref["to"])]).get(wa_peer(ref["to"]))   # книгу спросил whatsapp() этого такта
+    out = fit_context({"at": at(m), "from": "" if m.get("out") else (name or m.get("author") or ""), "me": bool(m.get("out")),
                        "text": m.get("body"), "kind": WA_KINDS.get(m.get("kind") or "", "")}
                       for m in rows[:first] if m.get("kind") != "system")
     _WA_CTX[key] = (time.time(), out)
@@ -1363,7 +1401,7 @@ def history(ref, top=20, before=None, search=None):
         who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
         data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
                                "--limit", str(500 if before or search else top), "--channel", ref["wa"]]))
-        out = []
+        out, name = [], book_names(_BOOK_CMD[0], [wa_peer(ref["to"])]).get(wa_peer(ref["to"]))
         for m in verified_wa_history(ref, data):
             try:
                 at = iso_utc(datetime.strptime(m.get("when") or "", "%I:%M %p, %m/%d/%Y"))
@@ -1371,7 +1409,8 @@ def history(ref, top=20, before=None, search=None):
                 at = ""
             text = (m.get("body") or "").strip() or ("[медиа]" if m.get("media") else "")
             if text:
-                out.append({"at": at, "from": m.get("author") or "", "me": bool(m.get("out")), "text": text,
+                out.append({"at": at, "from": (name if name and not m.get("out") else m.get("author") or ""),
+                            "me": bool(m.get("out")), "text": text,
                             "source": m["source"],
                             **({"id": str(m["id"])} if m.get("id") else {})})
         return page(out, top, before, search)   # копия треда целиком: листание и поиск — по ней
