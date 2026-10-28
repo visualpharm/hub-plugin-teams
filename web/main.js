@@ -14,6 +14,7 @@ import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
 import { messageMenus } from "./message-menu.js";
 import { conversationPins } from "./conversation-pins.js";
+import { conversationChain, chainReplies, chainAsked } from "./conversation-chain.js";
 import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
@@ -48,6 +49,7 @@ const archivedRequests = new Set(); // Replayed success cannot undo a later expl
 const work = new Map();      // id → ts: передано хабу в работу
 const draft = new Map();     // id → ts: черновик запрошен
 const replies = new Map();   // номер поста сообщения → [{by, text, ts}] — черновики от сессий
+const chain = conversationChain();   // новое сообщение переписки → закрытое им прежнее: черновик и ✨ идут за перепиской
 let signature = "";         // подпись под черновиками хаба — настройка плагина (пост config), задаётся в приложениях
 // подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
 // web-1 draws the signature below the field (fixed, not editable): the field holds the body, the stored/sent text the whole reply
@@ -441,6 +443,7 @@ async function sync() {
   loading = true;
   try {
     const posts = await hub.feed(since);
+    const replaced = [];   // [новое, закрытое] — нетронутое поле ответа закрытого переходит к новому сообщению переписки
     if (cachedView) { msgs.clear(); cachedView = false; }   // кэш заменяет первая удачная загрузка целиком
     const wasOffline = !!offline; offline = null; watchConnection();
     for (const p of posts) {
@@ -501,10 +504,12 @@ async function sync() {
           composing.delete(d.id);editorStates.delete(d.id);histories.delete(d.id);
         }
         msgs.set(d.id, message);
+        chain.opened(d.id, Number(p.id.slice(1)), (old) => replacedBy(old, message));
+        if (!previous && chain.predecessors(d.id).length) replaced.push([d.id, chain.predecessors(d.id)[0]]);
         restorePendingReply(message);
         editorStates.get(d.id)?.observe(msgs.get(d.id));
         if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
-      } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); }
+      } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); chain.closed(d.id, d.newer, Number(p.id.slice(1))); }
       else if (p.by === AUTHOR && ["read","read_failed"].includes(d?.kind)) {
         const accepted=typeof navigator!=='undefined' && navigator.locks
           ? await navigator.locks.request('hub.inbox.provider-read:'+hubName(),()=>providerReads.accept(d)) : providerReads.accept(d);
@@ -521,9 +526,8 @@ async function sync() {
           answered.delete(d.id); answeredAt.delete(d.id);
           // Keep the original post/draft relationship and any owner edits. This
           // opens an unsent editor; only the existing owner Send action delivers.
-          const latest = (replies.get(m.post) || []).at(-1);
-          if (latest && !composing.has(d.id)) {
-            const draft = splitDraft(latest.text);
+          const draft = hubOffer(m);
+          if (draft.latest && !composing.has(d.id)) {
             composing.set(d.id, {text: draft.text, why: draft.why});
           }
         }
@@ -616,6 +620,7 @@ async function sync() {
         replies.set(p.reply_to, [...(replies.get(p.reply_to) || []), { by: p.by, text: p.text, ts: p.ts }]);
       }
     }
+    for (const [id, old] of replaced) carryCompose(msgs.get(id), msgs.get(old));
     failed = "";
     loaded = true;
     // Not awaited: the hold it may need is acknowledged by a later sync.
@@ -1225,7 +1230,7 @@ function conversationMark(group) {
   if (out.some(s => s.state === "ok")) return {icon:"reply",label:"Sent"};
   if (group.some(m => deliveredReactions.has(m.id))) return {icon:"reply",label:"Reaction sent"};
   for (const m of group) {
-    const text = splitDraft((replies.get(m.post) || []).at(-1)?.text || "").text;
+    const text = hubOffer(m).text;
     if (text && !done(m)) return m.react && QUICK_REACTIONS.includes(text)
       ? {emoji:text,label:`Suggested reaction: ${text}`} : {icon:"edit",label:"Suggested reply"};
   }
@@ -1486,7 +1491,7 @@ function openCompose(m, text, why = "", focus = true) {
     const saved=savedDraft(m);
     if (saved!==undefined) text = saved.text;
     else {
-      const latest = (replies.get(m.post) || []).at(-1), offer = splitDraft(latest?.text || "");
+      const offer = hubOffer(m), latest = offer.latest;
       text = offer.text && !QUICK_REACTIONS.includes(offer.text.trim()) ? signed(offer.text,m) : "";
       why = offer.why; suggested = !!text; offerTs = text || QUICK_REACTIONS.includes(offer.text.trim()) ? latest?.ts : undefined;
     }
@@ -1908,12 +1913,15 @@ const canReply = (m) => (!!m.reply || replyOk.has(m.id)) && !isArchived(m) && (h
 // Черновик хаба: сам текст, затем строка `---` и заметка владельцу («Почему: …»). Делим по последней такой строке;
 // заметка показывается рядом, в поле правки и в отправку идёт только текст (владелец 13.10: «когда редактируешь,
 // туда же влезает и „почему“»)
+// Пометка переноса proactivity («Перенесён из pN: …» под «---») служебная: номер поста владельцу не показываем —
+// carried, а вместо неё фраза на его языке (carriedWhy)
 export function splitDraft(reply) {
   const lines = String(reply || "").split("\n");
   const i = lines.findLastIndex((l) => l.trim() === "---");
-  if (i < 0) return { text: lines.join("\n").trim(), why: "" };
-  const why = lines.slice(i + 1).join("\n").trim().replace(/^(Почему|Why|Por qué):\s*/i, "");
-  return { text: lines.slice(0, i).join("\n").trim(), why };
+  if (i < 0) return { text: lines.join("\n").trim(), why: "", carried: false };
+  const notes = lines.slice(i + 1), carry = (l) => l.trim().startsWith("Перенесён из");
+  const why = notes.filter((l) => !carry(l)).join("\n").trim().replace(/^(Почему|Why|Por qué):\s*/i, "");
+  return { text: lines.slice(0, i).join("\n").trim(), why, carried: notes.some(carry) };
 }
 
 // Заметка владельцу — одной фразой, как на Mac/iPhone: служебные метки («Context:», «Next action:», «Контекст:», «Следующий шаг:»)
@@ -1925,7 +1933,36 @@ export function whyLine(why) {
 }
 
 // повтор ✨ позже последнего черновика: черновик устарел, пока хаб не положит новый
-const draftStale = (m) => { const latest = (replies.get(m.post) || []).at(-1); return !!latest && (draft.get(m.id) || 0) > latest.ts; };
+const draftStale = (m) => { const latest = latestDraft(m); return !!latest && (askedAt(m) || 0) > latest.ts; };
+// Черновики сессий строки: свои, а нет своих — заменённого ею сообщения той же переписки (перенесён, conversation-chain.js)
+function hubDrafts(m) { return chainReplies(chain, m, (id) => msgs.get(id)?.post, (post) => replies.get(post)); }
+function latestDraft(m) { return hubDrafts(m).list.at(-1); }
+// ✨ у строки или у заменённого ею прежнего сообщения — время просьбы
+function askedAt(m) { return chainAsked(chain, m, (id) => draft.get(id)); }
+// Закрытое сообщение заменено новым той же переписки, если владелец на него не отвечал (своя отправка, реакция)
+function replacedBy(oldId, m) {
+  const old = msgs.get(oldId);
+  return !!old && conversationKey(old) === conversationKey(m) && !deliveredReactions.has(oldId)
+    && ![...sends.values()].some((x) => x.id === oldId && x.state !== "fail");
+}
+// Поле ответа закрытого сообщения, где владелец ничего не набрал, открывается у заменившего его (черновик хаба
+// придёт туда же — adoptOffer); набранное остаётся у прежнего: оно не done, пока есть черновик владельца
+function carryCompose(m, old) {
+  const st = old && composing.get(old.id);
+  if (!m || !st || hasOwnerDraft(old) || st.files?.length || st.uploading || st.state?.control || st.state?.delivery) return;
+  if (!st.suggested && replyBody(st.text, old).trim()) return;
+  composing.delete(old.id); editorStates.delete(old.id);
+  if (!composing.has(m.id) && canReply(m)) openCompose(m, undefined, "", false);
+}
+const carriedLine = () => T("Черновик к прежнему сообщению — сверь с новым.", "Draft for the earlier message — check it against the new one.",
+  "Borrador para el mensaje anterior: revisalo con el nuevo.");
+// Пояснение перенесённого черновика: номер поста владельцу не нужен — фраза на его языке, затем заметка хаба
+const carriedWhy = (why) => [carriedLine(), why].filter(Boolean).join("\n");
+// Последний черновик хаба строки: текст, пояснение (у перенесённого — с фразой о прежнем сообщении)
+function hubOffer(m) {
+  const { list, carried } = hubDrafts(m), latest = list.at(-1), offer = splitDraft(latest?.text || "");
+  return { latest, text: offer.text, why: (offer.carried || carried) && offer.text ? carriedWhy(offer.why) : offer.why };
+}
 const staleMark = () => el("p", "tm-draft-stale", T("Черновик устарел", "Draft is out of date"));
 
 async function askDraft(m) {
@@ -1941,7 +1978,7 @@ async function askDraft(m) {
 function adoptOffer(m, st, latest) {
   if (st.offerTs === latest.ts || st.files?.length || st.uploading || st.state?.control || st.state?.delivery) return;
   if (!st.suggested && replyBody(st.text, m).trim()) return;
-  const offer = splitDraft(latest.text);
+  const offer = hubOffer(m);
   // совет-реакция в поле не идёт: её ставит «Поставить 👍» (I-12); пояснение — как к любому совету
   if (QUICK_REACTIONS.includes(offer.text.trim())) { st.offerTs = latest.ts; st.why = offer.why; return; }
   if (!offer.text) return;
@@ -1951,14 +1988,16 @@ function adoptOffer(m, st, latest) {
 }
 
 function draftBlock(m, r) {
-  const stale = draftStale(m) && (replies.get(m.post) || []).at(-1) === r;
+  const stale = draftStale(m) && latestDraft(m) === r;
   const d = el("div", "tm-draft" + (stale ? " tm-draft-old" : ""));
   if (stale) d.append(staleMark());
   const by = el("div", "tm-draft-by", `${T("Черновик ответа","Draft reply")} · ${agentTitle((hub.snapshot().sessions || []).find((s) => s.name === r.by)) || r.by} · `);
   by.append(stamp(r.ts));
-  const { text, why } = splitDraft(r.text);
+  const { text, why: note, carried } = splitDraft(r.text), moved = (carried || hubDrafts(m).carried) && !!text;
+  const why = moved ? carriedWhy(note) : note;
   d.append(by, replyText(el,text));
-  if (why) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(why)}`));
+  if (moved) d.append(el("div", "tm-draft-why tm-draft-carried", carriedLine()));
+  if (note) d.append(el("div", "tm-draft-why", `${T("Почему","Why")}: ${whyLine(note)}`));
   const mine = [...sends.values()].filter((x) => x.id === m.id && (x.text === text || x.text === signed(text, m)));
   if (text && canReply(m) && !mine.some((x) => x.state !== "fail")) {
     const a = el("div", "tm-acts");
@@ -2168,7 +2207,7 @@ async function reactTo(m, emoji) {
 
 // I-12: хаб посоветовал реакцию вместо текста (👍 на «посмотрю») — в треде рядом с советом, одним нажатием, как «Поставить» на iPhone/Mac
 function suggestedReaction(m) {
-  const emoji = splitDraft((replies.get(m.post) || []).at(-1)?.text || "").text.trim();
+  const emoji = hubOffer(m).text.trim();
   if (!QUICK_REACTIONS.includes(emoji) || !m.react || done(m) || deliveredReactions.has(m.id) || ["wait","ok"].includes(reactionSends.get(m.id)?.state)) return null;
   const row = el("div", "tm-suggested-reaction");
   const label = el("span", "tm-suggested-label", T("Хаб советует реакцию", "Hub suggests a reaction"));
@@ -2308,13 +2347,13 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const notes = [];
   if (ms.some((m) => answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id))) notes.push(TEAMS_SRCS.includes(last.src) ? T("Ты ответил в Teams","You replied in Teams") : T("Прочитано или отвечено","Read or answered"));
   if (ms.some((m) => work.has(m.id))) notes.push(T("Передано хабу в работу","Handed to Hub"));
-  if (ms.some((m) => draft.has(m.id) && !(replies.get(m.post) || []).length)) notes.push(T("Хаб готовит черновик ответа","Hub is preparing a draft"));
+  if (ms.some((m) => askedAt(m) !== undefined && !hubDrafts(m).list.length)) notes.push(T("Хаб готовит черновик ответа","Hub is preparing a draft"));
   if (ms.every(isArchived)) notes.push(T("Скрыто","Archived"));
   if (notes.length) history.append(el("p", "tm-note", notes.join(" · ")));
 
   for (const m of ms) {
     // один черновик — последний; прежние заменены им (I-16: повтор ✨ не задваивает)
-    const latest = (replies.get(m.post) || []).at(-1), st = composing.get(m.id);
+    const latest = latestDraft(m), st = composing.get(m.id);
     if (latest && st) adoptOffer(m, st, latest);
     if (latest && (!st || st.offerTs !== latest.ts)) history.append(draftBlock(m, latest));
     else if (latest && draftStale(m)) history.append(staleMark());

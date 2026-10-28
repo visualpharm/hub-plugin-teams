@@ -1,4 +1,4 @@
-// Подписи плагина на языке владельца: T(ru, en). Свой модуль, а не /static/js/ui-text.js ядра — в ядре flagman его нет
+// Подписи плагина на языке владельца: T(ru, en[, es]). Свой модуль, а не /static/js/ui-text.js ядра — в ядре flagman его нет
 // (там i18n.js и hub.lang), и импорт давал 404: плагин не грузился. Язык — как у прежнего ядерного T: owner.lang из
 // снимка, затем язык страницы (hub.lang — flagman, Plugin API 1.25), затем <html lang>; "en" — английский, иначе русский.
 let hub = null;
@@ -12,4 +12,5 @@ const lang = () => {
   return owner || hub?.lang || document.documentElement.lang;
 };
 
-export const T = (ru, en) => (lang() === "en" ? en : ru);
+// es — только там, где подпись уже переведена (как у натива); без неё испанский по-прежнему видит русскую
+export const T = (ru, en, es) => { const l = lang(); return l === "en" ? en : l === "es" && es ? es : ru; };

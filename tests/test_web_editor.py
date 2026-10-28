@@ -1247,6 +1247,40 @@ class InboxWebAcceptance(PageInChrome):
         self.p14_shot('teams-draft-new-402',402)
         self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[])
 
+    def test_hub_draft_and_ask_follow_the_conversation_to_the_replacing_message(self):
+        # d660171 (native Inbox+Chain): the contact wrote again — the collector closes the old item (answered with newer)
+        # and opens a new one; ✨, «preparing» and the hub draft of the old item follow to the new one, and the
+        # proactivity carry note is shown as a phrase, never raw with the post number
+        self.seed_inbox(start_editing=False)
+        find="fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{const x=JSON.parse(p.text);return x.kind==='msg'&&x.id===%s}catch{return false}}).id)"
+        post=self.page({'eval':find%"'source-a'"})[-1]['eval']
+        ask="document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]')"
+        self.page({'eval':ask+".click();true"})
+        q=self.queued('ask');self.assertEqual(q['post'],post)
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(q))
+        self.feed({'kind':'answered','id':'source-a','newer':'source-b'})
+        self.feed({'kind':'msg','id':'source-b','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'One more thing.',
+                   'react':True,'at':datetime.now(timezone.utc).isoformat(),'reply':True,'inbox':{**self.token,'version':'synthetic-source-B'}})
+        detail="document.querySelector('.tm-detail')?.textContent||''"
+        got=self.page({'until':f"({detail}).includes('One more thing') && ({detail}).includes('Хаб готовит черновик')"},{'eval':detail})
+        self.assertTrue(got[-2]['until'],got[-1]['eval'])
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Да, посмотрю сегодня.\n---\nПочему: просит проверить навигацию')
+        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Да, посмотрю сегодня.'"},
+                      {'eval':"document.querySelector('.tm-guidance')?.textContent||''"},{'eval':detail})
+        self.assertTrue(got[-3]['until'],got[-1]['eval'])
+        self.assertEqual(got[-2]['eval'],'Черновик к прежнему сообщению — сверь с новым. Просит проверить навигацию')
+        self.assertNotIn('Хаб готовит черновик',got[-1]['eval'])
+        post_b=self.page({'eval':find%"'source-b'"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='proactivity',reply_to=post_b,
+                text=f'Да, посмотрю сегодня вечером.\n---\nПеренесён из {post}: черновик к прежнему сообщению этой переписки — сверь с новым.\nПочему: просит проверить навигацию')
+        got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Да, посмотрю сегодня вечером.'"},
+                      {'eval':"document.querySelector('.tm-guidance')?.textContent||''"},{'eval':"document.body.innerText"})
+        self.assertTrue(got[-3]['until'],got[-1]['eval'])
+        self.assertEqual(got[-2]['eval'],'Черновик к прежнему сообщению — сверь с новым. Просит проверить навигацию')
+        self.assertNotIn('Перенесён',got[-1]['eval']);self.assertNotIn(post,got[-1]['eval'])
+        self.p14_shot('teams-draft-carried-402',402);self.p14_shot('teams-draft-carried-1240',1240)
+        self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[])
+
     def test_inbox_count_matches_rows_and_offline_keeps_the_cached_list(self):
         # I-46: the count equals the conversations shown; without a connection the cached list stays with a clear status
         cut="(()=>{const f=window.fetch;window.fetch=(u,o)=>String(u).includes('/api/feed?') && sessionStorage.getItem('p14off') ? Promise.reject(new TypeError('Failed to fetch')) : f(u,o);return true})()"
