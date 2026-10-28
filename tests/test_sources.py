@@ -1,4 +1,6 @@
 """Каналы WhatsApp и почта без сети: поддельные wa и gogx. Запуск — как test_collect (PYTHONPATH — код хаба)."""
+import contextlib
+import io
 import json
 import shutil
 import os
@@ -295,6 +297,8 @@ class WaVoice(unittest.TestCase):
         os.environ["HUB_STATE_DIR"] = self.d
         sources._WA_MEDIA.clear()
         sources._WA_VOICE.clear()
+        getattr(sources, "_WA_VOICE_TRIES", {}).clear()
+        sources._WA_OPENED.clear()
 
     def tearDown(self):
         sources.run, sources._transcript = self._run, self._tr
@@ -308,11 +312,58 @@ class WaVoice(unittest.TestCase):
         self.assertEqual(sources.clean_preview("ic-unknown-filled Hola"), "Hola")
         self.assertEqual(sources.clean_preview("Hola, ¿cómo estás?"), "Hola, ¿cómo estás?")
 
-    def test_voice_without_file_shows_no_icon_junk(self):
-        sources.run = fake_run({"--voice": OSError("нет вкладки"), "new": [self.CHAT]})
-        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
-        self.assertEqual(items[0]["text"], "[голосовое 0:32]")
+    def test_voice_without_file_says_it_was_not_downloaded_and_retries_three_times(self):
+        """24.10 (d841958): голосовое не скачалось — так и пишем (не «[голосовое]» и не иконку), причина в логе;
+        на следующих тактах пробуем ещё, всего до трёх раз; скачалось — тот же пункт с расшифровкой."""
+        calls = []
+
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "--voice" in cmd:
+                raise OSError("нет вкладки")
+            return json.dumps([self.CHAT])
+        sources.run = run
+        cfg = {"channels": ["whatsapp"]}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            items, _, _ = sources.whatsapp(cfg, NOW)
+        self.assertEqual(items[0]["text"], "голосовое не скачалось")
         self.assertNotIn("ic-", items[0]["text"])
+        self.assertIn("V1 не скачалось (попытка 1 из 3): нет вкладки", err.getvalue())
+        sources.whatsapp(cfg, NOW)   # тот же такт: сразу не повторяем
+        self.assertEqual(len([c for c in calls if "--voice" in c]), 1)
+        for _ in range(4):           # следующие такты: ещё две попытки, потом бросаем
+            for k, (n, _t) in list(sources._WA_VOICE_TRIES.items()):
+                sources._WA_VOICE_TRIES[k] = (n, 0)
+            with contextlib.redirect_stderr(io.StringIO()):
+                items, _, _ = sources.whatsapp(cfg, NOW)
+        self.assertEqual(len([c for c in calls if "--voice" in c]), 3)
+        self.assertEqual(items[0]["text"], "голосовое не скачалось")
+
+    def test_voice_retry_that_succeeds_gives_the_transcript(self):
+        f = os.path.join(self.d, "5491100000009-V1.ogg")
+        with open(f, "wb") as fh:
+            fh.write(b"OggS")
+        answers = [[{"id": "V1", "kind": "voice", "error": "нет в хранилище вкладки"}],
+                   [{"id": "V1", "kind": "voice", "mime": "audio/ogg", "path": f, "via": "store",
+                     "transcript": "Fueron al hotel"}]]
+
+        def run(cmd, timeout=90):
+            return json.dumps(answers.pop(0)) if "--voice" in cmd else json.dumps([self.CHAT])
+        sources.run = run
+        cfg = {"channels": ["whatsapp"]}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            items, _, _ = sources.whatsapp(cfg, NOW)
+        self.assertEqual(items[0]["text"], "голосовое не скачалось")
+        self.assertIn("нет в хранилище вкладки", err.getvalue())
+        for k, (n, _t) in list(sources._WA_VOICE_TRIES.items()):
+            sources._WA_VOICE_TRIES[k] = (n, 0)
+        items, _, _ = sources.whatsapp(cfg, NOW)
+        self.assertEqual(items[0]["text"], "🎤 Fueron al hotel")
+        self.assertEqual(items[0]["key"], "wa:whatsapp:5491100000009@c.us:V1")   # тот же пункт — пост с тем же id
+        self.assertEqual(len(items[0]["media"]), 1)
+        self.assertNotIn("5491100000009@c.us", sources._WA_OPENED)   # из хранилища вкладки — чат не открывали
 
     def test_voice_is_downloaded_transcribed_and_attached(self):
         f = os.path.join(self.d, "5491100000009-V1.ogg")
@@ -330,12 +381,14 @@ class WaVoice(unittest.TestCase):
         cfg = {"channels": ["whatsapp"]}
         items, _, _ = sources.whatsapp(cfg, NOW)
         it = items[0]
-        self.assertEqual(it["text"], "Quieren implementar el lunes")
+        self.assertEqual(it["text"], "🎤 Quieren implementar el lunes")
         self.assertEqual([(m["kind"], m["name"], m["id"], m.get("dur")) for m in it["media"]],
                          [("voice", "5491100000009-V1.ogg", "wa:5491100000009@c.us:V1", "0:32")])
         self.assertTrue(it["media"][0]["url"].startswith("/api/file?path="))
         v = [c for c in calls if "--voice" in c][0]
         self.assertEqual(v[v.index("--only") + 1], "V1")
+        self.assertEqual(v[v.index("--lang") + 1], "es")   # расшифровка WhatsApp — wizper с языком (wamedia --transcribe)
+        self.assertIn("--transcribe", v)
         self.assertIn(os.path.join(self.d, "attachments", "inbox", "wa"), v)
         sources.whatsapp(cfg, NOW)   # то же сообщение: чат второй раз не открываем
         self.assertEqual(len([c for c in calls if "--voice" in c]), 1)
@@ -350,7 +403,7 @@ class WaVoice(unittest.TestCase):
         sources.run = fake_run({"--voice": [{"id": "V1", "kind": "voice", "mime": "audio/ogg", "path": f}], "new": [chat]})
         sources._transcript = lambda p: "Primero el audio"
         items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
-        self.assertEqual(items[0]["text"], "Primero el audio · Y esto también")
+        self.assertEqual(items[0]["text"], "🎤 Primero el audio · Y esto también")
 
 
 class Telegram(unittest.TestCase):
