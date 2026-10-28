@@ -18,6 +18,8 @@ import sys
 import time
 from datetime import datetime, timezone
 
+import collect
+
 SOURCES = {}
 TIMEOUT = 90
 OPEN = {}      # открытые пункты сборщика (ключ -> [box, at]): кладёт run_sources перед чтением каналов
@@ -205,7 +207,7 @@ def revoked(r):
             and m.get("revokes") and (m.get("t") or after + 1) > after]
 
 
-def unread_digest(messages, n, limit=600, preview="", authors=False):
+def unread_digest(messages, n, limit=None, preview="", authors=False):
     """Резюме непрочитанного: тексты последних n входящих по порядку, медиа без подписи — словом («голосовое»,
     «фото»). Текст есть только у сообщений из сохранённой копии треда; у самого свежего без копии — строка из
     списка чатов (preview); текстовые без текста пропускаются (сборщик дочитывает чат сам и без текста пункт не шлёт).
@@ -230,7 +232,7 @@ def unread_digest(messages, n, limit=600, preview="", authors=False):
             blind += 1
     if not parts:
         return ""
-    out = " · ".join(parts)
+    out, limit = " · ".join(parts), limit or collect.TEXT_MAX
     return out if len(out) <= limit else "…" + out[-(limit - 1):]
 
 
@@ -379,7 +381,7 @@ def whatsapp(cfg, now):
                         if m.get("id") in voice and voice[m["id"]].get("text") else
                         {**m, "text": VOICE_FAILED, "cached": True}
                         if m.get("id") in voice and voice[m["id"]].get("failed") else m for m in wait]
-            digest = unread_digest(wait, len(wait), preview=text, **({"limit": 1200, "authors": True} if whole else {}))
+            digest = unread_digest(wait, len(wait), preview=text, **({"authors": True} if whole else {}))
             if digest:
                 text = digest
             elif not text:   # текста нет ни в копии, ни в списке чатов: что пришло — словами
@@ -431,7 +433,7 @@ def whatsapp(cfg, now):
                           **({"media": media} if media else {}), **({"context": context} if context else {}),
                           **({"links": links} if links else {}),
                           "where": labels.get(ch, "WhatsApp") + (" · группа" if group else ""),
-                          "from": names.get(wa_peer(cid)) or r.get("name") or digits, "text": text[:1200], "at": iso_utc(last),
+                          "from": names.get(wa_peer(cid)) or r.get("name") or digits, "text": text[:collect.TEXT_MAX], "at": iso_utc(last),
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
                           "mention": False, **({"team": True} if team else {}), **({"revoked": True} if gone else {}),
                           "ref": ref})
@@ -889,7 +891,7 @@ def tg_reply_text(m, by_id):
             "text": (src.get("text") or "")[:160]}
 
 
-CONTEXT_MAX = 700   # знаков JSON на предыдущие реплики в посте msg: текст сообщения важнее, пост — до 2000
+CONTEXT_MAX = 700   # знаков JSON на предыдущие реплики в посте msg: текст сообщения важнее (на старом ядре пост — до 2000)
 
 
 def tg_context(r, wait):
@@ -949,7 +951,7 @@ def telegram(cfg, now):
         if r.get("messages") and not wait:
             continue
         text = unread_digest(wait, len(wait), preview=r.get("preview") or "",
-                             **({"limit": 1200, "authors": True} if whole else {}))
+                             **({"authors": True} if whole else {}))
         if not text:
             kinds = {}
             for m in wait:
@@ -977,7 +979,7 @@ def telegram(cfg, now):
         items.append({"key": f"{box}:{mark}", "box": box, "src": "telegram", "tier": t, "unread": n,
                       **({"context": context} if context else {}),
                       "where": "Telegram" + (" · группа" if group else ""), "from": r.get("name") or cid,
-                      "text": text[:1200], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
+                      "text": text[:collect.TEXT_MAX], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
                       **({"media": media} if media else {}), **({"links": links} if links else {}),
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
                       "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
@@ -1163,7 +1165,7 @@ def email(cfg, now):
                 fetched += 1
                 try:
                     msgs = [m for m in mail_thread(cmd, acct, th["id"], th.get("messageCount")) if not m["me"]]
-                    body = (msgs[-1]["text"] if msgs else "")[:1000]
+                    body = (msgs[-1]["text"] if msgs else "")[:collect.TEXT_MAX]
                     if msgs and msgs[-1].get("files"):
                         media = mail_media(cmd, acct, msgs[-1])
                 except (OSError, ValueError, subprocess.TimeoutExpired):

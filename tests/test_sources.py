@@ -462,14 +462,15 @@ class Telegram(unittest.TestCase):
         long = dict(items[0], text="я" * 1150, context=[{"me": True, "text": "к" * 240, "at": "", "from": ""}] * 6)
         sent = []
         spool, main.spool = main.spool, type("S", (), {"put": staticmethod(lambda *a, **k: sent.append(a[3]))})
+        limit, main.POST_MAX = main.POST_MAX, 2000   # ядро до Plugin API 1.22; новое примет пост до 20 000 целиком
         try:
             main.post(main.msg_post(long, False, {}))
         finally:
-            main.spool = spool
+            main.spool, main.POST_MAX = spool, limit
         got = json.loads(sent[0]["text"])
         self.assertEqual(got["text"], "я" * 1150)
         self.assertTrue(0 < len(got["context"]) < 6)
-        self.assertLessEqual(len(sent[0]["text"]), main.POST_MAX)
+        self.assertLessEqual(len(sent[0]["text"]), 2000)
 
     def test_work_group_read_whole_with_authors(self):
         sources.run = fake_run({"new": [

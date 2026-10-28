@@ -55,7 +55,7 @@ FIRST_BACK = timedelta(hours=24)   # первый запуск: сообщени
 OVERLAP = timedelta(minutes=15)    # окно назад от прошлого чтения: поиск Graph индексирует с задержкой
 FAIL_AFTER = 3
 SEEN_MAX = 3000
-POST_MAX = 2000
+POST_MAX = collect.POST_MAX
 PROMPT_MAX = 2000                  # знаков: указания владельца по разбору входящих
 OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|surface|reopen|draft_control|revision_result|manage)\\"')   # посты владельца, которые читает процесс
 DIR_EVERY = 6 * 3600               # список каналов команд перечитываем и заново постим раз в 6 часов: канал плагина
@@ -97,11 +97,11 @@ def post(data):
     while len(text) > POST_MAX and isinstance(data.get("context"), list) and data["context"]:
         data = {**data, "context": data["context"][1:]}   # предыдущие реплики — первыми, старые раньше: текст важнее
         text = json.dumps(data, ensure_ascii=False)
-    if len(text) > POST_MAX and isinstance(data.get("text"), str):   # пост канала — до 2000 знаков: режем текст
+    if len(text) > POST_MAX and isinstance(data.get("text"), str):   # пост длиннее, чем примет ядро: режем текст
         data = {**data, "text": data["text"][:max(0, len(data["text"]) - (len(text) - POST_MAX) - 1)] + "…"}
         text = json.dumps(data, ensure_ascii=False)
     while len(text) > POST_MAX and isinstance(data.get("media"), list) and data["media"]:
-        data = {**data, "media": data["media"][:-1]}   # пост до 2000 знаков: вложений меньше, чем потерять сообщение целиком
+        data = {**data, "media": data["media"][:-1]}   # не влезло: вложений меньше, чем потерять сообщение целиком
         text = json.dumps(data, ensure_ascii=False)
     if len(text) > POST_MAX:   # ядро такой не примет; списки каналов режет directory_posts — сюда не должно дойти
         print(f"teams: пост {data.get('kind')} длиннее {POST_MAX} знаков — не отправлен", file=sys.stderr, flush=True)

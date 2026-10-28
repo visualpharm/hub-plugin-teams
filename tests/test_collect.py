@@ -1397,7 +1397,7 @@ class Safety(unittest.TestCase):
         orig = main.spool.put
         main.spool.put = lambda *a, **k: sent.append(a)
         try:
-            main.post({"kind": "channels", "items": [["x" * 3000]]})
+            main.post({"kind": "channels", "items": [["x" * (main.POST_MAX + 1000)]]})
         finally:
             main.spool.put = orig
         self.assertEqual(sent, [])
@@ -1415,6 +1415,51 @@ class LatestIncoming(unittest.TestCase):
                 return chats
         self.assertEqual(collect.latest_incoming(M(), ME),
                          {"from": "Аня", "where": "Личка", "at": "2026-10-09T10:00:00Z"})
+
+
+class LongIncoming(unittest.TestCase):
+    """27.10 (d1081843): длинное сообщение Teams обрывалось на 1200 знаках («progressive-di…») — хвост не видели ни
+    лента, ни разборщик. Ядро Plugin API 1.22+ принимает пост до 20 000 знаков — текст идёт целиком."""
+
+    def capture(self, data):
+        sent = []
+        orig = main.spool.put
+        main.spool.put = lambda *a, **k: sent.append(a)
+        try:
+            main.post(data)
+        finally:
+            main.spool.put = orig
+        return [a[3]["text"] for a in sent]
+
+    @unittest.skipUnless(getattr(__import__("core.reducer").reducer, "POST_MAX", 2000) > 2000,
+                         "ядро до Plugin API 1.22: пост до 2000 знаков")
+    def test_long_teams_message_reaches_the_post_whole(self):
+        words = " ".join(f"слово{i}" for i in range(600))   # ~5000 знаков, с абзацами
+        body = "<p>" + words + "</p><p>Хвост: progressive-disclosure.</p>"
+        text = collect.plain(body)
+        self.assertTrue(text.endswith("Хвост: progressive-disclosure."))
+        posts = self.capture({"kind": "msg", "id": "x", "from": "Аня", "text": text,
+                              "context": [{"at": "", "from": "Аня", "me": False, "text": "раньше"}]})
+        self.assertEqual(len(posts), 1)
+        got = json.loads(posts[0])
+        self.assertEqual(got["text"], text)
+        self.assertEqual(got["context"][0]["text"], "раньше")
+
+    def test_post_still_fits_the_core_limit(self):
+        orig = main.POST_MAX
+        main.POST_MAX = 2000   # прежнее ядро
+        try:
+            posts = self.capture({"kind": "msg", "id": "x", "text": "я" * 5000})
+        finally:
+            main.POST_MAX = orig
+        self.assertEqual(len(posts), 1)
+        self.assertLessEqual(len(posts[0]), 2000)
+        self.assertTrue(json.loads(posts[0])["text"].endswith("…"))
+
+    def test_unread_digest_keeps_one_long_message_from_its_start(self):
+        import sources
+        long = "Начало. " + "x" * 2500 + " конец"
+        self.assertEqual(sources.unread_digest([{"text": long}], 1), long)
 
 
 if __name__ == "__main__":
