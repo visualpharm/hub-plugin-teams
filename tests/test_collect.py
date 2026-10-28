@@ -580,6 +580,19 @@ class Later(unittest.TestCase):
         self.assertEqual(out, [{"kind": "answered", "id": "k1"}])
         self.assertEqual(st["open"], {})
 
+    def test_dismiss_closes_a_channel_search_mention_without_a_conversation_once(self):
+        """26.10: упоминание из поиска (box None) не лежит в open — dismiss разбора всё равно снимает его из Inbox."""
+        out, st = [], {"open": {}, "who": {"m1": {"contact": "mention:Alex", "src": "mention"},
+                                           "w1": {"contact": "wa:x", "src": "whatsapp"}}}
+        real_save = main.save
+        main.save = lambda st: None
+        try:
+            main.send_replies(st, self.R(), [{"dismiss": "m1"}, {"dismiss": "m1"}, {"dismiss": "w1"}], out.append)
+        finally:
+            main.save = real_save
+        # переписка, уже закрытая (ответом или новым сообщением), повторного answered не получает
+        self.assertEqual(out, [{"kind": "answered", "id": "m1"}])
+
     def test_later_waits_for_its_time_and_goes_once(self):
         st = {"refs": {"k1": {"chat": "c1", "msg": "m1"}}, "open": {"k1": ["b", "t"]}}
         q = [{"id": "k1", "rid": "r1", "text": "Позже", "at": "2026-10-10T09:00:00Z"}]

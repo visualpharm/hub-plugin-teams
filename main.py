@@ -1236,6 +1236,11 @@ def send_replies(st, reader, queue, put=post, now=None):
                 done.append(r)
                 put({"kind": "canceled", "id": later.pop(r)["id"], "rid": r})
             closed = st.get("open", {}).pop(q["dismiss"], None) is not None
+            # упоминание из поиска по имени (collect.channel_mentions) без переписки в «открытые» не попадает — его
+            # закрывает только этот пост (26.10: разбор снял тёзку «noise», а пункт висел у владельца двое суток)
+            free = (st.get("who") or {}).get(q["dismiss"]) or {}
+            if not closed and str(free.get("contact") or "").startswith("mention:") and not free.get("dismissed"):
+                free["dismissed"] = closed = True
             if closed:
                 put({"kind": "answered", "id": q["dismiss"]})
             if closed or gone:
