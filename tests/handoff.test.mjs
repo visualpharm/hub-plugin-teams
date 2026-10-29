@@ -37,6 +37,7 @@ assert.deepEqual(JSON.parse(storage.get('hub.inbox.reviewAgents')),[[JSON.string
 const restarted={console,URL,Map,Set,Date,...dependencies,localStorage:c.localStorage};vm.createContext(restarted);
 vm.runInContext(source+'\nglobalThis.choice=reviewAgents.get(JSON.stringify(["whatsapp","whatsapp:source"]));',restarted);assert.equal(restarted.choice,'noe');
 await c.t.toHub(m,'work');assert.equal(prepared[0][0],'noe');assert.equal(posts.length,0,'Manual Work stays editable before send');
+assert.equal(prepared[0][1],'Разбери.','A hub without send.quote_only still needs a word in the field');assert.equal(prepared[0][2].handoff,true);
 assert.ok(prepared[0][2].quote.includes('p42'));assert.equal(prepared[0][2].quotePreview,'Irrigar Pinamar: Try the nursery across the street.');
 assert.equal(c.t.reviewAgents.has(JSON.stringify(['whatsapp','whatsapp:other'])),false,'Selection is scoped to this conversation, not global triage');
 const reposted={...m,post:'p90'};
@@ -73,6 +74,22 @@ sessions.push({name:'visited',state:'idle'});
   response=()=>{throw Error('lost');};const lost={...m,id:'legacy2',post:'p61'};
   await c.t.toHub(lost,'work');assert.match(c.t.getError(),/./,'A transport error from the real adapter is surfaced, not swallowed');
   response=()=>({ok:true,json:async()=>({ok:true})});
+}
+// The hub accepts a quote-only send (feature send.quote_only): the field stays empty, the quote and handoff are unchanged.
+{
+  const before=prepared.length;
+  c.t.setHub({...hub,snapshot:()=>({sessions,features:['reactions','send.quote_only']})});
+  await c.t.toHub({...m,id:'quote-only',post:'p70'},'work');
+  assert.equal(prepared.length,before+1);
+  const [target,text,opts]=prepared.at(-1);
+  assert.equal(text,'','With send.quote_only the field is empty');
+  assert.equal(opts.handoff,true);assert.ok(opts.quote.includes('p70'));assert.ok(opts.quotePreview.includes('Irrigar Pinamar'));
+  c.t.setHub({...hub,snapshot:()=>({sessions,features:['reactions']})});
+  await c.t.toHub({...m,id:'no-quote-only',post:'p71'},'work');
+  assert.equal(prepared.at(-1)[1],'Разбери.','Other features do not empty the field');
+  c.t.setHub({...hub,snapshot:()=>({sessions})});
+  await c.t.toHub({...m,id:'no-features',post:'p72'},'work');
+  assert.equal(prepared.at(-1)[1],'Разбери.','A snapshot without features is an old hub');
 }
 c.t.setHub(hub);
 async function unresolved(post,reply){

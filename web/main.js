@@ -793,7 +793,9 @@ async function mark(kind, data) {
 const SRC_FROM = (m) => (TEAMS_SRCS.includes(m.src) ? "Teams" : m.src === "email" ? T("почты", "Mail", "Correo") : SRC[m.src]);
 const sending = new Set();   // id сообщений, по которым запрос хабу ещё в пути: второе нажатие не шлёт дубль
 // «В работу» (владелец 14.10: «не будем отправлять, чтобы люди могли что-то дописать»): поле хаба, а не отправка —
-// служебная ссылка на пост уходит цитатой (метка «в ответ на», не его слова), в поле — короткое «Разбери.»
+// служебная ссылка на пост уходит цитатой (метка «в ответ на», не его слова); поле пустое, если хаб принимает отправку
+// с одной цитатой (признак features `send.quote_only`), иначе — короткое «Разбери.» (старый хаб пустое не отправит)
+const handoffWord = () => ((hub.snapshot()?.features || []).includes("send.quote_only") ? "" : "Разбери.");
 function inboxRef(m, prev = []) {
   const cut = (t, n) => { const x = String(t || "").replace(/\s+/g, " ").trim(); return x.length > n ? x.slice(0, n - 1) + "…" : x; };
   // в метке ядра — первые 150 знаков (QUOTE_MAX): «не указания», ⚠ и ссылка — в начале, кто и что — в конце, их и режет
@@ -829,7 +831,7 @@ async function toHub(m, kind, prev = []) {
     // Plugin API below 1.16 has no hub.compose: keep the previous direct send, to the selected agent
     if (typeof hub.compose !== "function") return directWork(m, target, prev);
     // метку «в работе» не ставим: ничего не ушло — Иван мог передумать или нажать у другого пункта (ревью 14.10)
-    if (hub.compose(target, "Разбери.", { quote: inboxRef(m, prev), quotePreview: humanSummary(m), handoff: true }) === false) {
+    if (hub.compose(target, handoffWord(), { quote: inboxRef(m, prev), quotePreview: humanSummary(m), handoff: true }) === false) {
       error = T("Выбранный агент недоступен. Сообщение сохранено.", "The selected agent is unavailable. Your message is retained."); paint(); return;
     }
     error = "";
@@ -1575,7 +1577,7 @@ function line(m, source=m, named=false) {
   if(copyText)items.push({label:T('Копировать','Copy'),icon:nativeIcon('copy'),run:()=>navigator.clipboard.writeText(copyText)});
   if(/^p\d+$/.test(source.post) && (source===m || m._place)) {
     items.push({label:T('Это сообщение — в работу хабу','Hand This Message to Hub'),icon:nativeIcon('reply'),
-      run:()=>hub.compose(hubName(),'Разбери.',{quote:inboxRef({...source,from:m.from || source.from,text:m.text,_place:m._place,providerId:m.providerId})})});
+      run:()=>hub.compose(hubName(),handoffWord(),{quote:inboxRef({...source,from:m.from || source.from,text:m.text,_place:m._place,providerId:m.providerId})})});
     items.push({label:T('Черновик ответа на это сообщение','Draft Reply to This Message'),icon:nativeIcon('draft'),run:async()=>{
       const q=boundedRequest({kind:'ask',what:'draft',rid:requestId(),post:source.post,
         ...(source!==m ? {place:m._place,...(m.providerId ? {msg:m.providerId} : {}),from:m.from || '',at:m.at || ''} : {})});

@@ -10,6 +10,11 @@ from tests.test_web_e2e import PageInChrome
 
 
 class InboxWebAcceptance(PageInChrome):
+    def handoff_word(self):
+        # what «В работу» puts in the field: nothing if this hub's snapshot has send.quote_only, else «Разбери.»
+        quote_only=self.page({'eval':"import('/static/js/state.js').then(m=>(m.S.snap?.features||[]).includes('send.quote_only'))"})[-1]['eval']
+        return '' if quote_only else 'Разбери.'
+
     def test_quick_draft_recovery_survives_shared_button_and_files_only(self):
         self.seed_inbox(start_editing=False, open_editor=False)
         state = "[...document.querySelectorAll('.tm-quick-trigger')].map(n=>({managed:n.classList.contains('tm-quick-managed'),saved:n.classList.contains('tm-quick-has-draft'),label:n.getAttribute('aria-label')}))"
@@ -1436,8 +1441,11 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('"+menu+"').open=false;document.querySelector('.tm-close-conversation').click();document.querySelector('.tm-person').click();true"},{'until':"!!document.querySelector('"+menu+"')"})
         self.assertIn('Noe',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
         self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').click();true"})
-        got=self.page({'until':"location.hash==='#/s/noe' && document.getElementById('msg')?.value==='Разбери.'"},{'eval':"location.hash"})
-        self.assertTrue(got[-2]['until'],got)
+        # a hub that accepts a quote-only send (features send.quote_only) leaves the field empty; an older one needs the word
+        word=self.handoff_word()
+        got=self.page({'until':"location.hash==='#/s/noe' && document.getElementById('msg')?.value==="+json.dumps(word)},
+                      {'until':"import('/static/js/state.js').then(m=>!!m.S.replyTarget?.quote)"},{'eval':"location.hash"})
+        self.assertTrue(got[-3]['until'] and got[-2]['until'],got)
         self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[],'Preparing a review never sends by itself')
         # the quick item queues one review in the latest opened thread, with the exact post
         self.page({'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"!!document.querySelector('.tm-person')"},{'eval':"document.querySelector('.tm-person').click();true"},
@@ -2156,7 +2164,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));true"},
           {'tapSelector':'.tm-message-menu button:nth-child(2)'},
           {'until':"location.hash==='#/s/hub' && !!document.querySelector('form.composer textarea')"})
-        self.assertEqual(self.page({'eval':"document.querySelector('form.composer textarea').value"})[-1]['eval'],'Разбери.')
+        self.assertEqual(self.page({'eval':"document.querySelector('form.composer textarea').value"})[-1]['eval'],self.handoff_word())
         self.assertEqual(self.non_history_actions(),[])
         if os.environ.get('HUB_INBOX_SCREENSHOTS'):(out/'geometry.json').write_text(json.dumps(rows,indent=2))
 
