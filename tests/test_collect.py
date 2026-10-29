@@ -568,6 +568,36 @@ class Replies(unittest.TestCase):
         with self.assertRaises(OSError):
             collect.reply(M(), {}, "x")
 
+    def test_reply_markdown_becomes_teams_html(self):
+        # 25.10: подпись «🤖 _…_» доходила в Teams с подчёркиваниями — простой Markdown переводим в html
+        calls = []
+
+        class M:
+            def call(self, tool, args, empty_ok=False):
+                calls.append((tool, args))
+                return {}
+        collect.reply(M(), {"chat": "c1"}, "Готово, **см.** `my_var` [док](https://e.com/a_b)\n\n🤖 _Хаб_")
+        self.assertEqual(calls[0][1]["body"]["body"]["content"],
+                         '<p>Готово, <b>см.</b> <code>my_var</code> <a href="https://e.com/a_b">док</a>'
+                         '<br><br>🤖 <i>Хаб</i></p>')
+        collect.reply(M(), {"chat": "c1"}, "snake_case_name, __init__.py, ~/a/_b_/c")
+        self.assertEqual(calls[1][1]["body"]["body"]["content"], "<p>snake_case_name, __init__.py, ~/a/_b_/c</p>")
+        collect.reply(M(), {"chat": "c1"}, "Итог:\n- раз\n- два")
+        self.assertEqual(calls[2][1]["body"]["body"]["content"], "Итог:<ul><li>раз</li><li>два</li></ul>")
+
+    def test_edit_sends_the_same_body_as_reply(self):
+        # правка своего сообщения: тело — тот же chatMessage, что у ответа (раньше в content вкладывался словарь)
+        calls = []
+
+        class M:
+            def call(self, tool, args, empty_ok=False):
+                calls.append((tool, args))
+                return {}
+        collect.edit(M(), {"chat": "c1"}, "m1", "ок _да_")
+        self.assertEqual(calls[0], ("update-chat-message", {"chatId": "c1", "chatMessageId": "m1",
+                                                            "body": {"body": {"contentType": "html",
+                                                                              "content": "<p>ок <i>да</i></p>"}}}))
+
     def test_send_files_only_from_the_hub_attachments_folder(self):
         # 13.10: файлы ответа — только из папки вложений хаба: пост не должен отправить любой файл с диска
         import tempfile

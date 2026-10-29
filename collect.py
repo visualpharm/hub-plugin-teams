@@ -12,6 +12,8 @@ import html
 import json
 import re
 
+import teams_md
+
 DEFAULT_WATCH = ()   # (команда, канал) по умолчанию, пока во вкладке не выбрали свои; в общем плагине — ни одного
 try:   # пост канала плагина: ядро Plugin API 1.22+ принимает до 20 000 знаков, прежнее — до 2000
     from core.reducer import POST_MAX
@@ -355,9 +357,11 @@ def channel_mentions(mcp, cutoff, me_mail, name, channels=None, skip=(), size=25
 
 
 def html_body(text):
-    """Текст ответа → тело сообщения Teams: обычный текст Graph портит, поэтому html с экранированием."""
-    return {"body": {"contentType": "html",
-                     "content": "<p>" + html.escape(text.strip()).replace("\n", "<br>") + "</p>"}}
+    """Текст ответа → тело сообщения Teams: обычный текст Graph портит, поэтому html с экранированием; простой
+    Markdown (_курсив_, **жирный**, `код`, ссылки, списки) переводит teams_md (25.10: подпись «🤖 _Хаб_» доходила с
+    подчёркиваниями)."""
+    markup = teams_md.to_html(text.strip())
+    return {"body": {"contentType": "html", "content": markup if teams_md.has_blocks(markup) else "<p>" + markup + "</p>"}}
 
 
 def reply(mcp, ref, text):
@@ -375,7 +379,7 @@ def edit(mcp, ref, msg, text):
     """Правка своего сообщения в чате Teams (Graph PATCH). Удаление через этот сервер недоступно (нет softDelete)."""
     if ref.get("chat") and msg:
         return mcp.call("update-chat-message", {"chatId": ref["chat"], "chatMessageId": msg,
-                                                "body": {"body": {"contentType": "html", "content": html_body(text)}}},
+                                                "body": html_body(text)},
                         empty_ok=True)
     raise OSError("это сообщение изменить нельзя")
 
