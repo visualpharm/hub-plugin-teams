@@ -3912,17 +3912,17 @@ class InboxWebAcceptance(PageInChrome):
                     "at": "2026-09-01T10:00:00Z", "text": "A question from long ago.", "react": True})
         for n in range(520):
             post({"kind": "note", "n": n})   # push the old post out of the 500-post window of the channel
-        self.page({"go": f"http://127.0.0.1:{self.port}/?reload=1#/x/inbox"}, {"until": "!!document.querySelector('.tm-folder')"})
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"eval": "location.reload();true"}, {"until": "!!document.querySelector('.tm-folder')"})
         self.assertFalse(self.page({"eval": "fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.some(p=>p.id==='p%d'))" % old})[-1]["eval"],
                          "the old post must be out of the window, or the test proves nothing")
         # the bell names the post and says it is answered: the card opens in «Разобранные», read back from the journal by its number
-        self.page({"go": f"http://127.0.0.1:{self.port}/?reload=2#/x/inbox?plugin=proactivity&id=old-card&post=p{old}&state=answered"},
-                  {"until": "!!document.querySelector('.tm-person[aria-current=true]')"})
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=old-card&post=p{old}&state=answered"},
+                  {"until": "document.body.textContent.includes('A question from long ago.') && !!document.querySelector('.tm-person[aria-current=true]')"})
         opened = self.page({"eval": "({selected:document.querySelectorAll('.tm-person[aria-current=true]').length,folder:document.querySelector('.tm-folder[aria-pressed=true]')?.dataset.folder||'done',gone:[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('нет в ленте')),text:document.body.textContent.includes('A question from long ago.')})"})[-1]["eval"]
         self.assertEqual(opened, {"selected": 1, "folder": "done", "gone": False, "text": True}, opened)
         self.shot("bell-open-old-post")
         # a post number the journal does not have: the notice, as before
-        self.page({"go": f"http://127.0.0.1:{self.port}/?reload=3#/x/inbox?plugin=proactivity&id=old-card&post=p999999&state=answered"},
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=old-card&post=p999999&state=answered"},
                   {"until": "[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('нет в ленте'))"})
 
     def p14_shot(self, name, width, height=874):
