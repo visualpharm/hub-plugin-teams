@@ -20,6 +20,7 @@ import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
 import { inboxAge } from "./inbox-time.js";
+import { openTarget, openFolder } from "./open-target.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -1414,7 +1415,7 @@ let agesTimer=null;
 let searchOpen = false;
 let autoOpen = true;   // как на Mac: при входе в широкий Inbox открыта первая переписка; потом выбирает владелец
 function openPerson(key, group) {
-  autoOpen = false;
+  autoOpen = false; openNotice = "";
   see(group); dmPerson = key; toBottom = true;
   const target = group.find(m=>canReply(m) && savedDraft(m)!==undefined) || group.find(canReply);
   if (target && !group.some(m=>composing.has(m.id))) openCompose(target,undefined,"",false);
@@ -1424,11 +1425,16 @@ function openPerson(key, group) {
 // Переход к сообщению (Plugin API 1.28, #/x/inbox?plugin=teams&id=<id сообщения ленты> | &post=<pN>): открыть переписку,
 // где оно лежит; папку выбираем по нему. Не нашли — остаёмся на списке. Лента может быть ещё не прочитана — переход ждёт.
 let pendingOpen = null;
+let openNotice = "";   // переход не нашёл сообщение: список остаётся, а сверху сказано почему (сбрасывается любым выбором)
 function openMessage(target) {
   const m = target.id ? msgs.get(target.id) : [...msgs.values()].find((x) => x.post === target.post);
-  const folder = m && ["new", "sent", "failed", "archive"].find((f) => inFolder(m, f));
-  if (!folder) return false;
-  tab = folder; src = "all"; dmPerson = null; confirmAll = false;
+  const folder = openFolder(m, inFolder);
+  if (!folder) {
+    openNotice = T("Этого сообщения нет в ленте — оно старое или уже убрано.", "That message is no longer in the feed — it is old or already removed.");
+    paint();
+    return false;
+  }
+  tab = folder; src = "all"; dmPerson = null; confirmAll = false; openNotice = "";
   if (searchQuery) { searchQuery = ""; const input = ui?.search?.querySelector("input"); if (input) input.value = ""; }
   const key = conversationKey(m), group = list().filter((x) => conversationKey(x) === key);
   if (!group.length) return false;
@@ -2828,7 +2834,7 @@ function paintAll() {
   const folders = [["new","Inbox","Inbox conversations",null],["sent","Sent","Sent conversations","send"],["archive","Archive","Archived conversations","archive"]];
   if (tab === "failed" || count(m=>inFolder(m,"failed"))) folders.push(["failed","Failed","Failed replies","deny"]);
   ui.tabs.replaceChildren(...folders.map(([key,title,label,icon]) => {
-    const b = button("", "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; paint(); },label);
+    const b = button("", "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; openNotice=""; paint(); },label);
     b.dataset.folder=key; b.setAttribute("aria-pressed",String(tab===key)); b.title=title;
     if (icon) b.append(icon === "archive" ? nativeIcon("archive") : icon === "send" ? nativeIcon("sent") : hub.icon(icon));
     else b.append(nativeIcon("inbox"));
@@ -2880,6 +2886,7 @@ function paintAll() {
     else if (d.warn) banner.push(el("p", "tm-alert", `${NAMES[name] || name}: ${d.warn}`));
   }
   if (error) banner.push(el("p", "tm-alert", error));
+  if (openNotice) banner.push(el("p", "tm-alert", openNotice));
   if(rankError && tab==="new" && sortOrder==="importance") {
     const notice=el("div","tm-alert",rankError);
     notice.append(button("Retry importance","quiet",()=>{rankRetryAt=0;syncRanks();}));banner.push(notice);
@@ -3035,7 +3042,7 @@ function build(root) {
   for(const menu of [sort,options]) menu.addEventListener("focusout",e=>{if(!menu.contains(e.relatedTarget))menu.open=false;});
   const pick = button("Выбрать каналы", "", openPicker);
   pick.setAttribute("aria-controls", "tm-panel");
-  controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;options.open=false;paint();}));
+  controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;openNotice="";options.open=false;paint();}));
   const newTrigger = button("", "quiet tm-new-trigger", () => newComposer.open(), T("Новое сообщение", "New message"));
   newTrigger.append(nativeIcon("edit"));   // the core sprite of the shared page has no «edit» symbol: an empty capsule
   bar.append(tabs,sort,newTrigger);
@@ -3117,9 +3124,10 @@ function registerView() {
     },
     // API 1.28: адрес вида с params при входе, при новом адресе и при повторном переходе
     open(root, params) {
-      if (params?.plugin !== "teams" || !(params.id || params.post)) return;
+      const target = openTarget(params);   // колокол хаба зовёт с plugin уведомившего плагина (proactivity): id — тот же id сообщения
+      if (!target) return;
       autoOpen = false;   // адрес назвал сообщение: не нашли — остаёмся на списке, а не открываем первую переписку
-      pendingOpen = { at: Date.now(), ...(params.id ? { id: String(params.id) } : { post: String(params.post) }) };
+      pendingOpen = { at: Date.now(), ...target };
       applyPendingOpen();
     },
     async render(root, snap) {

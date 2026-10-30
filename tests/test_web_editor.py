@@ -3888,6 +3888,23 @@ class InboxWebAcceptance(PageInChrome):
         self.edit("")
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
 
+    def test_bell_address_of_another_plugin_opens_the_answered_message_or_says_it_is_gone(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({"kind":"answered","id":"source-a"})
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('.tm-folder')"},{"eval":"[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Разобранные').click();true"},{"until":"!!document.querySelector('.tm-person')"})   # the answered fact has reached the page
+        self.page({"tapSelector":".tm-folder[data-folder=new]"},{"until":"!document.querySelector('.tm-person')"})
+        # the hub bell opens the message of a notification with the notifying plugin in the address, not the feed channel
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=source-a"},
+                  {"until":"!!document.querySelector('.tm-person[aria-current=true]')"})
+        opened=self.page({"eval":"({selected:document.querySelectorAll('.tm-person[aria-current=true]').length,folder:document.querySelector('.tm-folder[aria-pressed=true]')?.dataset.folder||'done',text:!!document.querySelector('.tm-shared-compose, .tm-chain, .tm-thread')})"})[-1]["eval"]
+        self.assertEqual(opened,{"selected":1,"folder":"done","text":True},opened)
+        self.shot("bell-open-answered")
+        # a message that is not in the feed any more: a notice instead of a silent empty list
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=rolled-out"},
+                  {"until":"[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('нет в ленте'))"})
+        self.shot("bell-open-gone")
+        self.page({"tapSelector":".tm-folder[data-folder=archive]"},{"until":"![...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('нет в ленте'))"})
+
     def p14_shot(self, name, width, height=874):
         if os.environ.get("HUB_INBOX_SCREENSHOTS") and width in (402, 1240):
             out = Path(os.environ["HUB_INBOX_SCREENSHOTS"]); out.mkdir(parents=True, exist_ok=True)
