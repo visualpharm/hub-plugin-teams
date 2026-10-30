@@ -20,7 +20,7 @@ import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
 import { inboxAge } from "./inbox-time.js";
-import { openTarget, openFolder } from "./open-target.js";
+import { openTarget, openFolder, feedMessage, canLoadOld, oldMessage } from "./open-target.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -567,11 +567,8 @@ async function sync() {
           : "Instruction sent for review.";
       }
       if (p.by === AUTHOR && d?.kind === "msg") {
-        // src "support" — так ранние версии сборщика звали выбранный канал и постили и ответы внутри треда (в where —
-        // « · тред»): ответ без упоминания не показываем, только первое сообщение треда
-        const reply = d.src === "support" && d.where?.includes(" · ");
-        if (reply && !d.mention) continue;
-        const message={ ...d, ...(reply ? { src: "mention" } : d.src === "support" ? { src: "channel" } : {}), post: p.id };
+        const message=feedMessage(d,p.id);
+        if (!message) continue;
         const previous=msgs.get(d.id);
         if(previous && pendingReplyKey(previous)!==pendingReplyKey(message)) {
           // Archive and delivery facts belong to the exact destination at that
@@ -1426,8 +1423,21 @@ function openPerson(key, group) {
 // где оно лежит; папку выбираем по нему. Не нашли — остаёмся на списке. Лента может быть ещё не прочитана — переход ждёт.
 let pendingOpen = null;
 let openNotice = "";   // переход не нашёл сообщение: список остаётся, а сверху сказано почему (сбрасывается любым выбором)
-function openMessage(target) {
-  const m = target.id ? msgs.get(target.id) : [...msgs.values()].find((x) => x.post === target.post);
+// Старое сообщение вне окна ленты (500 постов): колокол кладёт в адрес номер его поста — грузим этот пост у ядра по номеру
+// (hub.feedPosts, признак feed.post_by_id). Ответ лежит в более поздних постах, которых тут нет, — его подсказывает state=answered.
+async function loadOldMessage(target) {
+  if (!canLoadOld(target, hub.snapshot()?.features) || typeof hub.feedPosts !== "function") return undefined;
+  let posts;
+  try { posts = await hub.feedPosts([target.post]); } catch { return undefined; }
+  const message = oldMessage(posts, target, AUTHOR);
+  if (!message) return undefined;
+  if (!msgs.has(message.id)) msgs.set(message.id, message);
+  if (target.state === "answered" && !answered.has(message.id)) { answered.add(message.id); answeredAt.set(message.id, target.post); }
+  return msgs.get(message.id);
+}
+async function openMessage(target) {
+  const find = () => target.id ? msgs.get(target.id) : [...msgs.values()].find((x) => x.post === target.post);
+  const m = find() || await loadOldMessage(target);
   const folder = openFolder(m, inFolder);
   if (!folder) {
     openNotice = T("Этого сообщения нет в ленте — оно старое или уже убрано.", "That message is no longer in the feed — it is old or already removed.");

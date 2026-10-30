@@ -7,6 +7,7 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const chainModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8')));
+const openTargetModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
 const source=readFileSync(process.argv[2], 'utf8').replace(/^import .*;\s*$/gm,'')
   .replace(/^export default /gm,'').replace(/^export /gm,'');
 const key='wa:sample:123@c.us:abc', contact='wa:sample:123@c.us';
@@ -16,7 +17,7 @@ const initial=[post(9,{kind:'config',signature:'Existing configured signature'})
   post(21,'inert owner post','owner','p10'),post(22,'The exact unsent draft','helper','p10')];
 const correction=post(23,{kind:'reopened',id:key,post:'p10',corrects:'p20',contact,reset_history:true});
 async function replay(batches, ownText) {
-  const ctx={console,URL,Map,Set,conversationPins,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
+  const ctx={console,URL,Map,Set,conversationPins,...openTargetModule,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
   vm.runInContext(source+`\nglobalThis.test={sync,setHub:h=>hub=h,done,canReply,msgs,replies,composing};`,ctx);
   let at=0,sends=0;
   ctx.test.setHub({feed:async()=>batches[at++]||[],post:async()=>{sends++;throw Error('must not send');}});
@@ -55,7 +56,7 @@ assert.equal(confirmed.done(confirmed.msgs.get(key)),true);
 console.log('Exact closure correction, restart, draft preservation, editor and send boundary passed');
 if(process.argv[3]) {
   const fixture=JSON.parse(readFileSync(process.argv[3],'utf8'));
-  const ctx={console,URL,Map,Set,conversationPins,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
+  const ctx={console,URL,Map,Set,conversationPins,...openTargetModule,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
   vm.runInContext(source+`\nglobalThis.test={sync,setHub:h=>hub=h,done,canReply,msgs,replies,composing};`,ctx);
   let batch=fixture.posts;
   ctx.test.setHub({feed:async()=>{const p=batch;batch=[];return p;},post:async()=>{throw Error('outbound prohibited');}});

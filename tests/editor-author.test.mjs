@@ -7,7 +7,8 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const chainModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8')));
-const ctx={console,URL,Map,Set,conversationPins,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
+const openTargetModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
+const ctx={console,URL,Map,Set,conversationPins,...openTargetModule,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
 vm.runInContext(source+'\nglobalThis.t={sync,replies,setHub:h=>hub=h};',ctx);
 const posts=[{id:'p1',by:'helper',reply_to:'p42',text:JSON.stringify({kind:'revision_result',text:'Public reply',context:'Private instruction',next_action:'Private action'})},
   {id:'p2',by:'helper',reply_to:'p42',text:JSON.stringify({kind:'draft_proposal',text:'Unverified proposed reply',requires_apply:true})}];

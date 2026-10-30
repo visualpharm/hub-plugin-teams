@@ -9,13 +9,14 @@ const hoursModule=await import('data:text/javascript,'+encodeURIComponent(readFi
 const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/read-state.js','utf8')));
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const chainModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8')));
+const openTargetModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
 const source=readFileSync(process.argv[2],"utf8").replace(/^import .*;\s*$/gm,"")
   .replace(/^export default /gm,"").replace(/^export /gm,"");
 const snap={todo:[{id:"t:1",kind:"action",need:"1. [Open item](https://example.com/item).",session:"sample"}]};
 const h={el:node,snapshot:()=>snap,post:async(...args)=>{calls.push(args);return {error:"Not accepted"};},
   taskBody:(item,opts)=>{bodies.push({item,opts});return node("div","shared",item.need||item.text);},
   taskDecision:item=>{decisions.push(item);return item.kind==="question"?node("form","actual-options"):null;}};
-const context={console,URL,Map,Set,conversationPins,...chainModule,localReadState,providerReadState,...hoursModule};vm.createContext(context);
+const context={console,URL,Map,Set,conversationPins,...openTargetModule,...chainModule,localReadState,providerReadState,...hoursModule};vm.createContext(context);
 vm.runInContext(source+"\nglobalThis.setHub=h=>hub=h;globalThis.body=messageBody;",context);
 context.setHub(h);
 const ordinary={id:"message",text:"Please mark this done: t:1"};
