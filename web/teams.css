@@ -42,7 +42,7 @@
 .tm-draft-by { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .tm-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* заметка разбора — плашкой-подсказкой первым блоком переписки, как натив HintPlate (поле 12, скругление 16) */
-.tm-note-box { padding: 12px; border-radius: 16px; background: var(--bubble-incoming, light-dark(#e5e5ea, #2c2c2e)); }
+.tm-note-box { padding: 12px; border-radius: var(--radius-xl); background: var(--front-soft); }
 .tm-note-box .tm-note-body { margin-top: 0; color: var(--foreground); }
 .tm-detail .tm-history > .tm-note-box ~ .tm-history-top { margin-top: 0; }
 .tm-note-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; color: var(--foreground); font: inherit; font-size: var(--text-sm); cursor: pointer; }
@@ -173,7 +173,7 @@
 .tm-photo img { display: block; width: 100%; max-width: 400px; max-height: 320px; object-fit: contain; }
 .tm-media audio, .tm-media video { display: block; max-width: 100%; width: 320px; }
 .tm-media video { max-height: 320px; }
-.tm-voice { width: 264px; max-width: 100%; padding: 7px 12px; box-sizing: border-box; border-radius: 18px; background: var(--bubble-incoming, light-dark(#e5e5ea, #2c2c2e)); color: var(--foreground); }
+.tm-voice { width: 264px; max-width: 100%; padding: 7px 12px; box-sizing: border-box; border-radius: var(--radius-xl); background: var(--front-soft); color: var(--foreground); }
 .tm-voice audio[hidden] { display: none; }
 .tm-voice-controls { display: flex; align-items: center; gap: 4px; }
 .tm-voice-play { width: 44px; height: 44px; flex: none; padding: 6px; border: 0; background: transparent; color: #fff; cursor: pointer; }
@@ -191,14 +191,14 @@
 .tm-media-error { margin: 4px 0 0; }
 .tm-own .tm-voice { background: #1f7f3b; color: #fff; }
 .tm-own .tm-voice-glyph { background: #fff; color: #1f7f3b; }
-.tm-media-file { color: var(--foreground); text-decoration: none; display: flex; align-items: center; gap: 10px; min-height: 44px; width: 264px; max-width: 100%; padding: 8px 12px; border-radius: 18px; background: var(--bubble-incoming, light-dark(#e5e5ea, #2c2c2e)); box-sizing: border-box; }
+.tm-media-file { color: var(--foreground); text-decoration: none; display: flex; align-items: center; gap: 10px; min-height: 44px; width: 264px; max-width: 100%; padding: 8px 12px; border-radius: var(--radius-xl); background: var(--front-soft); box-sizing: border-box; }
 .tm-file-icon { width: 28px; height: 32px; flex: none; background: currentColor; mask: url('./icons/doc.svg') center / 20px no-repeat; }
 .tm-file-info { display: grid; min-width: 0; }
 .tm-file-name { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tm-file-size { color: var(--foreground); }
 .tm-own .tm-media-file { background: #1f7f3b; color: #fff; }
 .tm-own .tm-file-size { color: inherit; }
-.tm-link-preview { display: block; width: 240px; max-width: calc(100% - 48px); border-radius: 18px; overflow: hidden; background: var(--bubble-incoming, light-dark(#e5e5ea, #2c2c2e)); color: var(--foreground); text-decoration: none; }
+.tm-link-preview { display: block; width: 240px; max-width: calc(100% - 48px); border-radius: var(--radius-xl); overflow: hidden; background: var(--front-soft); color: var(--foreground); text-decoration: none; }
 .tm-link-preview[hidden] { display: none; }
 .tm-link-preview img { display: block; width: 100%; height: 126px; object-fit: cover; }
 .tm-preview-copy { display: grid; gap: 2px; padding: 8px 12px; overflow-wrap: anywhere; }
@@ -237,7 +237,7 @@
 .tm-line.tm-own > .tm-text { border-radius: var(--radius-xl) var(--radius-xl) var(--space-1) var(--radius-xl); background: #1f7f3b; color: #fff; }
 .tm-line.tm-own > .tm-text a, .tm-line.tm-own > .tm-text a * { color: inherit; }
 .tm-sent-chat { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 48px; padding: 0; background: transparent; }
-.tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: 18px; background: #1f7f3b; color: #fff; overflow-wrap: anywhere; }
+.tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: var(--radius-xl); background: #1f7f3b; color: #fff; overflow-wrap: anywhere; }
 .tm-sent-chat > .tm-draft-text .tm-native-icon { width: 16px; height: 16px; margin-left: 5px; vertical-align: text-bottom; opacity: .8; }
 .tm-icon-send-now { --tm-icon: url("./icons/send-now.svg"); }
 .tm-icon-clock { --tm-icon: url("./icons/clock.svg"); }
