@@ -189,21 +189,16 @@
 .tm-voice-time { font-variant-numeric: tabular-nums; min-width: 3ch; margin-left: 6px; }
 .tm-voice .tm-transcript { margin-top: 3px; }
 .tm-media-error { margin: 4px 0 0; }
-.tm-own .tm-voice { background: #1f7f3b; color: #fff; }
-.tm-own .tm-voice-glyph { background: #fff; color: #1f7f3b; }
 .tm-media-file { color: var(--foreground); text-decoration: none; display: flex; align-items: center; gap: 10px; min-height: 44px; width: 264px; max-width: 100%; padding: 8px 12px; border-radius: var(--radius-xl); background: var(--front-soft); box-sizing: border-box; }
 .tm-file-icon { width: 28px; height: 32px; flex: none; background: currentColor; mask: url('./icons/doc.svg') center / 20px no-repeat; }
 .tm-file-info { display: grid; min-width: 0; }
 .tm-file-name { font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tm-file-size { color: var(--foreground); }
-.tm-own .tm-media-file { background: #1f7f3b; color: #fff; }
-.tm-own .tm-file-size { color: inherit; }
 .tm-link-preview { display: block; width: 240px; max-width: calc(100% - 48px); border-radius: var(--radius-xl); overflow: hidden; background: var(--front-soft); color: var(--foreground); text-decoration: none; }
 .tm-link-preview[hidden] { display: none; }
 .tm-link-preview img { display: block; width: 100%; height: 126px; object-fit: cover; }
 .tm-preview-copy { display: grid; gap: 2px; padding: 8px 12px; overflow-wrap: anywhere; }
 .tm-preview-copy strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-.tm-own .tm-link-preview { background: #1f7f3b; color: #fff; }
 .tm-person.tm-selected { background: var(--muted); }
 .tm-transcript { margin: 0; }
 .tm-conversation-search { display: flex; flex: none; align-items: center; gap: 8px; min-height: 44px; margin: 8px 16px; padding-left: 12px; border-radius: 24px; background: var(--background); }
@@ -234,10 +229,10 @@
 .tm-line.tm-own { align-items: flex-end; }
 /* обрезанный по строкам пузырь: вертикальный отступ — прозрачной рамкой, иначе под последней строкой видна седьмая (overflow режет по краю padding) */
 .tm-line:not(.tm-mail) > .tm-text.tm-clamp { padding-block: 0; border-block: var(--space-3) solid transparent; }
-.tm-line.tm-own > .tm-text { border-radius: var(--radius-xl) var(--radius-xl) var(--space-1) var(--radius-xl); background: #1f7f3b; color: #fff; }
+.tm-line.tm-own > .tm-text { border-radius: var(--radius-xl) var(--radius-xl) var(--space-1) var(--radius-xl); background: var(--front-soft); }
 .tm-line.tm-own > .tm-text a, .tm-line.tm-own > .tm-text a * { color: inherit; }
 .tm-sent-chat { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 48px; padding: 0; background: transparent; }
-.tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: var(--radius-xl); background: #1f7f3b; color: #fff; overflow-wrap: anywhere; }
+.tm-sent-chat > .tm-draft-text { max-width: 100%; box-sizing: border-box; padding: 7px 8px 7px 12px; border-radius: var(--radius-xl); background: var(--front-soft); overflow-wrap: anywhere; }
 .tm-sent-chat > .tm-draft-text .tm-native-icon { width: 16px; height: 16px; margin-left: 5px; vertical-align: text-bottom; opacity: .8; }
 .tm-icon-send-now { --tm-icon: url("./icons/send-now.svg"); }
 .tm-icon-clock { --tm-icon: url("./icons/clock.svg"); }
