@@ -42,7 +42,7 @@
 .tm-draft-by { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .tm-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* заметка разбора — плашкой-подсказкой первым блоком переписки, как натив HintPlate (поле 12, скругление 16) */
-.tm-note-box { padding: 12px; border-radius: var(--radius-xl); background: var(--front-soft); }
+.tm-note-box { width: fit-content; max-width: calc(100% - 48px); padding: 12px; border-radius: var(--radius-xl); background: var(--front-soft); }
 .tm-note-box .tm-note-body { margin-top: 0; color: var(--foreground); }
 .tm-detail .tm-history > .tm-note-box ~ .tm-history-top { margin-top: 0; }
 .tm-note-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; color: var(--foreground); font: inherit; font-size: var(--text-sm); cursor: pointer; }
@@ -275,7 +275,7 @@
 .tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
 .tm-detail .tm-divider { justify-content: center; }
 .tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
-.tm-message-time { padding-inline: 8px; color: var(--muted-foreground); font-size: var(--text-base); }
+.tm-message-time { padding-inline: var(--space-1); margin-top: calc(-1 * var(--space-1)); color: var(--muted-foreground); font-size: var(--text-xs); line-height: 1.2; }
 .tm-message-sender { padding: 4px 12px 0; font-weight: 600; color: var(--muted-foreground); overflow-wrap: anywhere; }
 .tm-history-error { margin: 0; color: var(--foreground); }
 .tm-detail .tm-history { flex: 1; }
@@ -568,6 +568,14 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send { width: auto; min-width: 44px; padding: 0 14px 0 10px; border: 0; border-radius: 22px; gap: 6px; font-size: 16px; font-weight: 600; white-space: nowrap; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send[data-label]::after { content: attr(data-label); }
 
+/* Send stays the last-but-one control, its menu chevron sits on the field edge; the bar never wraps. */
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) > .bar { flex-wrap: nowrap; align-items: center; flex: none; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) > .bar > .spacer { flex: 1 1 0; min-width: 0; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) > .bar .tm-send-options { order: 2; flex: none; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) > .bar .btn.round.send { order: 1; flex: none; }
+.tm-narrow.tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send { width: 44px; padding: 0; }
+.tm-narrow.tm-container:not(.tm-web1) .tm-shared-compose form.composer .btn.round.send[data-label]::after { content: none; }
+
 /* Native scale and placement of the Inbox detail (ui-expert review, 2026-10-19). */
 .tm-container:not(.tm-narrow) .tm-close-conversation { display: none; }
 .tm-conversation-search[hidden] { display: none; }
@@ -578,7 +586,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-search-toggle .icon { width: 22px; height: 22px; }
 .tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
 .tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
-.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-note-box, .tm-verdict, .tm-rich-text) { font-size: 14px; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-note-box, .tm-verdict, .tm-rich-text, .tm-voice, .tm-link-preview, .tm-media-file, .tm-mail > .tm-text) { font-size: 14px; }
+.tm-note-box .tm-note-toggle, .tm-note-box .tm-draft-why { font-size: inherit; }
 .tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }
 .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body, .tm-container:not(.tm-narrow) .tm-detail .tm-text .task-body .md { font: inherit; line-height: 1.45; }
