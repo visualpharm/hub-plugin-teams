@@ -41,9 +41,9 @@
 .tm-note { margin: 0; color: var(--muted-foreground); font-size: var(--text-xs); }
 .tm-draft-by { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-1); }
 .tm-draft-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* заметка разбора — плашкой-подсказкой первым блоком переписки, как натив HintPlate (поле 12, скругление 16) */
-.tm-note-box { width: fit-content; max-width: calc(100% - 48px); padding: 12px; border-radius: var(--radius-xl); background: var(--front-soft); }
-.tm-note-box .tm-note-body { margin-top: 0; color: var(--foreground); }
+/* заметка разбора — отдельной свёрнутой строкой с шевроном первым блоком переписки, не пузырём (iPhone/Android, ui-expert) */
+.tm-note-box { width: 100%; box-sizing: border-box; padding: 0 var(--space-1); }
+.tm-note-box .tm-note-body { margin: 0 0 var(--space-2); color: var(--foreground); }
 .tm-detail .tm-history > .tm-note-box ~ .tm-history-top { margin-top: 0; }
 .tm-note-toggle { display: flex; align-items: center; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; text-align: left; color: var(--foreground); font: inherit; font-size: var(--text-sm); cursor: pointer; }
 .tm-note-label { font-weight: 600; flex: none; }
@@ -225,10 +225,10 @@
 .tm-history { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .tm-history > * { flex-shrink: 0; }
 .tm-history > :first-child { margin-top: auto; }
-.tm-line:not(.tm-mail) > .tm-text { padding: var(--space-3) var(--space-4); border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xl) var(--space-1); background: var(--front-soft); max-width: calc(100% - 48px); box-sizing: border-box; }
+.tm-line > .tm-text { padding: var(--space-3) var(--space-4); border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xl) var(--space-1); background: var(--front-soft); max-width: calc(100% - 48px); box-sizing: border-box; }
 .tm-line.tm-own { align-items: flex-end; }
 /* обрезанный по строкам пузырь: вертикальный отступ — прозрачной рамкой, иначе под последней строкой видна седьмая (overflow режет по краю padding) */
-.tm-line:not(.tm-mail) > .tm-text.tm-clamp { padding-block: 0; border-block: var(--space-3) solid transparent; }
+.tm-line > .tm-text.tm-clamp { padding-block: 0; border-block: var(--space-3) solid transparent; }
 .tm-line.tm-own > .tm-text { border-radius: var(--radius-xl) var(--radius-xl) var(--space-1) var(--radius-xl); background: var(--front-soft); }
 .tm-line.tm-own > .tm-text a, .tm-line.tm-own > .tm-text a * { color: inherit; }
 .tm-sent-chat { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-left: 48px; padding: 0; background: transparent; }
@@ -581,7 +581,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-search-toggle .icon { width: 22px; height: 22px; }
 .tm-search-toggle[aria-pressed="true"] { background: var(--muted); }
 .tm-earlier { padding: 0 20px; border-radius: 22px; background: color-mix(in srgb, var(--foreground) 8%, var(--muted)); color: var(--foreground); }
-.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line:not(.tm-mail) > .tm-text, .tm-note-box, .tm-verdict, .tm-rich-text, .tm-voice, .tm-link-preview, .tm-media-file, .tm-mail > .tm-text) { font-size: 14px; }
+.tm-container:not(.tm-narrow) .tm-detail :is(.tm-line > .tm-text, .tm-note-box, .tm-verdict, .tm-rich-text, .tm-voice, .tm-link-preview, .tm-media-file) { font-size: 14px; }
 .tm-note-box .tm-note-toggle, .tm-note-box .tm-draft-why { font-size: inherit; }
 .tm-narrow .tm-detail .tm-header-source { display: block; grid-column: 1; grid-row: 2; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .tm-narrow .tm-detail .tm-conversation-source { display: none; }

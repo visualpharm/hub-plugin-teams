@@ -3568,6 +3568,27 @@ class InboxWebAcceptance(PageInChrome):
         self.assertLessEqual(order['guide'],order['actions'],order);self.assertEqual(order['count'],1);self.assertEqual(order['cards'],0,order)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
 
+    def test_one_time_per_same_minute_burst_and_mail_is_a_bubble_with_time(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        now=datetime.now(timezone.utc).isoformat()
+        self.feed({'kind':'thread','id':'source-a','part':0,'of':1,'more':False,'items':[
+            {'id':'h1','text':'First in the burst','at':now},{'id':'h2','text':'Second in the burst','at':now},
+            {'id':'h3','me':True,'text':'My answer in the same minute','at':now}]})
+        got=self.page({'until':"document.querySelectorAll('.tm-history .tm-line').length>=4",'ms':8000})
+        self.assertTrue(got[-1]['until'],got)
+        rows=self.page({'eval':"[...document.querySelectorAll('.tm-history .tm-line')].map(l=>[l.classList.contains('tm-own'),l.querySelectorAll(':scope > time.tm-message-time').length])"})[-1]['eval']
+        timed=[r for r in rows if r[1]]
+        # the two incoming messages of one minute share one time under the last; my reply (another sender) has its own
+        self.assertEqual(sum(r[1] for r in rows),len(rows)-1,rows);self.assertEqual(sum(1 for r in rows if r[0] and r[1]),1,rows);self.assertTrue(timed,rows)
+        # «Почему здесь» — отдельная свёрнутая строка с шевроном, не пузырь (в узле та же разметка, что строит whyNote)
+        row=self.page({"eval":"(()=>{const w=document.createElement('div');w.className='tm-note-box';w.innerHTML='<button class=\"tm-note-toggle\" aria-expanded=\"false\"><span class=\"tm-note-label\">Why</span><span class=\"tm-native-icon tm-note-chevron\"></span></button>';document.querySelector('.tm-history').append(w);const c=getComputedStyle(w);return {bg:c.backgroundColor,radius:c.borderRadius,pad:c.paddingTop}})()"})[-1]['eval']
+        self.assertEqual(row,{'bg':'rgba(0, 0, 0, 0)','radius':'0px','pad':'0px'},row)
+        self.feed({'kind':'msg','id':'source-m','contact':'synthetic-account/conversation-m','src':'email','from':'Mail colleague','text':'Mail message: the invoice is attached','reply':True,'at':now})
+        self.page({'eval':"document.querySelector('.tm-close-conversation')?.click();true"},{'until':"document.querySelectorAll('.tm-person').length===2",'ms':8000})
+        self.page({'eval':"[...document.querySelectorAll('.tm-person')].find(p=>p.textContent.includes('Mail colleague')).click();true"},{'until':"!!document.querySelector('.tm-line.tm-mail > .tm-text')",'ms':8000})
+        mail=self.page({'eval':"(()=>{const l=document.querySelector('.tm-line.tm-mail'),t=l.querySelector(':scope > .tm-text'),c=getComputedStyle(t);return {bg:c.backgroundColor,pad:parseFloat(c.paddingLeft),time:!!l.querySelector(':scope > time.tm-message-time')}})()"})[-1]['eval']
+        self.assertNotEqual(mail['bg'],'rgba(0, 0, 0, 0)',mail);self.assertGreater(mail['pad'],8,mail);self.assertTrue(mail['time'],mail)
+
     def test_archive_is_scoped_to_original_target_and_survives_replay(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='archive-a')
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['external-telegram']}))

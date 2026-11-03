@@ -1525,6 +1525,14 @@ function divider(m) {
   const where = m.src === "email" && m.where ? `${m.where} · ` : "";
   return el("div", "tm-divider", `${where}${dayLabel(m.at,m.src==="email")}`);
 }
+// подряд идущие сообщения одного автора в одну минуту — одна группа: время показывает только последнее
+function sameBurst(a, b) {
+  const x = Date.parse(a?.at), y = Date.parse(b?.at);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || Math.floor(x / 60000) !== Math.floor(y / 60000)) return false;
+  if (a.edited || a.src !== b.src || !!a.me !== !!b.me) return false;
+  return !!b.me || personName(a.from) === personName(b.from);
+}
+
 function calendarDay(at) {
   if(!at)return null;
   const d=new Date(at);
@@ -1621,7 +1629,7 @@ function line(m, source=m, named=false) {
     for(const r of m.reactions)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
     if(reactions.childElementCount)row.append(reactions);
   }
-  if(m.src!=="email") {
+  {
     const foot=[m.edited ? T("Изменено","Edited") : "",Number.isFinite(Date.parse(m.at)) ? clock(new Date(m.at)) : ""].filter(Boolean).join(" · ");
     if(foot)row.append(el("time","tm-message-time",foot));
   }
@@ -2605,7 +2613,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   box.append(head);
   const history = el("div", "tm-history"); box.append(history);
   history.append(el("div","tm-conversation-source",sourceLabel));
-  let previous=null;
+  let previous=null, previousRow=null;
   const appendMessage=(m,source=m,historical=false)=>{
     const day=calendarDay(m.at),prior=calendarDay(previous?.at);
     const split=m.src==="email" ? !previous || Date.parse(m.at)-Date.parse(previous.at)>=GAP || !historical && (m.where || "")!==(previous.where || "") : day!==prior;
@@ -2614,7 +2622,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const row=line(m,source,named);
     if(historical)row.classList.add("tm-history-row");
     if(m.me)row.classList.add("tm-own");
-    history.append(row);previous=m;
+    // одно время под группой подряд идущих сообщений одной минуты одного автора (ui-expert): у предыдущего убираем
+    if(previousRow && !split && sameBurst(previous,m))previousRow.querySelector(":scope > time.tm-message-time")?.remove();
+    history.append(row);previous=m;previousRow=row;
   };
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last) && (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id)))) {
