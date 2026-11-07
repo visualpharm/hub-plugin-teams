@@ -484,7 +484,7 @@ COLLEAGUES_DEFAULT = {"sources": [], "domains": [], "names": []}
 
 
 def colleague(i, rules):
-    """Подпись хаба («🤖 _Хаб от лица Ивана_» / «🤖 _Хаб, вычитано Иваном_») — только коллегам и Дженни (правило владельца); местным контрагентам и
+    """Подпись хаба (настройка signature) — только коллегам и близким (правило владельца); местным контрагентам и
     всем остальным — нет. Кто коллега — `colleagues` в sources.json: источники целиком (teams), домены почты, имена."""
     r = {**COLLEAGUES_DEFAULT, **(rules or {})}
     src = i.get("src") or "teams"
@@ -509,7 +509,7 @@ def load_colleagues():
 
 def target_of(ref):
     """Отпечаток адреса переписки: клиент возвращает его с кнопкой источника («прочитано») — исполняем только для той
-    же переписки, сменился адрес — отказ (17.10, codex m472773)."""
+    же переписки, сменился адрес — отказ (17.10)."""
     ref = {k: v for k, v in (ref or {}).items() if k not in sources.CONTACT_KEYS}   # имя/тема для send — не адрес
     return hashlib.sha1(json.dumps(ref, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 
@@ -584,7 +584,7 @@ def merge_out(owner_last):
 
 def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
     """Новое — в канал (по возрастанию времени), отвеченное владельцем (ответ в той же переписке позже или его
-    реакция на само сообщение) — пометить; пункт, все ждущие сообщения которого собеседник удалил (gone, d987429), —
+    реакция на само сообщение) — пометить; пункт, все ждущие сообщения которого собеседник удалил (gone), —
     закрыть с revoked: это не ответ владельца. Меняет st."""
     seen = set(st.get("seen") or [])
     opened = st.setdefault("open", {})   # key → [box, at]: запощено, ещё не отвечено
@@ -607,7 +607,7 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
             # 26.10: и картинку, которую скачали позже (было «📎 … не скачалась» или ссылка) — тоже заново
             was = texts.get(i["key"])
             got = sorted(str(x.get("id")) for x in i.get("media") or [])
-            # 26.10 (d987429): и когда собеседник удалил часть ждущего — убрать удалённое из текста и медиа
+            # 26.10: и когда собеседник удалил часть ждущего — убрать удалённое из текста и медиа
             better = (i.get("text") and i["text"] != was) or (got and got != pics.get(i["key"], [])) \
                 or (i.get("revoked") and (got != pics.get(i["key"], []) or (i.get("text") or "") != was))
             if i["key"] in opened and better \
@@ -629,7 +629,7 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
         if str(i.get("box") or "").startswith(("wa:", "mail:", "tg:")):   # в переписке новое — прежняя карточка устарела
-            # (16.10, m432551: Telegram — ответил сам, собеседник дописал, старый черновик висел)
+            # (16.10: Telegram — ответил сам, собеседник дописал, старый черновик висел)
             for k, (box, _) in list(opened.items()):
                 if box == i["box"]:
                     put({"kind": "answered", "id": k})
@@ -696,7 +696,7 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
 def run_sources(st, now, put=post, between=None):
     """Остальные каналы (sources.py), каждый сам по себе: сбой WhatsApp не мешает почте и Teams. Включены те, что есть
     в sources.json. Возвращает (items, gone): gone — ключи открытых пунктов, все ждущие сообщения которых собеседник
-    удалил (источник это видит сам, d987429). Исчезновение из списка непрочитанных не доказывает ни ответа, ни
+    удалил (источник это видит сам). Исчезновение из списка непрочитанных не доказывает ни ответа, ни
     удаления — такие пункты остаются открытыми."""
     try:
         with open(os.path.join(OWN, "sources.json"), encoding="utf-8") as f:
@@ -734,13 +734,13 @@ def run_sources(st, now, put=post, between=None):
     wa = cfg.get("whatsapp")
     if isinstance(wa, dict) and st.get("open"):   # вкладки нет или входящее старше суток — исходящее ищем в копии переписки
         try:
-            sources.wa_out_open(sources.expand(wa.get("cmd") or "~/.claude/bin/wa"), st["open"])
+            sources.wa_out_open(sources.expand(wa.get("cmd") or "wa"), st["open"])
         except Exception as e:   # noqa: BLE001
             print(f"{iso(now)} wa-out: {e}", file=sys.stderr, flush=True)
     mail = cfg.get("email")
     if isinstance(mail, dict) and st.get("open"):   # ответили из почты, а ветка осталась непрочитанной — open не залипает
         try:
-            sources.mail_out_open(sources.expand(mail.get("cmd") or "~/.claude/bin/gogx"), st["open"])
+            sources.mail_out_open(sources.expand(mail.get("cmd") or "gogx"), st["open"])
         except Exception as e:   # noqa: BLE001 — сбой чтения почты не должен ронять круг
             print(f"{iso(now)} email-out: {e}", file=sys.stderr, flush=True)
     return items, set(sources.GONE)
@@ -778,12 +778,12 @@ def config(st, put=post):
          'inbox_protocol':{'version':1,'private_proposal':True,'editor_cas':True,'shared_claim':True,
                            'receipt_sources':['teams'],'requires_all_clients':True},
          # повтор rid ответа (Teams и вне) подтверждает итог только той же просьбе с тем же target, иначе отказ, без
-         # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет (m479566)
+         # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет
          'reply_replay':1,
          'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
          'reaction_target':1,
          'send_archive':1,
-         'archive_selection':1,   # send.archive_ids [{id, target, contact?}] — убрать ровно выбранное (m486330)   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a, m484767)
+         'archive_selection':1,   # send.archive_ids [{id, target, contact?}] — убрать ровно выбранное   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
          **({"triage": triage_plugin()} if triage_plugin() else {})})
     # This compact companion is authoritative for triage even when a large legacy
@@ -832,7 +832,7 @@ def hours_for(st, key, weekends, put=post):
 def plain_path(st, q):
     """Пойдёт ли просьба обычным путём (как решит send_one): вне Teams (wa/tg/mail), реакция или ручной ответ без
     inbox — да; автоответ и ответ с inbox в Teams — защищённый путь. Повтор rid обычного пути — reply_outcome и
-    вечные отпечатки, защищённого — inbox_delivery.previous (codex m486905: автоответ вне Teams уходил второй раз)."""
+    вечные отпечатки, защищённого — inbox_delivery.previous (: автоответ вне Teams уходил второй раз)."""
     ref = (st.get("refs") or {}).get(q.get("id")) or {}
     return bool(any(ref.get(k) for k in ("wa", "tg", "mail")) or q.get("react")
                 or (q.get("inbox") is None and not q.get("automatic")))
@@ -840,7 +840,7 @@ def plain_path(st, q):
 
 def replay_fresh(st, q):
     """Отвечать ли на повтор rid: свежая просьба (≤ HISTORY_FRESH) — да; старая из перечитанного журнала — нет, иначе
-    перезапуск заливает ленту повторными квитанциями (codex m486924). У защищённого пути просьба без ts (старые
+    перезапуск заливает ленту повторными квитанциями. У защищённого пути просьба без ts (старые
     клиенты, тесты) — свежая, как было."""
     if not q.get("ts"):
         return not plain_path(st, q)
@@ -849,8 +849,7 @@ def replay_fresh(st, q):
 
 def archive_mismatch(st, q, later, put=None):
     """«Отправить и убрать» помним по rid до отправки (st["archive_rids"]: id, target). Повтор rid с другим намерением
-    (было с архивом — пришло без, или наоборот) — отказ с исходным target, без новой отправки и без архива (18.10,
-    codex m485958). Новый rid с архивом — записать намерение; дальше обычный путь."""
+    (было с архивом — пришло без, или наоборот) — отказ с исходным target, без новой отправки и без архива (18.10). Новый rid с архивом — записать намерение; дальше обычный путь."""
     intents = st.setdefault("archive_rids", {})
     if not isinstance(q.get("rid"), str) or not isinstance(q.get("id"), str) or "text" not in q or q.get("react"):
         return False
@@ -859,7 +858,7 @@ def archive_mismatch(st, q, later, put=None):
     want = q.get("archive") is True
     sel = sorted(q["archive_ids"], key=lambda m: m.get("id", "")) if want and "archive_ids" in q else None
     refused = (st.get("archive_refused") or {}).get(q["rid"])
-    if refused:   # отказ по выбору окончателен: повтор rid получает его же, без переоценки и отправки (m486368)
+    if refused:   # отказ по выбору окончателен: повтор rid получает его же, без переоценки и отправки
         if replay_fresh(st, q):
             (put or post)(refused)
         return True
@@ -914,7 +913,7 @@ def archive_after(st, put):
         intent = (st.get("archive_rids") or {}).get(event.get("rid") or "")
         ok = event.get("kind") == "sent" or (event.get("kind") == "send_duplicate" and event.get("state") == "sent")
         # защищённый путь (Teams) — только с квитанцией источника receipt.id; обычный (wa/tg/mail) квитанции не имеет:
-        # там доказательство — успешный выход команды send, archived без receipt (codex m486007)
+        # там доказательство — успешный выход команды send, archived без receipt
         guarded = "receipt" in event or event.get("kind") == "send_duplicate"
         rc = event.get("receipt") if isinstance(event.get("receipt"), dict) else {}
         if guarded and not (isinstance(rc.get("id"), str) and rc["id"]):
@@ -941,7 +940,7 @@ def hours_for_one(st, q, put=post):
     только если пункт id сейчас того же собеседника (contact) и той же переписки (target), weekends — явно true/false/null.
     Итог — {"kind": "hours_set", id, rid, contact, target, weekends: действующее у него, except, requested} после
     нового config, отказ — {"kind": "hours_failed", ..., error}. Повтор rid той же просьбы — прежний итог без нового
-    применения; другой просьбы — отказ; давняя просьба из перечитанного журнала — молча (18.10, codex m484011)."""
+    применения; другой просьбы — отказ; давняя просьба из перечитанного журнала — молча (18.10)."""
     if time.time() - (q.get("ts") or 0) > HISTORY_FRESH:
         return
     outs = st.setdefault("hours_out", {})
@@ -985,25 +984,15 @@ def hours_for_one(st, q, put=post):
             "except": excepted, "requested": q["weekends"]})
 
 
-# Подписи (слово Ивана 16.10, m398582): посторонним — никакой, близким от хаба — «🤖 _Хаб от лица Ивана_», текст одобрил
-# Иван (отправил из Inbox) — эта. Прежняя подпись из его настроек читается как новая.
-APPROVED_SIGNATURE = "🤖 _Хаб, вычитано Иваном_"
-OLD_SIGNATURES = ("_Хаб (по просьбе Ивана)_",)
-
-
 def settings(st, choice, put=post):
     fresh = False
     merged={**(st.get('cfg') or {}),**choice.settings} if choice.settings is not None else None
-    if merged is None and ((st.get("cfg") or {}).get("signature") in OLD_SIGNATURES
-                           or "inbox_guard" not in (st.get("cfg") or {})):   # настройки без нового поста
+    if merged is None and "inbox_guard" not in (st.get("cfg") or {}):   # настройки без нового поста
         merged = dict(st.get("cfg") or {})
     if merged is not None and "inbox_guard" not in merged:
-        # автоотправка Inbox — по слову Ивана 16.10 (m403281: «разговаривай сам и всё делай сам, не давай мне вычитывать
-        # ответы»); выключить — его настройка inbox_guard: false. Клиент без удержания редактора: отправка ждёт grace-минуты
+        # автоотправка Inbox включена по умолчанию; выключить — настройка владельца inbox_guard: false. Клиент без удержания редактора: отправка ждёт grace-минуты
         # в «отложенных», где её можно отменить
         merged["inbox_guard"] = True
-    if merged is not None and merged.get("signature") in OLD_SIGNATURES:
-        merged["signature"] = APPROVED_SIGNATURE
     if merged is not None and merged != st.get("cfg"):
         st["cfg"], fresh = merged, True
     new = getattr(choice, "hours", None)
@@ -1359,7 +1348,7 @@ def send_replies(st, reader, queue, put=post, now=None):
                 done.append(q["cancel"])
                 tomb(st, q["cancel"])
                 gone = {"kind": "canceled", "id": held["id"], "rid": q["cancel"],
-                        **({"target": held["target"]} if held.get("target") else {})}   # target отложенного (m477679)
+                        **({"target": held["target"]} if held.get("target") else {})}   # target отложенного
                 st.setdefault("reply_out", {})[q["cancel"]] = {"state": "done", "id": held["id"], "event": gone,
                                                                **({"editor": q["editor"]} if q.get("editor") else {})}
                 put(gone)
@@ -1374,7 +1363,7 @@ def send_replies(st, reader, queue, put=post, now=None):
                 put(inbox_delivery.previous(st,q) or {'kind':'send_blocked','id':q['id'],'rid':q['rid'],
                     'error':'Completed request does not match this source and payload'})
             elif time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # старая просьба из перечитанного журнала — молча
-                put(reply_outcome(st, q))   # target — исходной просьбы, не повтора (m479506)
+                put(reply_outcome(st, q))   # target — исходной просьбы, не повтора
             continue
         if q["rid"] in later:
             if time.time() - (q.get("ts") or 0) <= HISTORY_FRESH:   # потерян пост scheduled: повтор получает его снова
@@ -1649,7 +1638,7 @@ def publish_thread(key, items, put, before=None, search=None, limit=20):
              "more": len(items) >= limit and not search})   # страница полная — старше, возможно, ещё есть
 
 
-# 26.10 (d1034600, Иван m1025707): ответ в переписку ушёл мимо плагина (`send wa` другой сессии, телефон) — в открытой
+# 26.10: ответ в переписку ушёл мимо плагина (`send wa` другой сессии, телефон) — в открытой
 # владельцем переписке его не было до следующего запроса history (до 2 ч). Переписку, которую владелец открывал
 # (пост thread), сборщик дочитывает сам, когда видит в ней новое исходящее, и публикует новый набор thread.
 THREAD_WATCH = 24 * 3600   # после последнего открытия владельцем
@@ -1751,7 +1740,7 @@ def thread_refresh(st, reader, owner_last, put=post, now=None, teams_ok=True):
 def tomb(st, rid):
     """Отпечаток rid (12 знаков sha1) ушедшего к источнику — навсегда, без вытеснения (~15 байт на отправку): повтор
     rid, выпавшего из sent_rids/reply_out (по 500), не уйдёт второй раз, а получит «итог неизвестен». Пишется в том же
-    save, что и pending-итог (17.10, codex m460182/m460350: любой потолок лишь откладывал повторную отправку)."""
+    save, что и pending-итог (17.10: любой потолок лишь откладывал повторную отправку)."""
     st.setdefault("rid_tombs", []).append(hashlib.sha1(rid.encode()).hexdigest()[:12])
 
 
@@ -1761,13 +1750,13 @@ def entombed(st, rid):
 
 def reply_print(q):
     """Отпечаток просьбы ответа: повтор rid подтверждает итог только той же просьбе (тот же пункт, текст, файлы, цитата,
-    реакция и адрес) — иначе «отправлено» досталось бы другому собеседнику или тексту (17.10, codex m479506)."""
+    реакция и адрес) — иначе «отправлено» досталось бы другому собеседнику или тексту (17.10)."""
     return inbox_delivery.digest({k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "react", "target") if k in q})
 
 
 def reply_outcome(st, q):
     """Повтор того же rid обычного ответа (клиент не получил итога): прежний итог; ждёт своего часа — «отложено»;
-    оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10, codex m458240)."""
+    оборван посреди отправки или rid до этой правки — «итог неизвестен», без переотправки (17.10)."""
     held = (st.get("later") or {}).get(q["rid"])
     if held:
         return {"kind": "scheduled", "id": held["id"], "rid": q["rid"], "at": held.get("at"),
@@ -1785,7 +1774,7 @@ def reply_outcome(st, q):
 
 def send_one(st, reader, q, put=post, now=None):
     ref = (st.get("refs") or {}).get(q["id"]) or {}
-    if q.get("target"):   # квитанции этого rid несут target просьбы; адрес пункта сменился — отказ до отправки (codex m477541)
+    if q.get("target"):   # квитанции этого rid несут target просьбы; адрес пункта сменился — отказ до отправки
         echo = put
         put = lambda e: echo({**e, "target": q["target"]} if e.get("rid") == q["rid"] else e)
         if q["target"] != target_of(ref):
@@ -1802,7 +1791,7 @@ def send_one(st, reader, q, put=post, now=None):
     if not q.get('react') and not outside and (q.get('automatic') or q.get('inbox') is not None or (st.get('cfg') or {}).get('inbox_guard')):
         return send_guarded(st,reader,q,put,now)
     if q.get("automatic"):
-        # автоответ разбора вне Teams — обычной отправкой (Иван q465184, 17.10: «Разрешить вне Teams»; прежде шёл
+        # автоответ разбора вне Teams — обычной отправкой (17.10: «Разрешить вне Teams»; прежде шёл
         # защищённым путём Teams и всегда отказывал «Inbox changed»): только при включённой автоотправке и пока пункт
         # открыт; гейты ночи/выходных — у команды send (hold), повтор того же rid не уходит (rid_tombs)
         why = ("Shared editor protection is not activated" if not (st.get("cfg") or {}).get("inbox_guard")
@@ -1868,7 +1857,7 @@ STALE_INBOX='Inbox changed'
 def replace_refusal(st, q):
     """Автоповтор клиента после отказа «Inbox changed» несёт replaces = отвергнутый rid. Заменить можно только отказ
     этого же пункта по устаревшей CAS-версии (до транспорта — не ушло), один раз и не повтор повтора: вторая вкладка
-    или второй клиент с тем же replaces не отправит тот же текст ещё раз (Иван m612908). None — можно."""
+    или второй клиент с тем же replaces не отправит тот же текст ещё раз. None — можно."""
     old=q.get('replaces')
     if old is None:
         return None
@@ -1894,7 +1883,7 @@ def send_guarded(st, reader, q, put=post, now=None):
     rejected=st.setdefault('inbox_rejections',{})
     fingerprint=inbox_delivery.digest({k:q[k] for k in ('id','inbox','text','editor','automatic','files','reply_to','quote','target') if k in q})
     if q['rid'] in rejected:
-        if not replay_fresh(st, q):   # отказ из перечитанного журнала не повторяем (m486924)
+        if not replay_fresh(st, q):   # отказ из перечитанного журнала не повторяем
             return
         old=rejected[q['rid']]
         put((inbox_delivery.previous(st,q) or old['result']) if old['fingerprint']==fingerprint else
@@ -1904,7 +1893,7 @@ def send_guarded(st, reader, q, put=post, now=None):
         event={**event,**({'target':q['target']} if q.get('target') else {})}
         if event.get('kind')=='send_blocked' and str(event.get('error','')).startswith(STALE_INBOX):
             # refused before transport only for a stale CAS version: the current token (no text, no destination) lets
-            # the client resend the pressed reply once with replaces (Ivan m612908, as the native client does)
+            # the client resend the pressed reply once with replaces (as the native client does)
             token=inbox_delivery.context(st,q['id'])
             if token: event['inbox']=token
         rejected[q['rid']]={'fingerprint':fingerprint,'result':event}
@@ -1972,7 +1961,7 @@ def send_guarded(st, reader, q, put=post, now=None):
 
 
 def media_attachments(message):
-    """Вложения, кроме цитаты ответа (messageReference): ответ с цитатой — тот же текст, не файл (16.10, p404553)."""
+    """Вложения, кроме цитаты ответа (messageReference): ответ с цитатой — тот же текст, не файл (16.10)."""
     return [a for a in message.get('attachments') or [] if a.get('contentType') != 'messageReference']
 
 
@@ -1984,7 +1973,7 @@ class SourceGuard(ValueError):
         self.reason = reason
 
 
-# Код причины → фраза владельцу (поле error остаётся строкой для старых клиентов; reason — добавка, hub-core m637023).
+# Код причины → фраза владельцу (поле error остаётся строкой для старых клиентов; reason — добавка).
 GUARD_PHRASES = {
     'newer_messages': 'A newer message arrived in the chat; reply not sent. Review it and send again',
     'source_unreadable': 'Could not read the chat to verify it; reply not sent. Try again later',

@@ -12,16 +12,16 @@ const { copyValues, copyValueControl, decorateValues, valueElement, copyText, ti
   readFileSync(new URL("../web/copy-values.js", import.meta.url), "utf8").replace(/from ["']\.\/ui-text\.js["']/g, "from " + JSON.stringify(textURL))));
 const values = (text) => copyValues(text).map((v) => v.value);
 // хвост связки со значком: последний сегмент (после / - _ : пробела) до 12 знаков, длиннее — последние 6
-const tieCases = [["~/.claude/x.log", "x.log"], ["66cb2db0", "66cb2db0"], ["hub restart web", "web"], ["4F2A9C1E-0B7D-4E5A-9C3B-2D1E0F7A8B6C", "2D1E0F7A8B6C"], ["0123456789abcdef0123", "ef0123"], ["app.agentshub.client.proto", ".proto"], ["~/a/", "a/"]];
+const tieCases = [["~/work/x.log", "x.log"], ["66cb2db0", "66cb2db0"], ["hub restart web", "web"], ["4F2A9C1E-0B7D-4E5A-9C3B-2D1E0F7A8B6C", "2D1E0F7A8B6C"], ["0123456789abcdef0123", "ef0123"], ["app.agentshub.client.proto", ".proto"], ["~/a/", "a/"]];
 
 const screen = "Открой ссылку, нажми «+» → «Новое приложение»: платформа iOS, имя Hub Proto, язык English (U.S.), Bundle ID " +
   "app.agentshub.client.proto, SKU hub-proto, доступ полный → «Создать». Через API Apple создать приложение нельзя, " +
   "а входа в App Store Connect в браузерах хаба нет. Сборку загружу сам.\nhttps://appstoreconnect.apple.com/apps";
 const cases = [
-  [screen, ["app.agentshub.client.proto", "hub-proto"], "скрин Ивана: Bundle ID и SKU, без ссылки и U.S."],
+  [screen, ["app.agentshub.client.proto", "hub-proto"], "скрин владельца: Bundle ID и SKU, без ссылки и U.S."],
   ["и т.д. и т.п., v1.4.0, e.g. это", [], "сокращения и версия — без значка"],
-  ["Влито 66cb2db0, задача d837401, сообщение m800001.", ["66cb2db0", "d837401", "m800001"], "хеш и id хаба"],
-  ["Кадры в ~/.claude/artifacts/hub-clients/copy-pieces/ и /tmp/x.log", ["~/.claude/artifacts/hub-clients/copy-pieces/", "/tmp/x.log"], "пути"],
+  ["Влито 66cb2db0, задача d800002, сообщение m800001.", ["66cb2db0", "d800002", "m800001"], "хеш и id хаба"],
+  ["Кадры в ~/work/shots/copy-pieces/ и /tmp/x.log", ["~/work/shots/copy-pieces/", "/tmp/x.log"], "пути"],
   ["ID 4F2A9C1E-0B7D-4E5A-9C3B-2D1E0F7A8B6C готов", ["4F2A9C1E-0B7D-4E5A-9C3B-2D1E0F7A8B6C"], "UUID после ID"],
   ["ключ к успеху, token words", [], "метка без значения-токена"],
   ["token: abcdef, ключ: sk_live", ["abcdef", "sk_live"], "метка с двоеточием"],
@@ -30,7 +30,7 @@ const cases = [
   ["photo-1.png и README.md", [], "имя файла из двух частей — нет"],
   ["abcdefab и 12345678", [], "хеш без цифр или без букв — нет"],
   ["Версии 1.92 и 0.3.53, в 08:00, 2026-10-24, apple.com, ул.Ленина.дом.пять", [], "версии, время, дата, два сегмента, русские слова через точку"],
-  ['Лог: "~/Library/Application Support/HubbaHub/run.log" и «/Users/sample/My Files/a.txt»', ["~/Library/Application Support/HubbaHub/run.log", "/Users/sample/My Files/a.txt"], "путь с пробелом в кавычках — без кавычек"],
+  ['Лог: "~/Library/Application Support/SampleApp/run.log" и «/Users/sample/My Files/a.txt»', ["~/Library/Application Support/SampleApp/run.log", "/Users/sample/My Files/a.txt"], "путь с пробелом в кавычках — без кавычек"],
 ];
 for (const [text, want, what] of cases) assert.deepEqual(values(text), want, what);
 // Смещения — в исходной строке (UTF-16, как NSRange натива); одно значение дважды — дважды.
@@ -109,7 +109,7 @@ assert.deepEqual(controls(p).map((at) => before(at).split(/\s/).at(-1)), ["app.a
 assert.ok(p.childNodes[p.childNodes.indexOf(controls(p)[0].parentNode) + 1].textContent.startsWith(", SKU"));
 // связка: последний сегмент значения и значок, без отдельного текста
 assert.deepEqual(tree(p).filter((n) => n.className === "tm-copy-tie").map((t) => t.textContent), [".proto", "proto"]);
-const path = valueElement(el, "div", null, "Лог ~/.claude/artifacts/hub/pinamar/smoke.log и 66cb2db0.");
+const path = valueElement(el, "div", null, "Лог ~/work/app/smoke.log и 66cb2db0.");
 assert.deepEqual(tree(path).filter((n) => n.className === "tm-copy-tie").map((t) => t.textContent), ["smoke.log", "66cb2db0"]);
 assert.deepEqual(tieCases.map(([v]) => tieOf(v)), tieCases.map(([, t]) => t));
 const plain = valueElement(el, "p", null, "Проверь результат и напиши.");
@@ -119,10 +119,10 @@ assert.equal(valueElement(el, "p", null, undefined).textContent, "");
 // Разметка replyText (ссылки, курсив): значок у значений по видимому тексту, внутри ссылок — нет, в курсиве — за значением.
 const rich = el("div", "tm-draft-text tm-rich-text");
 const link = el("a", null, "https://example.test/m800001"), em = el("em", null, "hub-proto");
-rich.append("Bundle ID app.agentshub.client.proto, SKU ", em, " и ", link, " d837401");
+rich.append("Bundle ID app.agentshub.client.proto, SKU ", em, " и ", link, " d800002");
 decorateValues(el, rich);
-assert.equal(rich.textContent, "Bundle ID app.agentshub.client.proto, SKU hub-proto и https://example.test/m800001 d837401");
-assert.deepEqual(controls(rich).map((at) => before(at).split(/\s/).at(-1)), ["app.agentshub.client.proto", "hub-proto", "d837401"]);
+assert.equal(rich.textContent, "Bundle ID app.agentshub.client.proto, SKU hub-proto и https://example.test/m800001 d800002");
+assert.deepEqual(controls(rich).map((at) => before(at).split(/\s/).at(-1)), ["app.agentshub.client.proto", "hub-proto", "d800002"]);
 assert.equal(em.childNodes.at(-1).className, "tm-copy-tie", "значок внутри курсива — сразу за значением");
 assert.equal(controls(link).length, 0, "в ссылке значка нет: у неё своё меню");
 // повторный проход не удваивает значки

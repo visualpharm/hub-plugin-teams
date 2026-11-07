@@ -199,7 +199,7 @@ def claim(st,q):
     submitted = context(st,q['id'])
     store(st)['claims'][key] = {'rid':q['rid'], 'id':q['id'], 'state':'claimed',
                    'thread':row['thread'], 'submitted_inbox':submitted, 'payload':payload(q),
-                   **({'target':q['target']} if q.get('target') else {})}  # adress the client saw (codex m479400)
+                   **({'target':q['target']} if q.get('target') else {})}  # adress the client saw
     edit = editor_state(st,row)
     if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
         edit['holders']=[]

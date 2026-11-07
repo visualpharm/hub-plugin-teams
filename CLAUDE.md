@@ -6,7 +6,7 @@
 - External sends remain behind existing source and delivery guards.
 - Reproduce known failures with deterministic offline tests first.
 
-## Ivan decides
+## Owner decides
 Owner decisions cover external services, money, relationships and information only
 the owner has. Technical changes within an authorized scope go to docs/decisions.md.
 
@@ -19,4 +19,4 @@ Keep changes small. Installing a plugin activates its source: preserve operation
 holds and concurrent edits; a source check does not prove rendered/live acceptance.
 
 ## Live development cadence
-Ivan uses the development page while work continues. Publish coherent small fixes after their focused checks; do not repeat the full suite before every push. Run the full local gate at checkpoints and before claiming the complete audit finished. Verify the actual live URL after integration. Native screenshots are the visual target; a supplied screenshot is an example, not the audit scope.
+The owner uses the development page while work continues. Publish coherent small fixes after their focused checks; do not repeat the full suite before every push. Run the full local gate at checkpoints and before claiming the complete audit finished. Verify the actual live URL after integration. Native screenshots are the visual target; a supplied screenshot is an example, not the audit scope.

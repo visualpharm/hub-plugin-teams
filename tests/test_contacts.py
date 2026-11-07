@@ -16,7 +16,7 @@ class Search(unittest.TestCase):
         def fake(cmd, timeout=0):
             self.calls.append(cmd)
             if "contacts" in cmd:
-                return json.dumps([{"id": "77", "name": "Лена Иванова", "username": "lena"}])
+                return json.dumps([{"id": "77", "name": "Лена Петрова", "username": "lena"}])
             if "chats" in cmd:
                 return json.dumps([{"chat_id": "5491@c.us", "name": "Лена"}, {"chat_id": "123@g.us", "name": "Лена и дети"}])
             return json.dumps({"threads": [{"from": "Лена <lena@example.com>"}, {"from": "Bot <no@x.io>"}]})
@@ -72,12 +72,12 @@ class Search(unittest.TestCase):
         contacts.sources.send_knows = lambda cmd, flag: True
         try:
             cfg = {"telegram": {"send": "send"}, "whatsapp": {"send": "send"}}
-            contacts.send("tg:77", "\nПривет, это Иван\nпро аренду", cfg, name="Лена Иванова")
+            contacts.send("tg:77", "\nПривет, это Олег\nпро аренду", cfg, name="Лена Петрова")
             contacts.send("wa:whatsapp:5491@c.us", "Hola", cfg, name="")
             contacts.send("wa:whatsapp:123@g.us", "Hola", cfg, name="Лена и дети")
         finally:
             contacts.sources.send_knows = real
-        self.assertEqual(self.calls[0][-4:], ["--who", "Лена Иванова", "--about", "Привет, это Иван"])
+        self.assertEqual(self.calls[0][-4:], ["--who", "Лена Петрова", "--about", "Привет, это Олег"])
         self.assertEqual(self.calls[1][-2:], ["--about", "Hola"])
         self.assertNotIn("--who", self.calls[1])
         self.assertNotIn("--who", self.calls[2])   # имя группы — не имя человека

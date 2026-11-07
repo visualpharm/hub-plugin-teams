@@ -47,7 +47,7 @@ f = field();
 make({ capabilities: { composerFiles: 1 }, input: () => ({ node: f.node }) })({ attachments: false });
 assert.equal(f.attach.hidden, false); assert.equal(f.listeners.length, 0);
 
-// начальный текст (черновик хаба в поле, web-parity m1053809): ядро flagman text в hub.input не берёт — плагин кладёт его set;
+// начальный текст (черновик хаба в поле): ядро flagman text в hub.input не берёт — плагин кладёт его set;
 // ядро, что взяло текст само, и пустое поле set не получают
 const stub = (initial) => { const calls = []; let value = initial; return { calls, box: { node: field().node, draft: () => ({ text: value, files: [] }), set: (n) => { calls.push(n); if (n.text !== undefined) value = n.text; } } }; };
 let s = stub(""); make({ capabilities: {}, input: () => s.box })({ text: "Черновик хаба" });

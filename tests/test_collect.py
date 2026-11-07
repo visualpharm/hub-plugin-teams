@@ -66,17 +66,17 @@ class Chats(unittest.TestCase):
         ref = {"contentType": "messageReference", "content": '{"messageSender": {"user": {"id": "me"}}}'}
         fake = Fake([chat("d", "oneOnOne", "2026-10-09T10:05:00Z"), chat("g", "group", "2026-10-09T10:06:00Z", "Команда"),
                      chat("old", "oneOnOne", "2026-10-09T09:00:00Z")],
-                    {"d": [msg("1", "2026-10-09T10:01:00Z", "alex", "<p>привет&nbsp;<b>Иван</b></p>"),
+                    {"d": [msg("1", "2026-10-09T10:01:00Z", "alex", "<p>привет&nbsp;<b>Олег</b></p>"),
                            msg("2", "2026-10-09T10:02:00Z", ME, "мой ответ"),
                            msg("3", "2026-10-09T09:59:00Z", "alex", "старое")],
                      "g": [msg("4", "2026-10-09T10:03:00Z", "kate", "болтовня"),
                            msg("5", "2026-10-09T10:04:00Z", "kate", '<at id="0">Owner</at> глянь', mentions=[ME]),
-                           msg("6", "2026-10-09T10:05:00Z", "ivan", "да", attachments=[ref]),
-                           msg("7", "2026-10-09T10:06:00Z", "ivan", "x", mentions=[ME], deleted=True)]})
+                           msg("6", "2026-10-09T10:05:00Z", "oleg", "да", attachments=[ref]),
+                           msg("7", "2026-10-09T10:06:00Z", "oleg", "x", mentions=[ME], deleted=True)]})
         last = {}
         out = collect.chats(fake, CUT, ME, last)
         self.assertEqual([(i["src"], i["text"]) for i in out],
-                         [("dm", "привет Иван"), ("mention", "@Owner глянь"), ("mention", "да")])
+                         [("dm", "привет Олег"), ("mention", "@Owner глянь"), ("mention", "да")])
         self.assertEqual(out[0]["where"], "Личка")
         self.assertEqual(out[1]["where"], "Команда")
         self.assertEqual(last[collect.key("d", "")], "2026-10-09T10:02:00Z")
@@ -135,7 +135,7 @@ class Files(unittest.TestCase):
 
 
 class SharePointImages(unittest.TestCase):
-    """26.10 (Иван m974975): в личке пришла только картинка файлом SharePoint («изображение (8).png») — пункт без
+    """26.10: в личке пришла только картинка файлом SharePoint («изображение (8).png») — пункт без
     текста со ссылкой за входом Microsoft, разбор писал «прочитать без входа нельзя». Картинку-файл качаем, как картинку
     из тела; не скачалось — строка с причиной в тексте."""
     URL = "https://corp-my.sharepoint.com/personal/a/Documents/%D0%B8%D0%B7%D0%BE%D0%B1%D1%80%D0%B0%D0%B6%D0%B5%D0%BD%D0%B8%D0%B5%20(8).png"
@@ -841,7 +841,7 @@ class Later(unittest.TestCase):
 
     def test_reaction_keeps_target_and_wrong_target_never_reaches_provider(self):
         """Реакция несёт target, как ответ: пункт сменил адрес — react_failed с тем же target, до источника не идёт;
-        без target — как раньше (18.10, codex m484137)."""
+        без target — как раньше (18.10)."""
         import json
         c = main.Choice("/nonexistent")
         for body in ({"kind": "react", "id": "k1", "rid": "r1", "emoji": "👍", "target": "stale-target"},
@@ -897,7 +897,7 @@ class Later(unittest.TestCase):
         self.assertEqual([p["kind"] for p in self.out], ["sent", "answered", "sent", "answered", "react_failed"])
 
     def test_reply_repeat_with_the_same_rid_gets_the_prior_outcome_and_never_resends(self):
-        # 17.10 (codex m458240): клиент без ответа ждёт и повторяет тот же rid — повтор молчал навсегда. Теперь итог rid
+        # 17.10: клиент без ответа ждёт и повторяет тот же rid — повтор молчал навсегда. Теперь итог rid
         # помним: повтор получает прежний итог, оборванная посреди отправки — «итог неизвестен», без переотправки
         import sources
         import time
@@ -922,7 +922,7 @@ class Later(unittest.TestCase):
         self.assertEqual(self.out[0], self.out[2])
 
     def test_reply_rid_pushed_out_of_recent_outcomes_still_never_resends(self):
-        # 17.10 (codex m460182): 500 других rid вытесняли исходный из sent_rids/reply_out — свежий повтор уходил второй раз.
+        # 17.10: 500 других rid вытесняли исходный из sent_rids/reply_out — свежий повтор уходил второй раз.
         # Отпечаток rid живёт дольше итога: вытесненный — «итог неизвестен», без отправки; снятый — повтор «снято»
         import sources
         import time
@@ -947,7 +947,7 @@ class Later(unittest.TestCase):
                          [("send_failed", "r0", True), ("canceled", "l1", None)])
 
     def test_reply_replay_confirms_only_the_original_request(self):
-        # 17.10 (codex m479506): повтор исходного rid вне Teams брал target из повтора и не сверял текст — «отправлено»
+        # 17.10: повтор исходного rid вне Teams брал target из повтора и не сверял текст — «отправлено»
         # подтверждалось другому собеседнику или другому тексту. Теперь повтор сверяется с исходной просьбой
         import sources
         import time
@@ -972,7 +972,7 @@ class Later(unittest.TestCase):
                           ("sent", "p1", None), ("answered", None, None), ("sent", "p1", None)])
 
     def test_reply_keeps_its_target_and_every_receipt_echoes_it(self):
-        # 17.10 (codex m477541): ответ с target уходит только в ту переписку, которую видел клиент; сменился адрес
+        # 17.10: ответ с target уходит только в ту переписку, которую видел клиент; сменился адрес
         # пункта — отказ без отправки; квитанции (и повтор, и «неизвестен», и «отложено») несут target просьбы
         import sources
         import time
@@ -998,7 +998,7 @@ class Later(unittest.TestCase):
                           ("scheduled", "l1", None), ("send_failed", "r2", None), ("send_failed", "r2", None)])
         self.assertEqual({p.get("target") for p in mine if p.get("rid")}, {a})
         self.assertIn("Conversation changed", mine[-1]["error"])
-        # повтор «отложено», отмена и повтор отмены — тоже с target отложенного (codex m477679)
+        # повтор «отложено», отмена и повтор отмены — тоже с target отложенного
         del self.out[:]
         main.send_replies(st, self.R(), [{**q, "rid": "l1", "at": "2999-01-01T00:00:00Z"},
                                          {"cancel": "l1", "ts": now}, {"cancel": "l1", "ts": now}], self.out.append)
@@ -1006,7 +1006,7 @@ class Later(unittest.TestCase):
                          [("scheduled", a), ("canceled", a), ("canceled", a)])
 
     def test_send_and_archive_archives_only_after_confirmed_sent_and_replays_exactly(self):
-        # 18.10 (codex m485958): «Отправить и убрать» — намерение помним по rid до отправки; archived только за sent
+        # 18.10: «Отправить и убрать» — намерение помним по rid до отправки; archived только за sent
         # (повтор того же rid — снова), не за scheduled / failed / сменённым адресом; другое намерение на rid — отказ
         import sources
         import time
@@ -1053,7 +1053,7 @@ class Later(unittest.TestCase):
         self.assertEqual(len(ran), 3)                                        # r1, p1, s1 — повторы не отправляли
 
     def test_send_and_archive_selection_is_checked_fixed_and_replayed_exactly(self):
-        # 18.10 (codex m486330): натив убирает всю переписку (more + id). Клиент шлёт archive_ids — что видел, с target;
+        # 18.10: натив убирает всю переписку (more + id). Клиент шлёт archive_ids — что видел, с target;
         # выбор сверяется при просьбе, состав фиксируется первым sent; сменивший адрес до отправки — не убирается
         import sources
         import time
@@ -1111,7 +1111,7 @@ class Later(unittest.TestCase):
         self.assertEqual(len(ran), 3)                                        # r1, s1, c2 — d1 не отправлялся
 
     def test_automatic_reply_outside_teams_replays_once_and_archive_intent_survives(self):
-        # 18.10 (codex m486905/m486924): автоответ вне Teams на повтор получал send_blocked, а после вытеснения
+        # 18.10: автоответ вне Teams на повтор получал send_blocked, а после вытеснения
         # sent_rids уходил второй раз; ждущее намерение архива вытеснялось 500 новыми; старый журнал заливал ленту
         import sources
         import time
@@ -1158,7 +1158,7 @@ class Later(unittest.TestCase):
         self.assertEqual(len(ran), 2)                                                 # a1 и s1 — по разу
 
     def test_lost_scheduled_and_canceled_receipts_replay_for_the_same_request_only(self):
-        # 17.10 (codex m461794): потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
+        # 17.10: потерян пост scheduled — повтор того же rid молчал (rid в later); потерян canceled —
         # повтор отмены не находил отложенного и молчал. Теперь повтор получает тот же итог; чужой пункт или редактор — нет
         import sources
         import time
@@ -1296,7 +1296,7 @@ class Later(unittest.TestCase):
                           ("amend_failed", "r5")])   # повтор r1 — прежняя квитанция, без второго вызова (17.10)
 
     def test_mark_read_replays_its_receipt_never_repeats_and_keeps_its_target(self):
-        # 17.10 (codex m472773): потерянная квитанция «прочитано» не повторялась; после 500 других rid тот же rid снова
+        # 17.10: потерянная квитанция «прочитано» не повторялась; после 500 других rid тот же rid снова
         # отмечал прочитанным; переписка, сменившая адрес между просьбой и исполнением, отмечалась не та
         import time
         real = (main.sources.mark_read, main.save)
@@ -1320,7 +1320,7 @@ class Later(unittest.TestCase):
         self.assertEqual([(p["kind"], p["rid"], p.get("unresolved")) for p in self.out],
                          [("read", "r1", None), ("read", "r1", None), ("read_failed", "r1", True), ("read_failed", "r2", None)])
         self.assertEqual(main.msg_post({"key": "k1", "ref": {"tg": "77"}}, False, {})["target"], a)
-        self.assertEqual({p.get("target") for p in self.out}, {a})   # каждая квитанция — с target просьбы (m474486)
+        self.assertEqual({p.get("target") for p in self.out}, {a})   # каждая квитанция — с target просьбы
 
     def test_settings_become_config_post(self):
         class C:
@@ -1333,25 +1333,11 @@ class Later(unittest.TestCase):
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
                                   'inbox_guard':True,'inbox_protocol':{'version':1,'private_proposal':True,
                                   'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True},
-                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1}])   # повтор rid сверяет просьбу и target (m479566); выходные — m484011
+                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1}])   # повтор rid сверяет просьбу и target; выходные
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
-    def test_the_old_signature_becomes_the_approved_one(self):
-        # 16.10 (слово Ивана m398582): текст, что отправил Иван из Inbox, подписан «вычитано Иваном», не «по просьбе»
-        class C:
-            settings = {"signature": "_Хаб (по просьбе Ивана)_", "autodraft": True}
-        st = {"config_at": 9e12}
-        main.settings(st, C(), self.out.append)
-        self.assertEqual((st["cfg"]["signature"], self.out[0]["signature"]), (main.APPROVED_SIGNATURE,) * 2)
-        self.assertEqual(main.APPROVED_SIGNATURE, "🤖 _Хаб, вычитано Иваном_")
-        class Quiet:
-            settings = None
-        kept = {"config_at": 9e12, "cfg": {"signature": "_Хаб (по просьбе Ивана)_", "autodraft": True}}
-        main.settings(kept, Quiet(), self.out.append)   # сохранённая прежняя, поста настроек нет — тоже новая
-        self.assertEqual(kept["cfg"]["signature"], main.APPROVED_SIGNATURE)
-
     def test_automatic_inbox_sending_is_on_by_the_owners_word_unless_he_turns_it_off(self):
-        # 16.10 (m403281): «разговаривай сам и всё делай сам, не давай мне вычитывать ответы»
+        # автоотправка Inbox включена по умолчанию, владелец может выключить
         class Old:
             settings = {"signature": "x", "autodraft": True}
         class Off:
@@ -1448,7 +1434,7 @@ class LatestIncoming(unittest.TestCase):
 
 
 class LongIncoming(unittest.TestCase):
-    """27.10 (d1081843): длинное сообщение Teams обрывалось на 1200 знаках («progressive-di…») — хвост не видели ни
+    """27.10: длинное сообщение Teams обрывалось на 1200 знаках («progressive-di…») — хвост не видели ни
     лента, ни разборщик. Ядро Plugin API 1.22+ принимает пост до 20 000 знаков — текст идёт целиком."""
 
     def capture(self, data):

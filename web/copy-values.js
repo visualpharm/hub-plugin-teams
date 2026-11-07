@@ -2,7 +2,7 @@ import { T } from "./ui-text.js";
 
 // Значок «скопировать» у значений в тексте Inbox: разбор хаба (почему), пояснение черновика, черновик и предложение
 // после личного указания. Правило — hub-ios design-plans/kit/copy-value.md, Sources/CopyValues.swift; перенос один в
-// один, как web/copy-values.js модуля hubbahub-web-look 0.3.73 (плагин не импортирует /static/js ядра и модулей).
+// один, как web/copy-values.js модуля оформления страницы (плагин не импортирует /static/js ядра и модулей).
 // Значения: идентификаторы вида app.agentshub.client.proto, значение после метки (Bundle ID, SKU, ID, токен, ключ,
 // команда:), хеши, UUID, id хаба (m800001, d800001), пути. Внутри адреса http… и ссылок — нет: у ссылки своё меню.
 const rx = (source, flags = "") => new RegExp(source, "gu" + flags);

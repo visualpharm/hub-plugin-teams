@@ -7,7 +7,7 @@ const dependencies={...await import('data:text/javascript,'+encodeURIComponent(r
 for (const [file,name] of [['provider-read','providerReadState'],['read-state','localReadState'],['conversation-pins','conversationPins']]) {
   dependencies[name]=(await import('data:text/javascript,'+encodeURIComponent(readFileSync(`web/${file}.js`,'utf8'))))[name];
 }
-Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки (d660171)
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8'))));   // feedMessage/oldMessage: main.js строит сообщение ленты там
 let blocked=true;
 const values=new Map(), requests=[];

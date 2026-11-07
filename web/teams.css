@@ -330,7 +330,7 @@
 .tm-handoff > summary::-webkit-details-marker { display: none; }
 .tm-thread .tm-handoff-split > .tm-action { border-radius: 22px 6px 6px 22px; }
 .tm-thread .tm-handoff > .tm-action { border-radius: 6px 22px 22px 6px; min-width: 36px; padding-inline: 8px; }
-/* меню открывается вниз, поверх поля ответа — переписка над рядом действий остаётся видна (ревью ui-expert m572303) */
+/* меню открывается вниз, поверх поля ответа — переписка над рядом действий остаётся видна */
 .tm-handoff-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; display: grid; gap: 2px; min-width: 240px; max-width: min(320px, 90vw); max-height: 50vh; overflow: auto;
   padding: 6px; border-radius: 12px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / .18)); }
 /* у низа окна меню открывается вверх — fitDrop в main.js; высоту по месту ставит он же */
@@ -341,7 +341,7 @@
 .tm-handoff-menu .btn { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 10px; justify-content: flex-start; text-align: left; white-space: normal; border-radius: 8px; font-size: 15px; }
 .tm-agent-check { flex: none; width: 16px; height: 16px; }
 .tm-agent-check .icon { width: 16px; height: 16px; color: var(--primary); }
-/* d433431: one row above the composer — icons on a phone (the name stays in aria-label and title), words where they fit */
+/* one row above the composer — icons on a phone (the name stays in aria-label and title), words where they fit */
 @container inbox-thread (max-width: 560px) {
   .tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action { flex: 1 1 0; min-width: 44px; padding-inline: 0; }
   .tm-thread > .tm-acts > * { flex: 1 1 0; display: flex; }
@@ -634,7 +634,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-core-native .tm-core-leading .tm-send-options { grid-column: 3; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .send, .tm-core-native .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
-/* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» (ревью ui-expert m572303, п. 3) */
+/* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» */
 .tm-shared-compose form.composer > .composer-actions:has(.tm-native-footer) > .spacer { display: none; }
 @media (max-width: 899px) {
   /* signature, bin and Send share one row; on a phone the capsule shrinks to the round send icon, as on iPhone */
@@ -652,7 +652,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-narrow .tm-thread > .tm-acts .tm-action-label { font-size: 14px; }
 .tm-narrow .tm-thread > .tm-acts .tm-action .tm-native-icon, .tm-narrow .tm-thread > .tm-acts .tm-action .icon { width: 22px; height: 22px; flex: none; }
 
-/* m571766: строка адресата — первая строка внутри поля ответа наружу (Кому · имя · канал), шрифт 13, всегда видна */
+/* строка адресата — первая строка внутри поля ответа наружу (Кому · имя · канал), шрифт 13, всегда видна */
 .tm-to-field { position: relative; }
 .tm-shared-compose .tm-to-field > form.composer { padding-top: 32px; }
 .tm-to-line { position: absolute; top: 10px; left: 14px; right: 52px; z-index: 1; display: flex; align-items: baseline; min-width: 0;
@@ -669,22 +669,22 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 /* подпись значка по долгому нажатию на телефоне */
 .tm-tip { position: fixed; z-index: 1000; transform: translate(-50%, -100%); padding: 6px 10px; border-radius: 8px; background: var(--foreground); color: var(--background);
   font-size: 13px; line-height: 18px; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 12px rgb(0 0 0 / .2); }
-/* одна ⚡: на широком экране она в шапке страницы, в шапке письма — только на узком (ревью ui-expert m572303, п. 5) */
+/* одна ⚡: на широком экране она в шапке страницы, в шапке письма — только на узком */
 :root:has(.view-toolbar > .tm-quick-trigger) .tm-container:not(.tm-narrow) .tm-thread > .tm-head > .tm-quick-trigger { display: none; }
 
-/* телефон: поиск в шапке — значком; раскрытое поле лежит поверх заголовка на всю ширину (ревью ui-expert m578128) */
+/* телефон: поиск в шапке — значком; раскрытое поле лежит поверх заголовка на всю ширину */
 .view-toolbar > .tm-search-toggle { width: 44px; height: 44px; }
 .view-toolbar > .tm-conversation-search.tm-search-over { position: fixed; top: 6px; left: 8px; right: 8px; width: auto; max-width: none; z-index: 50; margin: 0;
   min-height: 44px; background: var(--muted); box-shadow: 0 0 0 6px var(--background); }
 .view-toolbar > .tm-conversation-search.tm-search-over input { height: 44px; font-size: 16px; }
 
 /* web-1: пустое и однострочное поле ответа — одна строка ввода с кнопками справа; второй ряд кнопок — только когда текст
-   в несколько строк (kit/composer.md, ревью ui-expert m578128) */
+   в несколько строк (kit/composer.md) */
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply):not(:has(.hint.has-result)) {
   grid-template-areas: "reply reply reply" "pending pending pending" "entry attach actions" "error error error"; }
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions { flex-wrap: nowrap; align-self: center; }
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions > .spacer { display: none; }
-/* круглые кнопки шапки на телефоне — с промежутком 8, как ‹ › на столе (ревью ui-expert m582026) */
+/* круглые кнопки шапки на телефоне — с промежутком 8, как ‹ › на столе */
 .view-toolbar > .tm-quick-trigger + .tm-search-toggle { margin-left: 8px; }
 
 /* «Хаб пишет черновик… 0:12»: тихая строка с бегущими секундами, без красного. */

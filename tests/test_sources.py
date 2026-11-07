@@ -51,7 +51,7 @@ class WhatsApp(unittest.TestCase):
         sources.run = fake_run({"new": [
             {"chat_id": "5491100000001@c.us", "name": "Лена", "new": 2, "unread": 2, "last": "2026-10-10T11:30-03:00",
              "preview": "Привет, пришлёшь договор до вечера?"},
-            {"chat_id": "5491100000002@c.us", "name": "Паша", "new": 1, "unread": 0, "last": "2026-10-10T11:00-03:00",
+            {"chat_id": "5491100000002@c.us", "name": "Миша", "new": 1, "unread": 0, "last": "2026-10-10T11:00-03:00",
              "preview": "Я уже ответил"},                                           # прочитано — нет
             {"chat_id": "5491100000003@c.us", "name": "Мастер", "new": 1, "unread": 1, "last": "2026-10-10T10:00-03:00",
              "preview": "Gracias!"},                                                 # закрывающее — нет
@@ -226,7 +226,7 @@ class WhatsApp(unittest.TestCase):
         self.assertEqual(items[0]["text"], "Hola · Me llamás?")
 
     def test_owner_replies_before_unread_come_as_context_from_the_verified_saved_copy(self):
-        """20.10 (d665535): разборщик не видел прежних реплик владельца у пунктов WhatsApp — `wa new` отдаёт только
+        """20.10: разборщик не видел прежних реплик владельца у пунктов WhatsApp — `wa new` отдаёт только
         входящие. Контекст — из сохранённой копии треда (--cached: чат не открывается), только строки с source v1
         и номером аккаунта канала; непроверенная копия контекста не даёт."""
         sources._WA_OPENED.clear(); sources._WA_READ.clear(); sources._WA_TEXT.clear(); getattr(sources, "_WA_CTX", {}).clear()
@@ -313,7 +313,7 @@ class WaVoice(unittest.TestCase):
         self.assertEqual(sources.clean_preview("Hola, ¿cómo estás?"), "Hola, ¿cómo estás?")
 
     def test_voice_without_file_says_it_was_not_downloaded_and_retries_three_times(self):
-        """24.10 (d841958): голосовое не скачалось — так и пишем (не «[голосовое]» и не иконку), причина в логе;
+        """24.10: голосовое не скачалось — так и пишем (не «[голосовое]» и не иконку), причина в логе;
         на следующих тактах пробуем ещё, всего до трёх раз; скачалось — тот же пункт с расшифровкой."""
         calls = []
 
@@ -442,7 +442,7 @@ class Telegram(unittest.TestCase):
                                         "--who", "Лена", "--about", "Привет · Пришлёшь договор?"])   # 20.10: карточка контакта
 
     def test_personal_chat_carries_owner_replies_before_unread_as_context(self):
-        """20.10 (d664989): разборщику нужна переписка, на что отвечают; ветка kind:thread выходит только по просьбе
+        """20.10: разборщику нужна переписка, на что отвечают; ветка kind:thread выходит только по просьбе
         владельца. `tgnew new` уже отдаёт сообщения до непрочитанного (его ответы) — они идут в пост полем context."""
         sources.run = fake_run({"new": [
             {"chat_id": "33", "name": "Коля", "unread": 1, "group": False, "last": "2026-10-10T11:30-03:00",
@@ -627,7 +627,7 @@ class Flow(unittest.TestCase):
         self.assertIn({"kind": "answered", "id": "k2", "out": "2026-10-10T13:00:00Z"}, posts)   # отвечена; out — время ответа
 
     def test_telegram_newer_message_supersedes_the_old_card(self):
-        # 16.10 (m432551, Interpol): владелец ответил в Telegram, собеседник написал ещё — старый пункт с черновиком
+        # 16.10 (Interpol): владелец ответил в Telegram, собеседник написал ещё — старый пункт с черновиком
         # оставался открытым, клиент показывал черновик на уже отвеченное
         posts = []
         st = {}
@@ -699,7 +699,7 @@ class Context(unittest.TestCase):
     def test_mail_body_is_taken_without_quotes(self):
         """12.10: у письма показана только тема — нет тела; цитата предыдущего письма в тело не входит."""
         import base64
-        raw = "Hola, aca esta el zip: https://drive.google.com/x\n\nEl lun, 12 oct 2026 escribio Ivan:\n> hola\n"
+        raw = "Hola, aca esta el zip: https://drive.google.com/x\n\nEl lun, 12 oct 2026 escribio Alex:\n> hola\n"
         p = {"mimeType": "text/plain", "body": {"data": base64.urlsafe_b64encode(raw.encode()).decode()}}
         self.assertEqual(sources.message_text(p), "Hola, aca esta el zip: https://drive.google.com/x")
 
@@ -714,14 +714,14 @@ class Context(unittest.TestCase):
         self.assertEqual(main.also({**mail, "at": "2026-10-14T17:05:00Z"}, [mail, wa]), [])   # через двое суток — нет
 
     def test_signature_only_for_colleagues(self):
-        """12.10: подпись «Хаб (по просьбе Ивана)» — коллегам и Дженни; подрядчику (Пабло) — нет."""
-        rules = {"sources": ["teams"], "domains": ["icons8.com"], "names": ["Jenny"]}
-        pablo = {"src": "email", "from": "pablo farias", "contact": "mail:pablo@gmail.com"}
+        """12.10: подпись хаба — коллегам и близким; подрядчику — нет."""
+        rules = {"sources": ["teams"], "domains": ["example.com"], "names": ["Alice"]}
+        pablo = {"src": "email", "from": "bob builder", "contact": "mail:bob@example.org"}
         self.assertFalse(main.colleague(pablo, rules))
-        self.assertFalse(main.colleague({"src": "whatsapp", "from": "Pablo Electricista"}, rules))
-        self.assertTrue(main.colleague({"src": "teams", "from": "Паша"}, rules))
-        self.assertTrue(main.colleague({"src": "email", "contact": "mail:p@icons8.com"}, rules))
-        self.assertTrue(main.colleague({"src": "telegram", "from": "Jenny"}, rules))
+        self.assertFalse(main.colleague({"src": "whatsapp", "from": "Bob Electricista"}, rules))
+        self.assertTrue(main.colleague({"src": "teams", "from": "Carol"}, rules))
+        self.assertTrue(main.colleague({"src": "email", "contact": "mail:p@example.com"}, rules))
+        self.assertTrue(main.colleague({"src": "telegram", "from": "Alice"}, rules))
         self.assertFalse(main.colleague(pablo, None))                     # по умолчанию — без подписи
 
 
@@ -794,7 +794,7 @@ class WaMedia(unittest.TestCase):
 
 
 class WaStoreMedia(unittest.TestCase):
-    """26.10 (d985909, Иван m985762): видео-заметка Jorge Lucero пришла меткой «Video note 1» без файла. Медиа WhatsApp —
+    """26.10: видео-заметка Jorge Lucero пришла меткой «Video note 1» без файла. Медиа WhatsApp —
     фото, стикеры, видео, видео-заметки (ptv), гифки, документы — `wamedia --store` берёт из хранилища вкладки (чат не
     открывается) и кладёт в media поста: url (/api/file), mime, size, dur (секунды, ffprobe), у видео thumb — кадр-превью;
     файл больше потолка не качается: вложение без url и строка-причина в тексте."""
@@ -918,7 +918,7 @@ class WaStoreMedia(unittest.TestCase):
 
 
 class YouTubeLinks(unittest.TestCase):
-    """26.10 (d985909): ссылка YouTube в сообщении — links[{url, title, site, image}] из oEmbed (без ключа), обложка
+    """26.10: ссылка YouTube в сообщении — links[{url, title, site, image}] из oEmbed (без ключа), обложка
     скачана в attachments хаба (image — /api/file), клиенты рисуют карточку ссылки без похода на YouTube."""
 
     def setUp(self):
@@ -937,7 +937,7 @@ class YouTubeLinks(unittest.TestCase):
         def run(cmd, timeout=90):
             calls.append(cmd)
             if any("oembed" in c for c in cmd):
-                return json.dumps({"title": "Pinamar en 4K", "author_name": "Muni",
+                return json.dumps({"title": "Ciudad en 4K", "author_name": "Muni",
                                    "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"})
             out = cmd[cmd.index("-o") + 1]
             with open(out, "wb") as f:
@@ -948,9 +948,9 @@ class YouTubeLinks(unittest.TestCase):
                                       "https://www.youtube.com/watch?v=dQw4w9WgXcQ y https://example.com/x")
         self.assertEqual(len(links), 1)
         self.assertEqual((links[0]["url"], links[0]["title"], links[0]["site"]),
-                         ("https://youtu.be/dQw4w9WgXcQ?si=abc", "Pinamar en 4K", "YouTube"))
+                         ("https://youtu.be/dQw4w9WgXcQ?si=abc", "Ciudad en 4K", "YouTube"))
         self.assertTrue(links[0]["image"].startswith("/api/file?path="))
-        self.assertTrue(any("-4" in c for c in calls))   # на munk нет IPv6
+        self.assertTrue(any("-4" in c for c in calls))   # на машине без IPv6
         sources.youtube_links("https://youtu.be/dQw4w9WgXcQ")   # второй раз — из памяти
         self.assertEqual(len(calls), 2)
 
@@ -995,7 +995,7 @@ class MailFiles(unittest.TestCase):
 
 
 class ContactFlags(unittest.TestCase):
-    """20.10 (Иван m643740): send заводит нового адресата в Контакты Mac по --who/--about — передаём их в ответах."""
+    """20.10: send заводит нового адресата в Контакты Mac по --who/--about — передаём их в ответах."""
     def setUp(self):
         self._run, self._knows = sources.run, sources.send_knows
         self.calls = []
@@ -1096,7 +1096,7 @@ class MediaSummary(unittest.TestCase):
 
 
 class Revoked(unittest.TestCase):
-    """26.10 (d987429): собеседник удалил ждущее сообщение («Video note 1» у Jorge Lucero висела меткой): удалены все
+    """26.10: собеседник удалил ждущее сообщение («Video note 1» у Jorge Lucero висела меткой): удалены все
     ждущие — пункт закрывается; часть — удалённое уходит из текста и медиа, пункт остаётся тем же."""
     BOX = "wa:whatsapp:5491100000031@c.us"
 
@@ -1196,7 +1196,7 @@ class Revoked(unittest.TestCase):
 
 
 class BookNames(unittest.TestCase):
-    """26.10 (d1047350): контакт переименован в Контактах Mac, а Inbox показывал прежний заголовок чата WhatsApp Web —
+    """26.10: контакт переименован в Контактах Mac, а Inbox показывал прежний заголовок чата WhatsApp Web —
     имя собеседника личного чата берётся из книги (whatsapp.names_cmd), заголовок чата — запасной."""
     CID = "5491100000031@c.us"
 
@@ -1263,7 +1263,7 @@ class BookNames(unittest.TestCase):
         data = {"chat_id": self.CID, "messages": [
             {"id": "A1", "out": False, "when": "9:35 AM, 10/12/2026", "author": "Pablo Electricista", "body": "hola",
              "source": {**src, "raw_id": f"false_{self.CID}_A1"}},
-            {"id": "A2", "out": True, "when": "9:36 AM, 10/12/2026", "author": "Ivan B", "body": "dale",
+            {"id": "A2", "out": True, "when": "9:36 AM, 10/12/2026", "author": "Owner B", "body": "dale",
              "source": {**src, "raw_id": f"true_{self.CID}_A2"}}]}
         sources._BOOK_CMD[0] = "/fake/names"
         def run(cmd, timeout=90):
@@ -1272,4 +1272,4 @@ class BookNames(unittest.TestCase):
             return json.dumps(data)
         sources.run = run
         got = sources.history({"wa": "whatsapp", "to": self.CID, "account": "456", "cmd": "/fake/wa"})
-        self.assertEqual([(m["from"], m["me"]) for m in got], [("Pablo eSun", False), ("Ivan B", True)])
+        self.assertEqual([(m["from"], m["me"]) for m in got], [("Pablo eSun", False), ("Owner B", True)])

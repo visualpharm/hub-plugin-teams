@@ -8,7 +8,7 @@ mention}) плюс tier "A"|"B"; open_boxes — переписки, которы
 списка — прочитано или отвечено, вкладка пометит «отвечено». Новый канал — ещё одна функция с `@source`, тип сообщения
 src для вкладки — в SRC_LABELS страницы (web/main.js).
 
-Что «требует внимания» — по правилам триажа Noe, в сокращении (`tier`): закрывающее «ок/спасибо» и рутинные
+Что «требует внимания» — по правилам триажа ассистента входящих, в сокращении (`tier`): закрывающее «ок/спасибо» и рутинные
 уведомления — C и во вкладку не попадают; срочное, штраф, блокировка, просрочка — A; живая переписка — B."""
 import json
 import os
@@ -25,7 +25,7 @@ TIMEOUT = 90
 OPEN = {}      # открытые пункты сборщика (ключ -> [box, at]): кладёт run_sources перед чтением каналов
 OUT = {}       # переписка (box) -> время последнего исходящего владельца (unix, out_last_t): сборщик по нему
                # дочитывает открытую владельцем переписку (main.thread_refresh)
-GONE = set()   # ключи открытых пунктов, все ждущие сообщения которых собеседник удалил: сборщик их закрывает (d987429)
+GONE = set()   # ключи открытых пунктов, все ждущие сообщения которых собеседник удалил: сборщик их закрывает
 
 
 def source(name, every=120):
@@ -35,7 +35,7 @@ def source(name, every=120):
     return reg
 
 
-# --- что требует внимания (правила Noe: server.py _compute_tier, в сокращении) ---------------------------------------
+# --- что требует внимания (правила ассистента: server.py _compute_tier, в сокращении) ---------------------------------------
 IMMEDIATE = re.compile(
     r"\b(?:urgent(?:e)?|urgente|asap|immediately|inmediato|inmediatamente|deadline|vence (?:hoy|ma[nñ]ana)|"
     r"antes de (?:hoy|ma[nñ]ana)|срочно|сегодня до|дедлайн)\b|"
@@ -102,7 +102,7 @@ def expand(p):
     return os.path.expanduser(p)
 
 
-# --- новый адресат в Контакты Mac (20.10, Иван m643740): send заводит карточку по --who «имя» и --about «дело» ------
+# --- новый адресат в Контакты Mac (20.10): send заводит карточку по --who «имя» и --about «дело» ------
 _SEND_HELP = {}
 CONTACT_KEYS = ("who", "about", "authors", "title")   # в ref — только для send: отпечаток адреса (target_of) их не учитывает
 
@@ -200,7 +200,7 @@ def team_wait(r):
 
 
 def revoked(r):
-    """Сообщения, которые собеседник удалил после последнего ответа владельца (26.10, d987429): в хранилище вкладки
+    """Сообщения, которые собеседник удалил после последнего ответа владельца (26.10): в хранилище вкладки
     у удалённого своя запись type=revoked, а `wa new` кладёт в неё id исходного (revokes). [(id исходного, t)]."""
     after = r.get("out_last_t") or 0
     return [(m["revokes"], m.get("t") or 0) for m in r.get("messages") or [] if m.get("type") == "revoked"
@@ -258,7 +258,7 @@ def clean_preview(text):
 
 
 def media_summary(kinds, n):
-    """Что пришло, когда у последнего нет текста: «4 голосовых, 2 фото» вместо счётчика (11.10, Иван: «мне надо не
+    """Что пришло, когда у последнего нет текста: «4 голосовых, 2 фото» вместо счётчика (11.10, владелец: «мне надо не
     число, а про что он писал»). Без типов от `wa` — число и общие слова. Содержимое без открытия чата недоступно."""
     parts = []
     for k, c in sorted((kinds or {}).items(), key=lambda kv: -kv[1]):
@@ -271,7 +271,7 @@ def media_summary(kinds, n):
     return ", ".join(parts) if parts else f"Непрочитанных: {n} (фото, голосовое или файл)"
 
 
-# --- имя собеседника WhatsApp — из адресной книги владельца (26.10, d1047350: контакт переименован в Контактах Mac,
+# --- имя собеседника WhatsApp — из адресной книги владельца (26.10: контакт переименован в Контактах Mac,
 # а Inbox показывал прежний заголовок чата WhatsApp Web). whatsapp.names_cmd — команда «<cmd> <цифры>…» → JSON
 # {цифры: имя}; номера без карточки в ответе нет. Нет команды или она упала — имя из заголовка чата, как раньше.
 _BOOK = {}           # цифры номера -> (когда спрошено, имя или "")
@@ -312,7 +312,7 @@ def whatsapp(cfg, now):
     """Чаты с непрочитанным входящим за сутки. Своя вкладка у каждого номера (channels в sources.json); номер без
     вкладки/входа — ошибка в плашке, остальные читаются. Группы — только срочное: иначе это шум; рабочие (groups) и —
     при all_groups — все, кроме skip_groups, целиком (whole_group)."""
-    cmd = expand(cfg.get("cmd") or "~/.claude/bin/wa")
+    cmd = expand(cfg.get("cmd") or "wa")
     labels = cfg.get("labels") or {}
     items, boxes, errors, ok = [], set(), [], 0
     _BOOK_CMD[0] = expand(cfg["names_cmd"]) if cfg.get("names_cmd") else None
@@ -404,7 +404,7 @@ def whatsapp(cfg, now):
             if kept:
                 mark = kept[-1]
             kinds = {m.get("type") for m in wait} | set((r.get("kinds") or {}) if not wait else ())
-            # 26.10 (d985909): фото, видео, видео-заметки, документы — из хранилища вкладки, чат не открывается;
+            # 26.10: фото, видео, видео-заметки, документы — из хранилища вкладки, чат не открывается;
             # чего там нет — фото и стикеры, как раньше, из открытого чата
             files, notes, missed = wa_files(cfg, ch, cid, wait)
             pics = wa_media(cfg, ch, cid, f"{box}:{mark}") if (missed & {"image", "sticker"} or (
@@ -421,7 +421,7 @@ def whatsapp(cfg, now):
             if notes:   # не скачалось или больше потолка — владелец и разборщик видят почему
                 text = "\n".join([text] + notes).strip()
             links = youtube_links(" ".join([text] + [m.get("text") or "" for m in wait]))
-            ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+            ref = {"wa": ch, "to": cid, "cmd": cmd, "send": expand(cfg.get("send") or "send"),
                    **contact_of(r.get("name"), text, group, wait),
                    **({"title": r["name"]} if r.get("name") and wa_named(cid) else {}),
                    **({"account": cfg["accounts"][ch]} if isinstance(cfg.get("accounts"), dict)
@@ -455,7 +455,7 @@ WA_KINDS = {"voice": "ptt", "image": "image", "video": "video", "document": "doc
 
 
 def wa_context(ref, wait, key):
-    """Реплики до ждущих (20.10, d665535, как tg_context): разборщику нужно, на что отвечает собеседник, — обычно это
+    """Реплики до ждущих (20.10, как tg_context): разборщику нужно, на что отвечает собеседник, — обычно это
     ответы владельца, а `wa new` отдаёт только входящие. Берём сохранённую копию треда (`wa thread --cached`: чат не
     открывается, синих галочек нет) и только строки, прошедшие verified_wa_history (source v1, номер аккаунта канала
     из sources.json); без номера аккаунта или с непроверенной копией — пусто. Копия может отставать от чата (его ответ
@@ -468,7 +468,7 @@ def wa_context(ref, wait, key):
         return got[1]
     who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
     try:
-        data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
+        data = json.loads(run([ref.get("cmd") or "wa", "thread", who, "--cached", "--json",
                                "--limit", "40", "--channel", ref["wa"]], timeout=60) or "{}")
         rows = verified_wa_history(ref, data)
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -547,7 +547,7 @@ def wa_media(cfg, ch, cid, key):
         return []
     if key in _WA_MEDIA:
         return _WA_MEDIA[key]
-    cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
+    cmd = expand(cfg.get("media_cmd") or "wamedia")
     got = []
     try:
         rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch], timeout=120) or "[]")
@@ -570,7 +570,7 @@ WA_KIND_WORD = {"image": "фото", "sticker": "стикер", "video": "вид
 
 
 def wa_files(cfg, ch, cid, wait, keep=MEDIA_KEEP):
-    """Вложения WhatsApp среди ждущих (26.10, d985909): `wamedia --store --only` берёт фото, стикеры, видео,
+    """Вложения WhatsApp среди ждущих (26.10): `wamedia --store --only` берёт фото, стикеры, видео,
     видео-заметки (ptv), гифки и документы из хранилища вкладки и CDN WhatsApp — чат не открывается, синих галочек нет.
     Файл — в attachments хаба; у видео кадр-превью (thumb) и длительность (dur, секунды, ffprobe). Больше потолка
     (`media_max_mb`, по умолчанию 50 МБ) — вложение без url и строка-причина. Не скачалось — строка-причина, повтор
@@ -584,7 +584,7 @@ def wa_files(cfg, ch, cid, wait, keep=MEDIA_KEEP):
             and now - _WA_FILE_TRIES.get((cid, m["id"]), (0, 0, ""))[1] >= WA_VOICE_AGAIN]
     if want:
         cap = cfg.get("media_max_mb") or MEDIA_MAX_MB
-        cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
+        cmd = expand(cfg.get("media_cmd") or "wamedia")
         why = {}
         try:
             rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--store", "--only", ",".join(want),
@@ -691,7 +691,7 @@ def _poster(path, dur=0):
     return out if os.path.exists(out) and os.path.getsize(out) else None
 
 
-# --- ссылки YouTube (26.10, d985909): название и обложка из oEmbed (без ключа), обложка — в attachments хаба --------
+# --- ссылки YouTube (26.10): название и обложка из oEmbed (без ключа), обложка — в attachments хаба --------
 YOUTUBE = re.compile(r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com/(?:watch\?(?:[^\s<>\"']*?&)?v=|shorts/|live/|embed/)"
                      r"|youtu\.be/)([A-Za-z0-9_-]{11})[^\s<>\"')\]]*")
 _YT = {}   # id видео -> (когда, {title, image} | None): oEmbed спрашиваем раз; не вышло — снова через WA_READ_AGAIN
@@ -737,14 +737,14 @@ def youtube_links(text, keep=3):
 
 _WA_VOICE = {}   # (чат, id сообщения) -> {text, media, opened}: скачанное голосовое второй раз не качаем
 _WA_VOICE_TRIES = {}   # (чат, id сообщения) -> (сколько раз не скачалось, когда последний раз)
-WA_VOICE_TRIES = 3   # 24.10 (d841958): не скачалось — пробуем на следующих тактах, всего до трёх раз
+WA_VOICE_TRIES = 3   # 24.10: не скачалось — пробуем на следующих тактах, всего до трёх раз
 WA_VOICE_AGAIN = 2 * 60
 VOICE_FAILED = "голосовое не скачалось"
 
 
 def wa_voice(cfg, ch, cid, key, wait):
     """Голосовые WhatsApp среди ждущих: `wamedia --voice --only` берёт файл из хранилища вкладки (ключ и путь файла
-    там открыты, чат не открывается; 24.10, d841958: чаты бизнеса «secure service from Meta» и не отрисованные фоновой
+    там открыты, чат не открывается; 24.10: чаты бизнеса «secure service from Meta» и не отрисованные фоновой
     вкладкой голосовые меню «Download» не отдавали), иначе через меню «Download» открытого чата (владелец 13.10: синие
     галочки для медиа допустимы); расшифровка — `--transcribe` (fal wizper, язык `voice_lang`, по умолчанию es), рядом
     `.txt`. {id: {text, media, opened}} — скачанное; {id: {failed: True}} — не скачалось (причина в логе, повтор на
@@ -759,7 +759,7 @@ def wa_voice(cfg, ch, cid, key, wait):
             and now - _WA_VOICE_TRIES.get((cid, i), (0, 0))[1] >= WA_VOICE_AGAIN]
     why = {}
     if want:
-        cmd = expand(cfg.get("media_cmd") or "~/.claude/bin/wamedia")
+        cmd = expand(cfg.get("media_cmd") or "wamedia")
         try:
             rows = json.loads(run([cmd, cid, "--dir", media_dir("wa"), "--channel", ch, "--voice", "--only", ",".join(want),
                                    "--transcribe", "--lang", cfg.get("voice_lang") or "es"], timeout=240) or "[]")
@@ -895,7 +895,7 @@ CONTEXT_MAX = 700   # знаков JSON на предыдущие реплики
 
 
 def tg_context(r, wait):
-    """Реплики до ждущих (20.10, d664989): разборщику нужно, на что отвечает собеседник, а ветка kind:thread выходит
+    """Реплики до ждущих (20.10): разборщику нужно, на что отвечает собеседник, а ветка kind:thread выходит
     только по просьбе владельца. `tgnew new` и так отдаёт пару сообщений перед непрочитанным — обычно его ответы;
     раньше они отбрасывались. [{at, from, me, text}] по порядку, новые важнее: не влезло — без старых."""
     msgs = [m for m in r.get("messages") or [] if m.get("type") not in SERVICE_TYPES]
@@ -931,7 +931,7 @@ def telegram(cfg, now):
     """Чаты с непрочитанным входящим за сутки; та же логика, что у WhatsApp. Группы — только срочное (рабочие и при
     all_groups все, кроме skip_groups, — целиком); заглушённые,
     каналы-рассылки и боты командой не отдаются. Ответ — `send tg` (ночной запрет и выходные действуют там)."""
-    cmd = expand(cfg.get("cmd") or "~/.claude/bin/tgnew")
+    cmd = expand(cfg.get("cmd") or "tgnew")
     try:
         rows = json.loads(run([cmd, "new", "--hours", "24", "--json"]) or "[]")
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
@@ -982,7 +982,7 @@ def telegram(cfg, now):
                       "text": text[:collect.TEXT_MAX], "at": iso_utc(at), "mention": False, **({"team": True} if team else {}),
                       **({"media": media} if media else {}), **({"links": links} if links else {}),
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
-                      "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "~/.claude/bin/send"),
+                      "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "send"),
                               **contact_of(r.get("name"), text, group, wait)}})
     tg_gone(cmd, boxes)
     return items, boxes, []
@@ -992,7 +992,7 @@ _TG_GONE = {}   # ключ открытого пункта -> когда про�
 
 
 def tg_gone(cmd, boxes):
-    """26.10 (d987429): собеседник удалил ждущее сообщение — в Telegram оно пропадает целиком, непрочитанное снимается,
+    """26.10: собеседник удалил ждущее сообщение — в Telegram оно пропадает целиком, непрочитанное снимается,
     и чат уходит из `tgnew new`; пункт висел бы, пока владелец не ответит. Открытый пункт, чей чат больше не ждёт:
     его сообщения нет (`tgnew gone`) и после ответа владельца не осталось ни одного входящего — пункт в GONE. Осталось
     что-то — пункт не трогаем. Раз в WA_READ_AGAIN на пункт: каждый вызов — вход в Telegram."""
@@ -1184,7 +1184,7 @@ URL = re.compile(r"https?://[^\s<>\"')\]]+")
 # --- Почта: Gmail через gogx — непрочитанные входящие вне рассылок; тема и отправитель ----------------------------
 @source("email", every=120)
 def email(cfg, now):
-    cmd = expand(cfg.get("cmd") or "~/.claude/bin/gogx")
+    cmd = expand(cfg.get("cmd") or "gogx")
     query = cfg.get("query") or ("is:unread in:inbox newer_than:7d -category:promotions -category:social "
                                  "-category:forums")
     items, boxes, errors, ok, fetched = [], set(), [], 0, 0
@@ -1277,7 +1277,7 @@ def wa_title(ref):
         return ref["title"]
     digits = re.sub(r"\D", "", to.split("@")[0])
     try:
-        rows = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "chats", digits, "--json",
+        rows = json.loads(run([ref.get("cmd") or "wa", "chats", digits, "--json",
                                "--channel", ref["wa"]], timeout=60) or "[]")
     except (OSError, ValueError, subprocess.TimeoutExpired):
         rows = []
@@ -1364,7 +1364,7 @@ def react(ref, emoji, msg=None):
         return run([ref["react"], "react", ref["to"], "--id", msg or ref["msg"], "--emoji", emoji, "--channel", ref["wa"]],
                    timeout=120)
     if ref.get("tg") and (msg or ref.get("msg")) and str(msg or ref.get("msg")).isdigit():
-        return run([ref.get("cmd") or expand("~/.claude/bin/tgnew"), "react", ref["tg"], str(msg or ref["msg"]),
+        return run([ref.get("cmd") or "tgnew", "react", ref["tg"], str(msg or ref["msg"]),
                     "--emoji", emoji], timeout=60)
     raise OSError("на это сообщение реакцию поставить нельзя")
 
@@ -1385,7 +1385,7 @@ def amend(ref, msg, text=None):
     """Правка (text) или удаление (text=None) своего отправленного. Telegram — Telethon (только свои сообщения);
     WhatsApp и почта — нельзя: у WhatsApp нет такого канала, письмо не вернуть."""
     if ref.get("tg") and str(msg).isdigit():
-        cmd = ref.get("cmd") or expand("~/.claude/bin/tgnew")
+        cmd = ref.get("cmd") or "tgnew"
         if text is None:
             return run([cmd, "delete", ref["tg"], str(msg)], timeout=60)
         return run([cmd, "edit", ref["tg"], str(msg), "--text", text], timeout=60)
@@ -1398,15 +1398,15 @@ def amend(ref, msg, text=None):
 
 def mark_read(ref):
     """Пометить прочитанным в источнике — только по явной кнопке владельца. Telegram — прочитано до конца чата; почта —
-    снимается метка UNREAD с цепочки; WhatsApp — чат открывается (отправитель увидит синие галочки: слово Ивана 13.10)."""
+    снимается метка UNREAD с цепочки; WhatsApp — чат открывается (отправитель увидит синие галочки: слово владельца 13.10)."""
     if ref.get("tg"):
-        return run([ref.get("cmd") or expand("~/.claude/bin/tgnew"), "read", ref["tg"]], timeout=60)
+        return run([ref.get("cmd") or "tgnew", "read", ref["tg"]], timeout=60)
     if ref.get("mail"):
         return run([ref["cmd"], "gmail", "thread", "modify", ref["thread"], "--remove", "UNREAD", "-a", ref["mail"]],
                    timeout=60)
     if ref.get("wa"):
         who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
-        return run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--limit", "1", "--channel", ref["wa"]],
+        return run([ref.get("cmd") or "wa", "thread", who, "--limit", "1", "--channel", ref["wa"]],
                    timeout=120)
     raise OSError("в Teams прочитанным пометить нельзя: Graph этого не даёт")
 
@@ -1453,7 +1453,7 @@ def history(ref, top=20, before=None, search=None):
     открыло бы чат и поставило синие галочки. Почта — письма цепочки: от кого, когда, начало текста."""
     if ref.get("wa"):
         who = ref["to"] if ref["to"].endswith("@g.us") else re.sub(r"\D", "", ref["to"].split("@")[0])
-        data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/wa"), "thread", who, "--cached", "--json",
+        data = json.loads(run([ref.get("cmd") or "wa", "thread", who, "--cached", "--json",
                                "--limit", str(500 if before or search else top), "--channel", ref["wa"]]))
         out, name = [], book_names(_BOOK_CMD[0], [wa_peer(ref["to"])]).get(wa_peer(ref["to"]))
         for m in verified_wa_history(ref, data):
@@ -1472,14 +1472,14 @@ def history(ref, top=20, before=None, search=None):
         extra = (["--before", str(before)] if before and str(before).isdigit() else []) + \
                 (["--search", search] if search else [])
         try:
-            data = json.loads(run([ref.get("cmd") or expand("~/.claude/bin/tgnew"), "thread", ref["tg"], "--limit",
+            data = json.loads(run([ref.get("cmd") or "tgnew", "thread", ref["tg"], "--limit",
                                    str(top), "--json", *extra]))
         except (OSError, ValueError):
             return []
         msgs = data.get("messages") or []
         by_id = {str(m.get("id")): m for m in msgs}
         got = {}
-        for it in tg_media(ref.get("cmd") or expand("~/.claude/bin/tgnew"), ref["tg"], msgs):
+        for it in tg_media(ref.get("cmd") or "tgnew", ref["tg"], msgs):
             got[it["id"].rsplit(":", 1)[-1]] = it
         out = []
         for m in msgs:

@@ -1,5 +1,5 @@
 """Открытая владельцем переписка получает ответ мимо плагина (`send wa` другой сессии, телефон) — сборщик сам дочитывает
-историю и публикует новый thread (26.10, d1034600). Без сети: подставные источники."""
+историю и публикует новый thread (26.10). Без сети: подставные источники."""
 import json
 import os
 import sys
@@ -50,7 +50,7 @@ class ThreadRefresh(unittest.TestCase):
         main.history(self.st, R(), {"history": KEY, "ts": now}, self.out.append, now=now)
 
     def reply_elsewhere(self, t, text="Te paso los datos"):
-        self.rows.append({"at": "2026-10-26T19:58:00Z", "from": "Ivan B", "me": True, "text": text})
+        self.rows.append({"at": "2026-10-26T19:58:00Z", "from": "Owner B", "me": True, "text": text})
         sources.OUT[BOX] = t   # wa new: out_last_t переписки
 
     def threads(self):
@@ -122,7 +122,7 @@ class ThreadRefresh(unittest.TestCase):
         st = {"refs": {key: ref}, "me": {"id": "me"}}
         try:
             main.history(st, T(), {"history": key, "ts": T0}, self.out.append, now=T0)
-            rows.append({"at": "2026-10-26T19:58:00Z", "from": "Ivan", "me": True, "text": "ответ"})
+            rows.append({"at": "2026-10-26T19:58:00Z", "from": "Owner", "me": True, "text": "ответ"})
             box = collect.key("c1", "")
             main.thread_refresh(st, T(), {box: "2026-10-26T19:58:00Z"}, self.out.append, now=T0 + main.THREAD_REFRESH,
                                 teams_ok=False)   # Teams не читался — его переписки не трогаем

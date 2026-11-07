@@ -36,7 +36,7 @@ def _telegram(q, cfg, mcp):
     c = cfg.get("telegram")
     if c is None:
         return []
-    data = json.loads(run([expand(c.get("cmd") or "~/.claude/bin/tgnew"), "contacts", q], timeout=60))
+    data = json.loads(run([expand(c.get("cmd") or "tgnew"), "contacts", q], timeout=60))
     return [{"to": f"tg:{d['id']}", "name": d["name"], "hint": ("@" + d["username"]) if d.get("username") else
              ("группа" if d.get("group") else "")} for d in data]
 
@@ -45,7 +45,7 @@ def _whatsapp(q, cfg, mcp):
     c = cfg.get("whatsapp")
     if c is None:
         return []
-    cmd, out = expand(c.get("cmd") or "~/.claude/bin/wa"), []
+    cmd, out = expand(c.get("cmd") or "wa"), []
     for ch in c.get("channels") or ["whatsapp"]:
         for d in json.loads(run([cmd, "chats", q, "--channel", ch, "--json"], timeout=60)):
             out.append({"to": f"wa:{ch}:{d['chat_id']}", "name": d.get("name") or d["chat_id"],
@@ -57,7 +57,7 @@ def _email(q, cfg, mcp):
     c = cfg.get("email")
     if c is None:
         return []
-    cmd, out, seen = expand(c.get("cmd") or "~/.claude/bin/gogx"), [], set()
+    cmd, out, seen = expand(c.get("cmd") or "gogx"), [], set()
     needle = q.casefold()
     for acct in c.get("accounts") or []:
         query = f'from:"{q}" OR to:"{q}"' if " " in q or "@" in q else f"from:{q} OR to:{q}"
@@ -91,12 +91,12 @@ def send(to, text, cfg, mcp=None, me=None, files=(), subject="", name=""):
     fl = [x for f in files for x in ("--file", f)]
     about = subject.strip() or next((x for x in (text or "").splitlines() if x.strip()), "")
     if kind == "tg" and rest:
-        send_cmd = expand((cfg.get("telegram") or {}).get("send") or "~/.claude/bin/send")
+        send_cmd = expand((cfg.get("telegram") or {}).get("send") or "send")
         return run([send_cmd, "tg", "--to", rest, "--text", text, *fl, *sources.contact_flags(send_cmd, name, about)],
                    timeout=180)
     if kind == "wa" and rest.count(":") >= 1:
         ch, _, chat = rest.partition(":")
-        send_cmd = expand((cfg.get("whatsapp") or {}).get("send") or "~/.claude/bin/send")
+        send_cmd = expand((cfg.get("whatsapp") or {}).get("send") or "send")
         who = "" if chat.endswith("@g.us") else name   # имя группы — не имя человека
         return run([send_cmd, "wa", "--to", chat, "--channel", ch, "--text", text, *fl,
                     *sources.contact_flags(send_cmd, who, about)], timeout=180)
@@ -104,7 +104,7 @@ def send(to, text, cfg, mcp=None, me=None, files=(), subject="", name=""):
         acct, _, addr = rest.partition(":")
         if not subject.strip():
             raise OSError("у нового письма нужна тема")
-        cmd = expand((cfg.get("email") or {}).get("cmd") or "~/.claude/bin/gogx")
+        cmd = expand((cfg.get("email") or {}).get("cmd") or "gogx")
         return run([cmd, "gmail", "send", "--to", addr, "--subject", subject.strip()[:200], "--body", text, "-a", acct,
                     *[x for f in files for x in ("--attach", f)]], timeout=180)
     if kind == "teams" and rest:

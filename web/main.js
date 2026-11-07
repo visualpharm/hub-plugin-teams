@@ -29,7 +29,7 @@ const SRCS = { dm: "Личка", mention: "Упоминания", channel: "Ка
 const TEAMS_SRCS = ["dm", "mention", "channel"];   // WhatsApp и почта — вкладки только у включённых каналов (sources.py)
 const NAMES = { teams: "Teams", whatsapp: "WhatsApp", telegram: "Telegram", get email() { return T("Почта", "Mail", "Correo"); } };   // чьё чтение: пост status с полем source
 const statuses = new Map();   // источник → последний status процесса
-// карточки ботов (Workflows) — не сообщения людей (владелец tolaysha 12.10: «из воркфлоу не надо показывать»); сборщик их
+// карточки ботов (Workflows) — не сообщения людей (владелец 12.10: «из воркфлоу не надо показывать»); сборщик их
 // больше не постит, фильтр — для уже запощенных
 const BOTS = new Set(["Workflows", "Power Automate"]);
 let hub = null;
@@ -53,7 +53,7 @@ const draft = new Map();     // id → ts: черновик запрошен
 const replies = new Map();   // номер поста сообщения → [{by, text, ts}] — черновики от сессий
 const chain = conversationChain();   // новое сообщение переписки → закрытое им прежнее: черновик и ✨ идут за перепиской
 let signature = "";         // подпись под черновиками хаба — настройка плагина (пост config), задаётся в приложениях
-// подпись — только когда коллектор пометил sign (близкий: коллеги, Дженни); посторонним — без подписи (Иван m398582)
+// подпись — только когда коллектор пометил sign (близкий: коллеги, семья); посторонним — без подписи
 // web-1 draws the signature below the field (fixed, not editable): the field holds the body, the stored/sent text the whole reply
 const nativeFooter = () => !!ui?.root.classList.contains("tm-core-native");
 function syncHostStyles(root) {
@@ -314,7 +314,7 @@ async function fetchHistory(m, before=null) {
     if(result.error && h.request===q){h.loading=false;h.error=result.error;clearTimeout(h.timer);retryHistory(m.id);paint();}
   } catch { if(h.request===q){h.loading=false;h.error="Could not load history. Try again.";clearTimeout(h.timer);retryHistory(m.id);paint();} }
 }
-// Раннее подгружается само, когда читатель у верха переписки (Иван m646880 п.2: кнопки «Показать более ранние» нет, как
+// Раннее подгружается само, когда читатель у верха переписки (: кнопки «Показать более ранние» нет, как
 // в нативном Inbox): строка-метка над перепиской видна — берём следующую страницу. Страниц подряд без ухода метки из
 // вида — не больше EARLIER_AUTO (страница из одних повторов не гонит всю историю). Сбой не показываем: метка остаётся
 // «Подгружаем…», запрос повторяется сам с нарастающей паузой, как в натив-клиенте.
@@ -751,7 +751,7 @@ function safeLink(url) {
   } catch { return ""; }
 }
 
-// Защита от промпт-инъекции (владелец 09.10, q85521): чужой текст в сообщение хабу не кладём вовсе — только номер
+// Защита от промпт-инъекции (владелец 09.10): чужой текст в сообщение хабу не кладём вовсе — только номер
 // поста; хаб читает его сам командой (`hub feed teams`), и текст приходит ему выводом инструмента, а не словом
 // владельца: подделать «разрешение владельца» текстом сообщения нельзя. Правило для всех сессий — в hub.json (rules).
 function ref(m, prev = []) {
@@ -826,7 +826,7 @@ async function toHub(m, kind, prev = []) {
     }
     // Plugin API below 1.16 has no hub.compose: keep the previous direct send, to the selected agent
     if (typeof hub.compose !== "function") return directWork(m, target, prev);
-    // метку «в работе» не ставим: ничего не ушло — Иван мог передумать или нажать у другого пункта (ревью 14.10)
+    // метку «в работе» не ставим: ничего не ушло — владелец мог передумать или нажать у другого пункта (ревью 14.10)
     if (hub.compose(target, "Разбери.", { quote: inboxRef(m, prev), quotePreview: humanSummary(m), handoff: true }) === false) {
       error = T("Выбранный агент недоступен. Сообщение сохранено.", "The selected agent is unavailable. Your message is retained."); paint(); return;
     }
@@ -900,8 +900,8 @@ async function sendLatest(m) {
 // the choice follows the conversation, which keeps its key when the collector re-posts it under a new post id;
 // pre-conversation entries were keyed by post and still apply to that exact post
 const chosenAgent = (m) => reviewAgents.get(conversationKey(m)) || reviewAgents.get(m.post) || hubName();
-// имя агента для людей (ревью ui-expert m572303): хаб — «Хаб»; у агента — начало его описания до «:», « — » или « (»
-// («Hub Developer», «Noe»), длинное или пустое — имя сессии
+// имя агента для людей: хаб — «Хаб»; у агента — начало его описания до «:», « — » или « (»
+// («Hub Developer», «Assistant»), длинное или пустое — имя сессии
 function agentTitle(s) {
   if (!s) return "";
   if (s.kind === "hub") return T("Хаб", "Hub");
@@ -1027,7 +1027,7 @@ function action(text, name, fn, label) {
 }
 
 // на телефоне у значка нет подписи и нет наведения: долгое нажатие показывает его название, как подсказка значков iOS,
-// и нажатием не считается (ревью ui-expert m572303, п. 8)
+// и нажатием не считается
 function holdLabel(b, text) {
   let timer = 0, tip = null, shown = false;
   const hide = () => { clearTimeout(timer); timer = 0; if (tip) { const t = tip; tip = null; setTimeout(() => t.remove(), 1200); } };
@@ -1701,7 +1701,7 @@ function startCompose(m, text, why = "", focus = true) {
   if (focus) focusId = m.id;
 }
 
-// Черновик хаба — только в поле ответа (Иван через web-parity m1053809, как натив fill/discard): закрытое владельцем поле
+// Черновик хаба — только в поле ответа (как натив fill/discard): закрытое владельцем поле
 // с этим черновиком само не открывается, пока хаб не пришлёт новый
 const dismissedDrafts = new Map();
 const dismissDraft = (m) => { const latest = latestDraft(m); if (latest) dismissedDrafts.set(m.id, latest.ts); };
@@ -1732,7 +1732,7 @@ async function confirmEditor(m, st, action = "hold") {
   paint();
 }
 
-// Ivan m612908: a reply the owner pressed goes even if the draft changed version meanwhile. After a CAS-only
+// a reply the owner pressed goes even if the draft changed version meanwhile. After a CAS-only
 // refusal (nothing was sent) the same text goes once with a new rid, the current token and replaces = the refused
 // rid, as the native client does. A refused hold or a refused resend is shown as "not sent" with its reason.
 async function resendStale(id) {
@@ -1845,7 +1845,7 @@ function sharedReply(m, st) {
     const archive=button(T("Отправить и убрать","Send and Archive"),"quiet tm-send-archive",()=>chooseSend(null,'archive'));
     for(const b of [now,archive])b.prepend(hub.icon('allow'));
     st.updateSendAction=()=>{
-      // кнопка называет, кому уйдёт ответ (m571766): «Отправить Fantix Tickets»
+      // кнопка называет, кому уйдёт ответ: «Отправить Fantix Tickets»
       const who=personName(msgs.get(m.id)?.from || m.from) || T('собеседнику','recipient');
       const action=sendAction(),label=action==='archive' ? T(`Отправить ${who} и убрать`,`Send to ${who} and Archive`) : T(`Отправить ${who}`,`Send ${who}`),caption=action==='archive' ? T('Отправить и убрать','Send and Archive') : T('Отправить','Send');
       archive.dataset.available=String(archiveSupported);
@@ -2009,7 +2009,7 @@ function sharedReply(m, st) {
       else { composing.delete(m.id); paint(); }
     });
     optionsBody.append(close);
-    // m571409/m571766: поле наружу по виду отличает только строка адресата — первая строка внутри поля, всегда видна,
+    // поле наружу по виду отличает только строка адресата — первая строка внутри поля, всегда видна,
     // не прокручивается с текстом; в полях хаба её нет. Слота в общем композере нет — строка лежит поверх его верхнего поля
     const field = el("div", "tm-to-field"), to = st.toLine = el("div", "tm-to-line");
     field.append(to, box.node);
@@ -2018,7 +2018,7 @@ function sharedReply(m, st) {
     const slotless = !box.node.contains(sendMenu);
     if (slotless) field.append(sendMenu);
     if (st.state) {
-      // Private instruction to the Hub — a mode of the same field, not a row of its own (Иван m646880 п.2): the corner
+      // Private instruction to the Hub — a mode of the same field, not a row of its own: the corner
       // icon switches the field between the reply to the contact and the instruction; Enter / send revises the draft,
       // each mode keeps its own text, the instruction never goes to the contact.
       const revise = async ({ text }) => {
@@ -2045,7 +2045,7 @@ function sharedReply(m, st) {
         st.instructing = !st.instructing; sharedReply(m, st);
         (st.instructing ? ibox : st.box).focus();
       }, T("Личное указание к черновику", "Private draft instruction"));
-      toggle.append(nativeIcon("idea"));   // ✨ — у кнопки «Черновик» в ряду; одно действие — один значок (ui-expert m743100)
+      toggle.append(nativeIcon("idea"));   // ✨ — у кнопки «Черновик» в ряду; одно действие — один значок
       toggle.title = T("Личное указание к черновику", "Private draft instruction");
       field.append(ibox.node, toggle);
     }
@@ -2122,7 +2122,7 @@ function sharedReply(m, st) {
     }
   }
   st.updateSendHours?.();
-  // подтверждение правки — служебное, его не показываем (ревью ui-expert m578128); отправка видна в треде «отправляю…»
+  // подтверждение правки — служебное, его не показываем; отправка видна в треде «отправляю…»
   st.feedback.textContent = st.error || state?.error || "";
   st.feedback.hidden = !st.feedback.textContent;
   return st.root;
@@ -2245,7 +2245,7 @@ function hubOffer(m) {
   const { list, carried } = hubDrafts(m), latest = list.at(-1), offer = splitDraft(latest?.text || "");
   return { latest, text: offer.text, why: (offer.carried || carried) && offer.text ? carriedWhy(offer.why) : offer.why };
 }
-// «Хаб пишет черновик… 0:12» (Иван m647012: не тикает — выглядит зависшей): секунды идут с нажатия ✨; черновик пришёл —
+// «Хаб пишет черновик… 0:12» (: не тикает — выглядит зависшей): секунды идут с нажатия ✨; черновик пришёл —
 // строка сменяется им; не пришёл за окно — строка тихо уходит, без красного и без ошибки. Пока строка на экране,
 // канал перечитывается каждые 1,5 с, чтобы черновик встал на место сразу.
 const DRAFT_WINDOW = 300, DRAFT_POLL = 1500;
@@ -2539,10 +2539,10 @@ function quickButton() {
   const quick=button('','quiet tm-quick-trigger',quickSend,T('Сообщение хабу','Message Hub'));
   quick.append(nativeIcon('quick'));syncQuickButton(quick);return quick;
 }
-// I-55 (ui-expert m559769): поиск — в шапке страницы, где ядро даёт панель вида (на любой ширине), и фильтрует письма;
+// I-55: поиск — в шапке страницы, где ядро даёт панель вида (на любой ширине), и фильтрует письма;
 // своего поля или кнопки поиска в колонке Inbox нет. Старое ядро без панели — прежнее поле над списком.
 // На телефоне (уже 600) поле в шапке не помещается рядом с заголовком: там значок, по нажатию поле раскрывается поверх
-// заголовка (ревью ui-expert m578128), пустое и без фокуса — снова значок.
+// заголовка, пустое и без фокуса — снова значок.
 function placeSearch() {
   if (!ui?.search) return;
   const inBar = hub?.capabilities?.viewToolbar === 1 && !!toolbarRoot, compact = inBar && innerWidth < 600;
@@ -2684,7 +2684,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   }
   const composeFor = ms.find((m) => composing.has(m.id));
   // заметка разбора хаба — плашкой первым блоком переписки, прокручивается с ней и видна при открытом поле (как натив
-  // InboxNoteLine, Иван m1046050/m1046159); пока хаб переделывает черновик, заметка прежнего не показывается
+  // InboxNoteLine); пока хаб переделывает черновик, заметка прежнего не показывается
   const noted = [...ms].reverse().find((m) => latestDraft(m));
   const noteLine = noted && canReply(noted) && !draftStale(noted) && whyLine(hubOffer(noted).why);
   if (noteLine) history.querySelector(":scope > .tm-conversation-source").after(whyNote(noted, noteLine));
@@ -3170,7 +3170,7 @@ function registerView() {
   });
 }
 
-// число новых в боковой панели — и когда вкладка закрыта (tolaysha 12.10): render вида зовётся, только пока он открыт,
+// число новых в боковой панели — и когда вкладка закрыта (12.10): render вида зовётся, только пока он открыт,
 // поэтому канал читаем сами, когда в снимке есть новые посты (snap.feeds.teams — номер последнего)
 async function poll() {
   if (ui?.root.isConnected) return;   // открытую вкладку ведёт render; опрос не трогает поле ответа

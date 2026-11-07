@@ -11,7 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ["HUB_STATE_DIR"] = "/tmp/teams-ext-test"   # не состояние живого хаба: его sources.json (triage) и state.json меняют поведение
 os.environ.pop("HUB_EXTENSION", None)
 sys.path.insert(0, os.path.dirname(HERE))
-sys.path.insert(0, os.environ.get("HUB_CORE") or os.path.expanduser("~/projects/agents-hub-core"))
+sys.path.insert(0, os.environ.get("HUB_CORE") or os.path.expanduser("~/agents-hub-core"))
 
 import hours  # noqa: E402
 import main  # noqa: E402
@@ -142,7 +142,7 @@ class Gate(unittest.TestCase):
         # 25.10: автоответ Паше в Telegram в вс 17:06 встал на «пн 08:00» (held: hours) — сборщик применял рабочие часы
         # владельца по умолчанию (будни 08–20), хотя гейт send пропускает его в выходные (weekend-ok, писал сегодня)
         self.st["refs"].update(t1={"tg": "telegram", "to": "628"}, m1={"mail": "gmail", "to": "a@b.c"})
-        self.st["who"].update(t1={"contact": "tg:628", "from": "Паша"}, m1={"contact": "mail:a@b.c", "from": "Ана"})
+        self.st["who"].update(t1={"contact": "tg:628", "from": "Миша"}, m1={"contact": "mail:a@b.c", "from": "Ана"})
         self.st.update(cfg={"inbox_guard": True}, open={k: ["b", "t"] for k in ("k1", "t1", "m1")})
 
         def auto(i, rid):
@@ -163,7 +163,7 @@ class Gate(unittest.TestCase):
         self.assertEqual(last("a5"), ("scheduled", "2026-10-25T08:00", "hours"))
         self.go([auto("m1", "a6")], "2026-10-25T19:00")                            # почта — рабочие часы владельца
         self.assertEqual(last("a6"), ("scheduled", "2026-10-26T08:00", "hours"))
-        self.st["hours"] = {"from": "08:00", "to": "20:00", "weekends": True, "except": {"tg:628": "Паша"}}
+        self.st["hours"] = {"from": "08:00", "to": "20:00", "weekends": True, "except": {"tg:628": "Миша"}}
         self.go([auto("t1", "a7")], "2026-10-25T19:00")                            # явное «без выходных» — в силе
         self.assertEqual(last("a7"), ("scheduled", "2026-10-26T08:00", "hours"))
         self.go([{"id": "t1", "rid": "o1", "text": "o1"}], "2026-10-25T19:00", "night")   # слово владельца — его модель

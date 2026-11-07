@@ -1,5 +1,5 @@
 // Editor state only. No browser, accounts or outbound sends.
-// Ivan m612908: a pressed reply goes even if the draft changed version meanwhile; "not sent" only on a real refusal.
+// a pressed reply goes even if the draft changed version meanwhile; "not sent" only on a real refusal.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../web/editor-state.js',import.meta.url),'utf8');

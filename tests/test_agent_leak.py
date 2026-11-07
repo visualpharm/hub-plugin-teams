@@ -16,7 +16,7 @@ RULES = {"sources": ["teams"]}
 
 
 def item(k, text, at="2026-10-27T10:00:00Z"):
-    return {"key": k, "box": "b", "src": "dm", "where": "Личка", "from": "Pavel Malay", "text": text, "at": at,
+    return {"key": k, "box": "b", "src": "dm", "where": "Личка", "from": "Alex Doe", "text": text, "at": at,
             "link": "l", "mention": False}
 
 
@@ -40,7 +40,7 @@ class AgentLeak(unittest.TestCase):
             self.assertEqual(out[0]["id"], f"a{n}")
 
     def test_human_message_stays_msg(self):
-        for text in ["Иван, мой агент вчера что-то сломал, посмотри", "Созвонимся в 5?"]:
+        for text in ["Олег, мой агент вчера что-то сломал, посмотри", "Созвонимся в 5?"]:
             _, out = self.tick([item("h1", text)])
             self.assertEqual([p["kind"] for p in out], ["msg"], text)
 

@@ -77,7 +77,7 @@ class Delivery(unittest.TestCase):
         st = json.loads(json.dumps(st))
         out, calls, _ = self.run_send(st, [q], {'id': 'never'})
         self.assertEqual((calls, [p['kind'] for p in out]), ([], ['send_duplicate', 'archived']))
-        import time   # перечитанный журнал после перезапуска — молча; свежий повтор клиента — итог (m486924)
+        import time   # перечитанный журнал после перезапуска — молча; свежий повтор клиента — итог
         out, calls, _ = self.run_send(st, [{**q, 'ts': time.time() - 86400}], {'id': 'never'})
         self.assertEqual((calls, out), ([], []))
         out, calls, _ = self.run_send(st, [{**q, 'ts': time.time()}], {'id': 'never'})
@@ -351,7 +351,7 @@ class Delivery(unittest.TestCase):
                 if change=='none': main.preflight_guarded(st,reader,follow)
                 else:
                     with self.assertRaises(ValueError) as caught: main.preflight_guarded(st,reader,follow)
-                    # код причины send_blocked (hub-core m637023)
+                    # код причины send_blocked
                     self.assertEqual(caught.exception.reason,{'account':'source_changed','new-incoming':'newer_messages',
                         'new-owner':'newer_messages','bad-time':'source_unreadable'}.get(change,'source_changed'))
 
@@ -445,7 +445,7 @@ class Delivery(unittest.TestCase):
         for change in ('none','quote','account','source-text','new-incoming','new-owner','missing','file'):
             rows=[copy.deepcopy(original)]
             if change=='source-text': rows[0]['body']['content']='Changed source'
-            # ответ с цитатой — вложение messageReference, не файл (16.10, p404553: ответ Паше держался «source changed»)
+            # ответ с цитатой — вложение messageReference, не файл (16.10: ответ Паше держался «source changed»)
             if change=='quote': rows[0]['attachments']=[{'contentType':'messageReference','content':'{}'}]
             if change=='file': rows[0]['attachments']=[{'contentType':'reference','name':'a.pdf'}]
             if change in ('new-incoming','new-owner'):
@@ -463,8 +463,8 @@ class Delivery(unittest.TestCase):
                                      .get(change,'source_changed'))
 
     def test_automatic_teams_reply_waits_only_for_the_night_not_the_weekend(self):
-        """Владелец 18.10 (m501890): Teams коллегам — любой день, только не 23:00–08:00. Рабочие часы владельца
-        (будни 08–20) автоответ в Teams не держат: ответ субботы 03:40 ушёл на понедельник (d806858)."""
+        """Владелец 18.10: Teams коллегам — любой день, только не 23:00–08:00. Рабочие часы владельца
+        (будни 08–20) автоответ в Teams не держат: ответ субботы 03:40 ушёл на понедельник."""
         from datetime import datetime,timezone
         cases=((datetime(2026,10,24,3,40,tzinfo=timezone.utc),'2026-10-24T08:00:00Z'),   # суббота ночью — утро той же субботы
                (datetime(2026,10,24,12,0,tzinfo=timezone.utc),None),                     # суббота днём — сразу
@@ -520,7 +520,7 @@ class Delivery(unittest.TestCase):
         self.assertEqual(self.run_send(st,[q],{'id':'x'})[1],[])
 
     def test_guarded_replay_keeps_the_original_target_and_refuses_a_changed_one(self):
-        # 17.10 (codex m479400): повтор исходного rid на защищённом пути отдавал итог без target (веб его отбрасывал), а
+        # 17.10: повтор исходного rid на защищённом пути отдавал итог без target (веб его отбрасывал), а
         # тот же rid с другим target получал прежний успех. Теперь target — часть заявки: повтор несёт исходный,
         # другой target — отказ; повторной отправки нет ни в одном случае
         st=state(); target=main.target_of(st['refs']['a'])
@@ -539,7 +539,7 @@ class Delivery(unittest.TestCase):
     def test_legacy_client_cannot_enable_auto_send_and_outside_teams_sends_once_plainly(self):
         st=state(); st['cfg']['inbox_guard']=False
         self.assertEqual(self.run_send(st,[self.request(st,'auto',True)],{'id':'x'})[1],[])
-        # вне Teams квитанции нет — автоответ обычной отправкой, один раз (Иван q465184, 17.10: «Разрешить вне Teams»)
+        # вне Teams квитанции нет — автоответ обычной отправкой, один раз (17.10: «Разрешить вне Teams»)
         st=state(); st['refs']['a']={'tg':'peer'}; st['open']={'a':['x','t']}
         q=self.request(st,'auto',True)
         out,calls,_=self.run_send(st,[q,dict(q)],{'id':'x'})

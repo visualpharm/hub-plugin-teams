@@ -2,7 +2,7 @@
 const valid = (t) => t?.v === 1 && typeof t.version === "string" && Number.isInteger(t.edit_version);
 const same = (a, b) => valid(a) && valid(b) && a.version === b.version && a.edit_version === b.edit_version;
 // The collector refused before transport only because the CAS version moved (another client, a new hub draft).
-// Ivan m612908: the pressed reply goes once more by itself; any other refusal stays "not sent".
+// the pressed reply goes once more by itself; any other refusal stays "not sent".
 const STALE = /^Inbox changed/;
 export function boundedRequest(q) {
   if (JSON.stringify(q).length > 1900) throw Error("Shorten the instruction or reply before sending.");
@@ -118,7 +118,7 @@ export class InboxEditor {
     }
     return false;
   }
-  // Apply is the owner's gesture: a newer edit or token never asks for another one (Ivan m612908).
+  // Apply is the owner's gesture: a newer edit or token never asks for another one.
   apply() {
     if (!this.proposal) throw Error("No draft to apply.");
     this.text = this.proposal.text; this.revision++;

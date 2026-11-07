@@ -1,4 +1,4 @@
-"""send_blocked защиты источника называет причину (hub-core m637023, 20.10): машинный код reason и фраза error,
+"""send_blocked защиты источника называет причину (20.10): машинный код reason и фраза error,
 различающая случаи. Раньше любая причина давала одну фразу «Current source verification unavailable or changed»,
 а настоящая была видна только в hub-up.log — гадали, «ушло или нет». Только подставные чат и транспорт."""
 import copy
@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['HUB_STATE_DIR'] = tempfile.mkdtemp(prefix='teams-send-reason-')  # не живое состояние плагина
-os.environ['HUB_EXTENSION'] = 'tolaysha:teams'
+os.environ['HUB_EXTENSION'] = 'example:teams'
 import main
 import inbox_delivery as delivery
 

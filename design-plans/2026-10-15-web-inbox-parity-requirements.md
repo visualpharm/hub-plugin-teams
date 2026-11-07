@@ -1,8 +1,8 @@
 # Web Inbox parity
 
-Owner m333740 reports missing controls, mixed old design, repeated refresh and trapped navigation.
-The shared client design is HubbaHub v5 with file 22, Inbox prompt and action,
-etag 1792090255859803. Native d332010 owns no plugin-web source. Existing collector
+The owner reports missing controls, mixed old design, repeated refresh and trapped navigation.
+The shared client design is v5 with file 22, Inbox prompt and action,
+etag 1792090255859803. The native client owns no plugin-web source. Existing collector
 management work owns the protocol; this slice changes only its web consumer.
 
 - Use the real shared composer when composerTransport:1 is present. Preserve old-page compatibility.

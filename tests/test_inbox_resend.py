@@ -1,4 +1,4 @@
-"""Automatic resend after a CAS-only refusal (Ivan m612908). Mocked transport, no real send."""
+"""Automatic resend after a CAS-only refusal. Mocked transport, no real send."""
 from pathlib import Path
 import sys
 import unittest

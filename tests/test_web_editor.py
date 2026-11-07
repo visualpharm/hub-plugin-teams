@@ -48,7 +48,7 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_late_native_theme_preserves_the_reply_field_and_caret(self):
         self.seed_inbox(start_editing=False, open_editor=False)
-        self.feed({'kind':'config','inbox_protocol':{'version':1,'editor_cas':True},'signature':'🤖 _Hub, proofread by Ivan_'})
+        self.feed({'kind':'config','inbox_protocol':{'version':1,'editor_cas':True},'signature':'🤖 _Hub, proofread by Owner_'})
         self.feed({'kind':'msg','id':'late-theme','contact':'synthetic-account/late-theme','src':'telegram',
                    'from':'Late colleague','text':'Late theme fixture.','reply':True,'sign':True,
                    'at':datetime.now(timezone.utc).isoformat()})
@@ -58,24 +58,24 @@ class InboxWebAcceptance(PageInChrome):
                   {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Late colleague')).click();true"},
                   {'eval':"document.querySelector('[aria-label=\"Ответить: Late colleague\"]').click();true"},
                   {'until':"!!document.querySelector('.tm-shared-compose textarea')"})
-        self.edit('Keep my wording.\n\n🤖 _Hub, proofread by Ivan_')
+        self.edit('Keep my wording.\n\n🤖 _Hub, proofread by Owner_')
         self.page({'eval':"window.__themeField=document.querySelector('.tm-shared-compose textarea');__themeField.focus();__themeField.setSelectionRange(3,7);window.__themeInputs=0;__themeField.addEventListener('input',()=>__themeInputs++);window.__themeSaved=JSON.stringify(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')));document.documentElement.style.setProperty('--native-font-13','13px');dispatchEvent(new Event('hub-redraw'));true"})
         self.assertTrue(self.page({'until':"document.querySelector('.tm-container')?.classList.contains('tm-core-native')"})[-1]['until'])
         inspect="(()=>{const f=document.querySelector('.tm-shared-compose textarea'),s=document.querySelector('.tm-signature');return {same:f===__themeField,focused:document.activeElement===f,selection:[f.selectionStart,f.selectionEnd],text:f.value,signature:s?.textContent,hidden:s?.hidden,inputs:__themeInputs,saved:__themeSaved===JSON.stringify(Object.entries(localStorage).filter(([k])=>k.startsWith('hub.inbox.draft.')))}})()"
         got=self.page({'eval':inspect})[-1]['eval']
         self.assertEqual(got,{'same':True,'focused':True,'selection':[3,7],'text':'Keep my wording.',
-                             'signature':'🤖 Hub, proofread by Ivan','hidden':False,'inputs':0,'saved':True})
+                             'signature':'🤖 Hub, proofread by Owner','hidden':False,'inputs':0,'saved':True})
         self.page({'eval':"document.documentElement.style.removeProperty('--native-font-13');dispatchEvent(new Event('hub-redraw'));true"})
         self.assertTrue(self.page({'until':"!document.querySelector('.tm-container')?.classList.contains('tm-core-native')"})[-1]['until'])
         got=self.page({'eval':inspect})[-1]['eval']
-        self.assertEqual(got['text'],'Keep my wording.\n\n🤖 _Hub, proofread by Ivan_')
+        self.assertEqual(got['text'],'Keep my wording.\n\n🤖 _Hub, proofread by Owner_')
         self.assertTrue(got['same'] and got['focused'] and got['hidden'] and got['saved'],got)
         self.assertEqual(got['selection'],[3,7]);self.assertEqual(got['inputs'],0)
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='send'])
 
     def test_native_reply_footer_uses_the_advertised_leading_slot(self):
         self.seed_inbox(start_editing=False, open_editor=False)
-        self.feed({'kind':'config','inbox_protocol':{'version':1},'signature':'🤖 _Hub, proofread by Ivan_'})
+        self.feed({'kind':'config','inbox_protocol':{'version':1},'signature':'🤖 _Hub, proofread by Owner_'})
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm',
                    'from':'Review colleague','text':'Please check the footer.','reply':True,'sign':True,
                    'at':datetime.now(timezone.utc).isoformat(),'inbox':self.token})
@@ -87,7 +87,7 @@ class InboxWebAcceptance(PageInChrome):
         # The host supplies composerLeading, not the historical composerActions.
         # Signature and Discard belong in that supported slot, not a hidden menu.
         got=self.page({'eval':"(()=>{const f=document.querySelector('.tm-shared-compose form'),s=f.querySelector('.tm-signature'),d=f.querySelector('.tm-discard');return {signature:s?.textContent,hidden:s?.hidden,discard:!!d,options:f.querySelectorAll('.tm-send-options').length,draft:f.querySelector('textarea').value}})()"})[-1]['eval']
-        self.assertEqual(got.get('signature'),'🤖 Hub, proofread by Ivan',got)
+        self.assertEqual(got.get('signature'),'🤖 Hub, proofread by Owner',got)
         self.assertFalse(got['hidden'],got)
         self.assertTrue(got['discard'],got)
         self.assertEqual(got['options'],1,got)
@@ -475,7 +475,7 @@ class InboxWebAcceptance(PageInChrome):
             for width in (360,402,834,1240,1440):
                 self.page({'media':theme},{'viewport':{'width':width,'height':874}})
                 got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-conversation-search'),t=document.querySelector('.tm-search-toggle'),n=s.checkVisibility()?s:t,r=n.getBoundingClientRect();return {bar:!!n.closest('.view-toolbar'),visible:s.checkVisibility(),toggle:t.checkVisibility(),column:[...document.querySelectorAll('.tm-container .tm-search-toggle, .tm-container .tm-conversation-search')].some(n=>n.checkVisibility()),height:r.height,right:r.right,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                # wide: the field in the header; phone: the icon in the header (ui-expert m578128); never inside the column
+                # wide: the field in the header; phone: the icon in the header; never inside the column
                 self.assertTrue(got['bar'] and not got['column'],(theme,width,got));self.assertEqual((got['visible'],got['toggle']),(width>=600,width<600),(theme,width,got))
                 self.assertGreaterEqual(got['height'],44 if width<600 else 32,(theme,width,got));self.assertLessEqual(got['right'],width);self.assertEqual(got['overflow'],0)
         self.page({'eval':"const q=document.querySelector('.tm-conversation-search input');q.value='alignment-one';q.dispatchEvent(new Event('input',{bubbles:true}));true"})
@@ -551,7 +551,7 @@ class InboxWebAcceptance(PageInChrome):
         return q
 
     def test_send_refused_only_for_a_stale_version_goes_once_more_by_itself(self):
-        # Ivan m612908: the pressed reply goes even if the draft changed version meanwhile; one resend, then the reason
+        # the pressed reply goes even if the draft changed version meanwhile; one resend, then the reason
         STALE='Inbox changed; refresh the current item before acting'
         q=self.stale_send('Pressed guarded reply')
         self.token={**self.token,'version':'synthetic-source-B','edit_version':self.token['edit_version']+2}
@@ -683,8 +683,8 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_outgoing_emphasis_matches_native_without_changing_reply_text(self):
         self.seed_inbox(start_editing=False)
-        raw='Exact snake_case and имя_файла. <img src=x onerror=alert(1)>\n_Emphasis_\n\n🤖 _Хаб, вычитано Иваном_\n_unclosed'
-        shown=raw.replace('_Emphasis_','Emphasis').replace('_Хаб, вычитано Иваном_','Хаб, вычитано Иваном')
+        raw='Exact snake_case and имя_файла. <img src=x onerror=alert(1)>\n_Emphasis_\n\n🤖 _Хаб, вычитано владельцем_\n_unclosed'
+        shown=raw.replace('_Emphasis_','Emphasis').replace('_Хаб, вычитано владельцем_','Хаб, вычитано владельцем')
         for source in ('telegram','email'):
             self.open_external_source(source);mid='external-'+source;rid='rich-'+source
             self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'},{'until':"!document.querySelector('.tm-shared-compose textarea')"})
@@ -692,7 +692,7 @@ class InboxWebAcceptance(PageInChrome):
             self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-wait')"})[-1]['until'])
             def check(state):
                 got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-mine-"+state+" .tm-draft-text');return {text:b.textContent,italic:[...b.querySelectorAll('em')].map(n=>[n.textContent,getComputedStyle(n).fontStyle]),unsafe:b.querySelectorAll('img,script').length}})()"})[-1]['eval']
-                self.assertEqual(got,{'text':shown,'italic':[['Emphasis','italic'],['Хаб, вычитано Иваном','italic']],'unsafe':0})
+                self.assertEqual(got,{'text':shown,'italic':[['Emphasis','italic'],['Хаб, вычитано владельцем','italic']],'unsafe':0})
             check('wait')
             self.feed({'kind':'send_failed','id':mid,'rid':rid,'error':'Synthetic refusal'})
             self.assertTrue(self.page({'until':"!!document.querySelector('.tm-mine-fail')"})[-1]['until']);check('fail')
@@ -897,7 +897,7 @@ class InboxWebAcceptance(PageInChrome):
                     self.assertEqual(row['visibleHeight'],32,(width,folder,row))
                     self.assertNotIn(row['fill'],('transparent','rgba(0, 0, 0, 0)'),row)
                     self.assertGreaterEqual(row['rounding'],16,row)
-                    self.assertEqual((row['iconWidth'],row['iconHeight']),(20,20),row)   # visible glyph ≥14 (ui-expert m585255)
+                    self.assertEqual((row['iconWidth'],row['iconHeight']),(20,20),row)   # visible glyph ≥14
                     self.assertTrue(row['hit'],row)
         self.assertEqual(self.non_history_actions(),[])
 
@@ -1102,7 +1102,7 @@ class InboxWebAcceptance(PageInChrome):
 
     def test_long_reply_uses_full_width_and_retains_text_selection_and_menu(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
-        text='Please keep the complete reply readable while I review the details. '*5+'\n\n**Ivan**\nExact signature stays in the draft.'
+        text='Please keep the complete reply readable while I review the details. '*5+'\n\n**Owner**\nExact signature stays in the draft.'
         self.edit(text)
         for width in (360,402,834,1240,1440):
             self.page({'viewport':{'width':width,'height':874}},{'sleep':150})
@@ -1345,7 +1345,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[])
 
     def test_hub_draft_and_ask_follow_the_conversation_to_the_replacing_message(self):
-        # d660171 (native Inbox+Chain): the contact wrote again — the collector closes the old item (answered with newer)
+        #  (native Inbox+Chain): the contact wrote again — the collector closes the old item (answered with newer)
         # and opens a new one; ✨, «preparing» and the hub draft of the old item follow to the new one, and the
         # proactivity carry note is shown as a phrase, never raw with the post number
         self.seed_inbox(start_editing=False)
@@ -1411,9 +1411,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
 
     def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):
-        # I-54: «Hand it to Noe, make it possible to change the agent; a quick item to send to the latest thread»
-        self.ev("session.requested", "noe", session_id="s-noe", cwd="/noe", role="agent", about="Noe — ассистент Ивана: входящие", channel="cli", owner=True)
-        self.ev("session.started", "noe", session_id="s-noe")
+        # I-54: «Hand it to the assistant, make it possible to change the agent; a quick item to send to the latest thread»
+        self.ev("session.requested", "aide", session_id="s-aide", cwd="/aide", role="agent", about="Aide — ассистент владельца: входящие", channel="cli", owner=True)
+        self.ev("session.started", "aide", session_id="s-aide")
         self.ev("session.requested", "visited", session_id="s-visited", cwd="/visited", about="Счёт за свет: проверить тариф", channel="cli", owner=True)
         self.ev("session.started", "visited", session_id="s-visited")
         self.seed_inbox(start_editing=False)
@@ -1427,16 +1427,16 @@ class InboxWebAcceptance(PageInChrome):
         self.p14_shot('teams-handoff-402',402);self.p14_shot('teams-handoff-1240',1240)
         self.assertTrue(got[-2]['until'],got)
         got=got[-1]['eval']
-        self.assertEqual(got['value'],'hub');self.assertIn('noe',got['agents']);self.assertIn('hub',got['agents']);self.assertNotIn('visited',got['agents'])
-        self.assertIn('Хаб',got['titles']);self.assertIn('Noe',got['titles']);self.assertTrue(got['inside'],'The whole menu stays inside the window (d743077)')
+        self.assertEqual(got['value'],'hub');self.assertIn('aide',got['agents']);self.assertIn('hub',got['agents']);self.assertNotIn('visited',got['agents'])
+        self.assertIn('Хаб',got['titles']);self.assertIn('Aide',got['titles']);self.assertTrue(got['inside'],'The whole menu stays inside the window')
         self.assertEqual((got['latest'],got['disabled']),('В последний тред: Счёт за свет',False))
-        # choosing Noe sends nothing; «В работу» then prepares Noe's composer with the exact source quote
-        self.page({'eval':"[...document.querySelectorAll('"+menu+" .tm-agent-row')].find(b=>b.value==='noe').click();true"})
+        # choosing Aide sends nothing; «В работу» then prepares Aide's composer with the exact source quote
+        self.page({'eval':"[...document.querySelectorAll('"+menu+" .tm-agent-row')].find(b=>b.value==='aide').click();true"})
         self.assertEqual(self.non_history_actions(),[])
         self.page({'eval':"document.querySelector('"+menu+"').open=false;document.querySelector('.tm-close-conversation').click();document.querySelector('.tm-person').click();true"},{'until':"!!document.querySelector('"+menu+"')"})
-        self.assertIn('Noe',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
+        self.assertIn('Aide',self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').textContent"})[-1]['eval'])
         self.page({'eval':"document.querySelector('.tm-thread > .tm-acts .tm-handoff-split > .tm-action').click();true"})
-        got=self.page({'until':"location.hash==='#/s/noe' && document.getElementById('msg')?.value==='Разбери.'"},{'eval':"location.hash"})
+        got=self.page({'until':"location.hash==='#/s/aide' && document.getElementById('msg')?.value==='Разбери.'"},{'eval':"location.hash"})
         self.assertTrue(got[-2]['until'],got)
         self.assertEqual([e for e in self.non_history_actions() if e['type']=='message.received'],[],'Preparing a review never sends by itself')
         # the quick item queues one review in the latest opened thread, with the exact post
@@ -1454,7 +1454,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-1]['eval'],'A queued handoff is not offered twice')
 
     def test_hand_off_menu_stays_inside_the_window(self):
-        # d743077: at 390 the agent menu ran past the bottom edge — it opens upwards when there is no room below and
+        # at 390 the agent menu ran past the bottom edge — it opens upwards when there is no room below and
         # scrolls inside when it does not fit either way; with room below it still opens down
         for i in range(8):
             self.ev("session.requested", f"agent{i}", session_id=f"s-a{i}", cwd=f"/a{i}", role="agent", about=f"Агент {i}: проверка", channel="cli", owner=True)
@@ -1478,7 +1478,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.getElementById('tm-top-row')?.remove();true"})
 
     def test_header_search_filters_inbox_and_clearing_restores_it(self):
-        # I-55 (ui-expert m559769): the search lives in the page header and filters the letters; no own search inside the Inbox column
+        # I-55: the search lives in the page header and filters the letters; no own search inside the Inbox column
         self.seed_inbox(start_editing=False)
         now=datetime.now(timezone.utc).isoformat()
         for contact,name,text in [('b','Second person','Invoice for October'),('c','Third person','Garden lights')]:
@@ -1489,7 +1489,7 @@ class InboxWebAcceptance(PageInChrome):
         for width in (1240,402):
             self.page({'viewport':{'width':width,'height':874}})
             if width<600:
-                # phone: an icon in the header; the field opens over the title (ui-expert m578128)
+                # phone: an icon in the header; the field opens over the title
                 got=self.page({'until':"!!document.querySelector('.view-toolbar .tm-search-toggle')?.checkVisibility()"},{'eval':"document.querySelector('"+field+"').checkVisibility()"})
                 self.assertTrue(got[-2]['until'],got);self.assertFalse(got[-1]['eval'],'Closed on a phone: only the icon')
                 gap=self.page({'eval':"(()=>{const q=[...document.querySelectorAll('.view-toolbar > .tm-quick-trigger')].find(n=>n.checkVisibility()),t=document.querySelector('.view-toolbar .tm-search-toggle');return q?t.getBoundingClientRect().left-q.getBoundingClientRect().right:8})()"})[-1]['eval']
@@ -1524,7 +1524,7 @@ class InboxWebAcceptance(PageInChrome):
                           "font:parseFloat(getComputedStyle(l).fontSize),bold:+getComputedStyle(n).fontWeight>=600,placeholder:t.placeholder,send:s.getAttribute('aria-label'),height:fr.height,top:lr.top-fr.top,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]["eval"]
 
     def test_reply_field_always_shows_who_receives_it(self):
-        # m571409/m571766: Ivan's note about the field went to the counterpart. The external reply field names its recipient
+        # The owner's note about the field went to the counterpart. The external reply field names its recipient
         # inside the field at all times; Hub prompts have no such line.
         self.seed_inbox(start_editing=False)
         got=self.recipient_line()
@@ -1536,7 +1536,7 @@ class InboxWebAcceptance(PageInChrome):
         for width in (402,1240):
             self.page({'viewport':{'width':width,'height':874}})
             line=self.page({'eval':"(()=>{const f=document.querySelector('.tm-shared-compose form.composer'),t=f.querySelector('textarea').getBoundingClientRect(),s=f.querySelector('button[type=submit]').getBoundingClientRect(),l=document.querySelector('.tm-to-line').getBoundingClientRect();return {same:s.top<t.bottom&&s.bottom>t.top,below:f.getBoundingClientRect().bottom-Math.max(t.bottom,s.bottom)}})()"})[-1]['eval']
-            self.assertTrue(line['same'],(width,line));self.assertLessEqual(line['below'],16,'Empty field: «Кому» and one input line, no extra row (ui-expert m578128)')
+            self.assertTrue(line['same'],(width,line));self.assertLessEqual(line['below'],16,'Empty field: «Кому» and one input line, no extra row')
         self.page({'viewport':{'width':1300,'height':900}})
         empty=self.recipient_line()
         self.edit('A')
@@ -1577,7 +1577,7 @@ class InboxWebAcceptance(PageInChrome):
         for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
 
     def test_unread_dot_left_one_quick_button_and_phone_icons_name_themselves(self):
-        # ui-expert m572303: (4) unread dot in the left sign column, 9; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
+        # (4) unread dot in the left sign column, 9; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'dot-b','contact':'synthetic/dot','src':'telegram','from':'Unread person','text':'Новое сообщение','reply':True,'at':datetime.now(timezone.utc).isoformat()})
         got=self.page({'viewport':{'width':1240,'height':874}},{'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Unread person'))"},
@@ -1597,7 +1597,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post' and json.loads(e['data']['text']).get('kind')=='ask'],'A long press only names the icon')
 
     def test_phone_header_circles_match_folder_icons_readable_and_back_shadow_not_cut(self):
-        # ui-expert m585255 (kit/icons.md): (1) on a phone ⚡ and search are the same 44 circle with a 22 icon; (2) folder tile
+        #  (kit/icons.md): (1) on a phone ⚡ and search are the same 44 circle with a 22 icon; (2) folder tile
         # icons at least 14 visible (the sf-regular glyph fills ~72% of its box: box 20); (3) the back circle's shadow is not cut off
         self.seed_inbox(start_editing=False)
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-person')"})
@@ -2199,7 +2199,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
 
     def test_suggested_reply_lost_acknowledgement_cannot_create_second_delivery(self):
-        # the hub draft lives in the reply field (web-parity m1053809): its send obeys the same lost-acknowledgement boundary
+        # the hub draft lives in the reply field: its send obeys the same lost-acknowledgement boundary
         self.seed_inbox(start_editing=False);self.open_external_source('telegram')
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='external-telegram'}catch{return false}}).id)"})[-1]['eval']
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Exact suggested reply')
@@ -2579,7 +2579,7 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach')"})[-1]['eval'])
                 self.attach_synthetic_file(source+'.txt')
                 layout=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),a=c.querySelector('.attach').getBoundingClientRect(),b=c.querySelector('button[type=submit]').getBoundingClientRect();return {height:c.getBoundingClientRect().height,offset:Math.abs(a.top-b.top)}})()"})[-1]['eval']
-                self.assertLessEqual(layout['height'],124,layout)   # 96 + the recipient line (m571766);self.assertLessEqual(layout['offset'],2,layout)
+                self.assertLessEqual(layout['height'],124,layout)   # 96 + the recipient line;self.assertLessEqual(layout['offset'],2,layout)
                 if source=='whatsapp' and os.environ.get('HUB_INBOX_SCREENSHOTS'):
                     out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
                     for width,theme in ((402,'light'),(402,'dark'),(1240,'light'),(1240,'dark')):
@@ -2821,7 +2821,7 @@ class InboxWebAcceptance(PageInChrome):
             for text in ('','Short reply'):
                 self.edit(text)
                 got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.composer-actions > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                self.assertLessEqual(got['height'],78,(width,text,got))   # one row + the recipient line (m571766);self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
+                self.assertLessEqual(got['height'],78,(width,text,got))   # one row + the recipient line;self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
 
     def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
         self.seed_inbox(start_editing=False)
@@ -2886,7 +2886,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got['visible']);self.assertTrue(got['inComposer']);self.assertGreaterEqual(got['width'],44);self.assertGreaterEqual(got['height'],44);self.assertEqual(got['overflow'],0)
 
     def test_history_is_requested_by_the_top_of_the_open_conversation_without_a_button(self):
-        # Иван m646880 п.2: раннее подгружается у верха переписки, кнопки «Показать более ранние» нет
+        # раннее подгружается у верха переписки, кнопки «Показать более ранние» нет
         self.seed_inbox(start_editing=False)
         self.assertEqual(self.queued('history')['id'],'source-a')   # short conversation: its top is in view
         self.assertFalse(self.page({'eval':"!!document.querySelector('button.tm-earlier')"})[-1]['eval'])
@@ -2927,7 +2927,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.queued('history')['id'],'source-a')   # the repeat comes without a tap
 
     def test_reply_field_keeps_sparkle_and_send_together_without_the_enter_hint(self):
-        # ui-expert m727340: ✨ and ↑ side by side at the bottom right, ↑ always there (grey while empty); no «Enter: …» hint
+        # ✨ and ↑ side by side at the bottom right, ↑ always there (grey while empty); no «Enter: …» hint
         self.seed_inbox()
         self.page({'viewport':{'width':1024,'height':874}})
         if not self.page({'eval':"!!document.querySelector('.tm-to-field.tm-has-cluster')"})[-1]['eval']:
@@ -2949,8 +2949,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertLessEqual(abs(send['bottom']-got['bottomSlot']),2,got)   # ↑ takes the slot beside ✨
 
     def test_hidden_draft_shows_no_card_note_or_field(self):
-        # web-parity m1053809: hub draft lives only in the reply field; a hidden conversation has no field, so neither the
-        # draft card nor «Почему здесь» appears (ui-expert m727340 п.10: never «plugin proactivity» or a Missing paragraph)
+        # hub draft lives only in the reply field; a hidden conversation has no field, so neither the
+        # draft card nor «Почему здесь» appears (: never «plugin proactivity» or a Missing paragraph)
         self.seed_inbox(start_editing=False)
         for mid in ('archive-a','archive-b'):
             self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
@@ -3016,7 +3016,7 @@ class InboxWebAcceptance(PageInChrome):
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         self.page({'tapSelector':'.tm-editor-options > summary'},{'click':'Закрыть ответ'})
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text='Untouched suggestion')
-        # a new hub draft opens the closed field with it (web-parity m1053809)
+        # a new hub draft opens the closed field with it
         got=self.page({'until':"document.querySelector('.tm-shared-compose textarea')?.value==='Untouched suggestion'"});self.assertTrue(got[-1]['until'],got)
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'tapSelector':'.tm-person'})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
@@ -3559,7 +3559,7 @@ class InboxWebAcceptance(PageInChrome):
         post=self.page({"eval":"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
         self.page({"tapSelector":".tm-editor-options > summary"},{"click":"Закрыть ответ"})
         self.ev("ext.post",None,plugin="teams",channel="session",owner=False,sender="hub",reply_to=post,text="Suggested exact reply\n---\nWhy: Keep this explanation separate")
-        # черновик пришёл после «Закрыть ответ» — поле снова раскрыто с ним (web-parity m1053809)
+        # черновик пришёл после «Закрыть ответ» — поле снова раскрыто с ним
         got=self.page({"until":"document.querySelector('.tm-shared-compose textarea')?.value==='Suggested exact reply'"});self.assertTrue(got[-1]['until'],got)
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"},{"tapSelector":".tm-person"})
         got=self.page({"eval":"(()=>{const t=document.querySelector('.tm-shared-compose .composer textarea');t.focus();return {text:t.value,start:t.selectionStart,end:t.selectionEnd}})()"})[-1]['eval']
@@ -3724,7 +3724,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(link["actions"],["Убрать сообщения Review colleague","Реакция для Review colleague","Черновик ответа для Review colleague","В работу: сообщение Review colleague","Кому передать"],link)
 
     def test_message_actions_are_one_row_icons_on_phone_words_on_desktop(self):
-        # d433431: Archive / React / Draft / Hand off — one row above the composer; icons on a phone, words on a desktop
+        # Archive / React / Draft / Hand off — one row above the composer; icons on a phone, words on a desktop
         self.seed_inbox(start_editing=False)
         probe=("(()=>{const b=[...document.querySelectorAll('.tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action')].filter(n=>n.checkVisibility());"
                "return b.map(n=>{const r=n.getBoundingClientRect(),l=n.querySelector('.tm-action-label');"
@@ -4056,7 +4056,7 @@ class InboxWebAcceptance(PageInChrome):
         got = self.page({"eval": "document.querySelector('.tm-shared-compose .composer textarea').value"})
         self.assertEqual(got[-1]["eval"], "Owner exact edit")
         self.edit("Newer owner edit")
-        # Apply is the gesture: a newer edit does not ask to revise again (Ivan m612908)
+        # Apply is the gesture: a newer edit does not ask to revise again
         got = self.page({"click": "Apply draft"},
                         {"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Could we meet at 11? https://example.test/p'"},
                         {"eval": "document.querySelector('.tm-shared-compose .tm-editor-feedback').textContent"})
@@ -4084,7 +4084,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse([e for e in self.spooled() if e["type"] == "message.received"])
 
     def test_instruction_is_a_mode_of_the_shared_field_with_its_own_text(self):
-        # Иван m646880 п.2: не свёрнутая строка со своим полем, а режим общего поля — значок переключает ответ и указание
+        # не свёрнутая строка со своим полем, а режим общего поля — значок переключает ответ и указание
         self.seed_inbox(start_editing=False)
         self.assertFalse(self.page({'eval':"!!document.querySelector('details.tm-instruction')"})[-1]['eval'])
         self.edit('Reply to the colleague')
@@ -4105,7 +4105,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(got['reply'],'Reply to the colleague');self.assertIn('Review colleague',got['line']);self.assertTrue(got['hasInstruction'])
 
     def test_drafting_line_counts_seconds_rereads_the_channel_and_leaves_quietly(self):
-        # Иван m647012: «не тикает — выглядит зависшей»; без красного, через 5 мин строка тихо уходит
+        # «не тикает — выглядит зависшей»; без красного, через 5 мин строка тихо уходит
         self.seed_inbox(start_editing=False,open_editor=False)
         self.page({'eval':"window.__now=Date.now();Date.now=()=>__now;window.__feeds=0;const f=window.fetch;window.fetch=(u,o)=>{if(String(u).includes('/api/feed?plugin=teams'))__feeds++;return f(u,o)};true"})
         self.page({'eval':"document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]').click();true"})
@@ -4202,15 +4202,15 @@ class InboxWebAcceptance(PageInChrome):
         # черновик — в поле ответа; нажатие кладёт значение в буфер и на 1,5 с даёт галочку
         self.seed_inbox(start_editing=False,open_editor=False)
         post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
-        draft='Bundle ID app.agentshub.client.proto, SKU hub-proto. https://example.test/m800001 ~/.claude/artifacts/hub/pinamar/smoke-run-2026-10-25.log'
-        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text=draft+'\n---\nПочему: Влито 66cb2db0, лог ~/.claude/x.log')
-        self.ev('ext.post',None,plugin='proactivity',channel='session',sender='hub',text=json.dumps({'kind':'item','post':post,'s':'draft','why':'Задача d837401 ждёт ответа.'}))
+        draft='Bundle ID app.agentshub.client.proto, SKU hub-proto. https://example.test/m800001 ~/work/app/smoke-run-2026-10-25.log'
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',reply_to=post,text=draft+'\n---\nПочему: Влито 66cb2db0, лог ~/work/x.log')
+        self.ev('ext.post',None,plugin='proactivity',channel='session',sender='hub',text=json.dumps({'kind':'item','post':post,'s':'draft','why':'Задача d800002 ждёт ответа.'}))
         values="(sel=>[...document.querySelectorAll(sel+' .tm-copy-at')].map(n=>((n.parentNode.previousSibling?.textContent||'')+n.previousSibling.textContent).split(/\\s/).at(-1)))"
         got=self.page({'until':"!!document.querySelector('.tm-note-body .tm-copy-at')&&!!document.querySelector('.tm-verdict .tm-copy-at')"},
                       {'eval':"(()=>{const v="+values+";return {guidance:v('.tm-note-body'),verdict:v('.tm-verdict'),labels:[...document.querySelectorAll('.tm-copy-value')].map(b=>b.getAttribute('aria-label'))}})()"})
         self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
-        self.assertEqual(got['guidance'],['66cb2db0','~/.claude/x.log'],got)
-        self.assertEqual(got['verdict'],['d837401'],got)
+        self.assertEqual(got['guidance'],['66cb2db0','~/work/x.log'],got)
+        self.assertEqual(got['verdict'],['d800002'],got)
         self.assertEqual(set(got['labels']),{'Копировать'},got)
         for width in (390,1280):
             got=self.page({'viewport':{'width':width,'height':844}},{'eval':"(()=>{const b=document.querySelector('.tm-verdict .tm-copy-value'),i=b.firstElementChild.getBoundingClientRect(),v=document.querySelector('.tm-verdict'),"
@@ -4221,11 +4221,11 @@ class InboxWebAcceptance(PageInChrome):
             self.assertEqual(got['select'],'none',got);self.assertEqual(got['bg'],'rgba(0, 0, 0, 0)',got)
         got=self.page({'eval':"(async()=>{navigator.clipboard.writeText=async t=>{window.__copied=t};document.querySelector('.tm-verdict .tm-copy-value').click();await new Promise(r=>setTimeout(r,50));"
                        "const now=document.querySelector('.tm-verdict .tm-copy-value');return {copied:window.__copied,state:now.dataset.copied,label:now.getAttribute('aria-label'),mask:getComputedStyle(now.firstElementChild).maskImage}})()"})[-1]['eval']
-        self.assertEqual(got['copied'],'d837401',got);self.assertEqual(got['state'],'true',got)
+        self.assertEqual(got['copied'],'d800002',got);self.assertEqual(got['state'],'true',got)
         self.assertEqual(got['label'],'Скопировано',got);self.assertIn('check.svg',got['mask'])
         got=self.page({'until':"document.querySelector('.tm-verdict .tm-copy-value').dataset.copied==='false'"})
         self.assertTrue(got[-1]['until'],got)
-        # черновик — только в поле ответа (web-parity m1053809): текст тот же, карточки со значками нет
+        # черновик — только в поле ответа: текст тот же, карточки со значками нет
         got=self.page({'eval':"({field:document.querySelector('.tm-shared-compose textarea')?.value,cards:document.querySelectorAll('.tm-draft').length})"})[-1]['eval']
         self.assertEqual(got,{'field':draft,'cards':0},got)
 

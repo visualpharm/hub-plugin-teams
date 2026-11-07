@@ -9,13 +9,13 @@ const dependencies={T:(ru,en)=>en,...await import('data:text/javascript,'+encode
 for (const [file,name] of [['provider-read','providerReadState'],['read-state','localReadState'],['conversation-pins','conversationPins']]) {
   dependencies[name]=(await import('data:text/javascript,'+encodeURIComponent(readFileSync(`web/${file}.js`,'utf8'))))[name];
 }
-Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки (d660171)
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8'))));   // feedMessage/oldMessage: main.js строит сообщение ленты там
 const storage=new Map();
 const c={console,URL,Map,Set,Date,location:{hash:''},...dependencies,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>{storage.set(key,value);},removeItem:key=>storage.delete(key)}};vm.createContext(c);
 vm.runInContext(source+'\nglobalThis.t={toHub,sendLatest,agentMenu,humanSummary,latestTarget,reviewAgents,handoffs,composing,editorDrafts,done,setHub:h=>hub=h,getError:()=>error};',c);
-const m={id:'source',post:'p42',from:'Irrigar Pinamar',src:'whatsapp',text:'Try the nursery across the street.',at:'2026-10-15T12:00:00Z'};
-let sessions=[{name:'canonical',kind:'hub'},{name:'noe',role:'agent',state:'asleep'},{name:'visited',state:'idle'}];
+const m={id:'source',post:'p42',from:'Irrigar Costa',src:'whatsapp',text:'Try the nursery across the street.',at:'2026-10-15T12:00:00Z'};
+let sessions=[{name:'canonical',kind:'hub'},{name:'aide',role:'agent',state:'asleep'},{name:'visited',state:'idle'}];
 const prepared=[],posts=[];
 // Exercise the real paired adapter: hub.post is api.post, which wraps successful
 // JSON in {data} and converts fetch failures into {error}, rather than throwing.
@@ -32,24 +32,24 @@ vm.runInContext(postSource.replace('export ', '')+'\nglobalThis.post=post;',tran
 const hub={snapshot:()=>({sessions}),el:(...a)=>new Element(...a),icon:()=>new Element('svg'),capabilities:{inboxHandoff:1},handoff:{latest:()=>({name:'visited',title:'Last opened conversation'})},
   compose:(...args)=>{prepared.push(args);return true;},post:transport.post};
 c.t.setHub(hub);
-const menu=c.t.agentMenu(m);assert.deepEqual(menu.children.map(x=>x.value),['canonical','noe']);
-menu.children.find(x=>x.value==='noe').listeners.click();assert.equal(prepared.length,0,'Choosing agent does not send or navigate');
-assert.deepEqual(JSON.parse(storage.get('hub.inbox.reviewAgents')),[[JSON.stringify(['whatsapp','whatsapp:source']),'noe']],'Conversation choice is persisted locally');
+const menu=c.t.agentMenu(m);assert.deepEqual(menu.children.map(x=>x.value),['canonical','aide']);
+menu.children.find(x=>x.value==='aide').listeners.click();assert.equal(prepared.length,0,'Choosing agent does not send or navigate');
+assert.deepEqual(JSON.parse(storage.get('hub.inbox.reviewAgents')),[[JSON.stringify(['whatsapp','whatsapp:source']),'aide']],'Conversation choice is persisted locally');
 const restarted={console,URL,Map,Set,Date,...dependencies,localStorage:c.localStorage};vm.createContext(restarted);
-vm.runInContext(source+'\nglobalThis.choice=reviewAgents.get(JSON.stringify(["whatsapp","whatsapp:source"]));',restarted);assert.equal(restarted.choice,'noe');
-await c.t.toHub(m,'work');assert.equal(prepared[0][0],'noe');assert.equal(posts.length,0,'Manual Work stays editable before send');
-assert.ok(prepared[0][2].quote.includes('p42'));assert.equal(prepared[0][2].quotePreview,'Irrigar Pinamar: Try the nursery across the street.');
+vm.runInContext(source+'\nglobalThis.choice=reviewAgents.get(JSON.stringify(["whatsapp","whatsapp:source"]));',restarted);assert.equal(restarted.choice,'aide');
+await c.t.toHub(m,'work');assert.equal(prepared[0][0],'aide');assert.equal(posts.length,0,'Manual Work stays editable before send');
+assert.ok(prepared[0][2].quote.includes('p42'));assert.equal(prepared[0][2].quotePreview,'Irrigar Costa: Try the nursery across the street.');
 assert.equal(c.t.reviewAgents.has(JSON.stringify(['whatsapp','whatsapp:other'])),false,'Selection is scoped to this conversation, not global triage');
 const reposted={...m,post:'p90'};
-assert.equal(c.t.agentMenu(reposted).value,'noe','Choice survives a re-post of the conversation under a new post id');
-await c.t.toHub(reposted,'work');assert.equal(prepared[1][0],'noe','Work goes to the chosen agent after a re-post');
+assert.equal(c.t.agentMenu(reposted).value,'aide','Choice survives a re-post of the conversation under a new post id');
+await c.t.toHub(reposted,'work');assert.equal(prepared[1][0],'aide','Work goes to the chosen agent after a re-post');
 assert.ok(prepared[1][2].quote.includes('p90'),'The quote still names the exact current post');
 assert.equal(c.t.agentMenu({...m,id:'other',post:'p91'}).value,'canonical','Another conversation keeps the default');
 assert.equal(c.t.agentMenu({...m,id:'other',post:'p91',contact:'someone'}).value,'canonical');
-c.t.reviewAgents.set('p77','noe');assert.equal(c.t.agentMenu({...m,id:'legacy',post:'p77'}).value,'noe','Earlier post-keyed choice still applies to that exact post');
+c.t.reviewAgents.set('p77','aide');assert.equal(c.t.agentMenu({...m,id:'legacy',post:'p77'}).value,'aide','Earlier post-keyed choice still applies to that exact post');
 c.t.reviewAgents.delete('p77');
 prepared.length=1;
-sessions=sessions.filter(s=>s.name!=='noe');await c.t.toHub(m,'work');assert.equal(prepared.length,1,'Removed agent never silently reroutes to Hub');assert.match(c.t.getError(),/unavailable/);
+sessions=sessions.filter(s=>s.name!=='aide');await c.t.toHub(m,'work');assert.equal(prepared.length,1,'Removed agent never silently reroutes to Hub');assert.match(c.t.getError(),/unavailable/);
 c.t.composing.set(m.id,{text:'Saved private reply'});c.t.editorDrafts.set(m.id,'Saved draft');
 await c.t.sendLatest(m);assert.equal(posts.length,1);assert.equal(posts[0].path,'/api/send');assert.equal(posts[0].body.session,'visited');assert.ok(posts[0].body.quote.includes('p42'));assert.ok(posts[0].body.client_id.length>=8);
 assert.equal(c.t.handoffs.get(JSON.stringify(['canonical','p42','visited'])).state,'queued','Real adapter acceptance is read from data.ok');

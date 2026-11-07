@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-// Черновик идёт за перепиской (d660171, натив Inbox+Chain.swift): собеседник дописал — прежний пункт закрыт (answered с
+// Черновик идёт за перепиской (натив Inbox+Chain.swift): собеседник дописал — прежний пункт закрыт (answered с
 // newer или соседним постом), черновик хаба и ✨ прежнего видны у нового; пометка proactivity «Перенесён из pN…» сырой
 // не показывается. Запуск: node tests/carry.test.mjs web/main.js
 const src = readFileSync(process.argv[2] || "web/main.js", "utf8");
