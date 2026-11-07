@@ -707,6 +707,8 @@ def run_sources(st, now, put=post, between=None):
     items = []
     sources.OPEN = dict(st.get("open") or {})
     sources.GONE.clear()
+    sources.SEEN = set(st.get("seen") or [])
+    sources.WA_LAST = st.setdefault("wa_last", {})   # граница учтённых входящих WhatsApp: прочитанное на телефоне не теряется
     for name, src in sources.SOURCES.items():
         c = cfg.get(name)
         s = state.setdefault(name, {"fails": 0, "at": 0, "boxes": []})

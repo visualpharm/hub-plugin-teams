@@ -43,9 +43,86 @@ class Tier(unittest.TestCase):
 class WhatsApp(unittest.TestCase):
     def setUp(self):
         self._run = sources.run
+        self._last, self._seen = getattr(sources, "WA_LAST", None), getattr(sources, "SEEN", None)
+        sources.WA_LAST, sources.SEEN = {}, set()
 
     def tearDown(self):
         sources.run = self._run
+        for k, v in (("WA_LAST", self._last), ("SEEN", self._seen)):
+            if v is None: delattr(sources, k)
+            else: setattr(sources, k, v)
+
+    T0 = NOW.timestamp() - 3 * 3600   # граница: канал прошёл круг три часа назад
+
+    def read_chat(self, *msgs, out=None):
+        """Чат, который владелец уже прочитал на телефоне: счётчик непрочитанных 0, входящие в копии есть."""
+        return {"chat_id": "5491100000009@c.us", "name": "Клиентка", "new": len(msgs), "unread": 0,
+                "last": "2026-10-10T11:40-03:00", "preview": msgs[-1][2] if msgs else "",
+                **({"out_last_t": out} if out else {}),
+                "messages": [{"id": i, "t": t, "type": "chat", "text": x, "cached": True} for i, t, x in msgs]}
+
+    def test_message_read_on_the_phone_before_the_round_is_still_new(self):
+        """07.11: два сообщения клиентки (12:24 и 12:55) владелец прочитал на телефоне раньше круга — счётчик 0,
+        и сборщик их пропускал: в Inbox они не попали. Новое — что пришло после границы, а не только непрочитанное."""
+        sources.WA_LAST["*whatsapp"] = self.T0
+        chat = self.read_chat(("m1", self.T0 + 600, "Hola, mañana pueden venir a revisar el equipo?"),
+                              ("m2", self.T0 + 2460, "A qué hora les queda bien?"), out=self.T0 - 100)
+        sources.run = fake_run({"new": [chat]})
+        items, boxes, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["key"].endswith(":m2"))           # один пункт на оба, ключ — последнее
+        self.assertIn("mañana pueden venir", items[0]["text"])
+        self.assertIn("A qué hora", items[0]["text"])
+        self.assertEqual(boxes, {"wa:whatsapp:5491100000009@c.us"})
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])   # учтено — второй раз не выходит
+        chat["messages"].append({"id": "m3", "t": self.T0 + 3000, "type": "chat", "text": "Tengo que salir a las 5",
+                                 "cached": True})
+        again, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual([i["key"].rsplit(":", 1)[1] for i in again], ["m3"])   # следующее — новым пунктом
+        self.assertNotIn("mañana pueden venir", again[0]["text"])
+
+    def test_first_round_without_memory_does_not_raise_old_read_chats(self):
+        """Первый круг после установки: прочитанное за сутки — не поток пунктов; граница — выданное раньше."""
+        chat = self.read_chat(("m1", self.T0, "Hola, cómo va todo por allá?"))
+        sources.run = fake_run({"new": [chat]})
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
+        self.assertEqual(sources.WA_LAST["*whatsapp"], NOW.timestamp())   # канал засеян
+        sources.WA_LAST.clear()
+        sources.SEEN = {"wa:whatsapp:5491100000009@c.us:m1"}             # m1 уже был пунктом, m2 — нет
+        chat["messages"].append({"id": "m2", "t": self.T0 + 60, "type": "chat", "text": "Me avisás cuándo pasan?",
+                                 "cached": True})
+        items, _, _ = sources.whatsapp({"channels": ["whatsapp"]}, NOW)
+        self.assertEqual([i["key"].rsplit(":", 1)[1] for i in items], ["m2"])
+        self.assertNotIn("cómo va todo", items[0]["text"])
+
+    def test_new_chat_after_the_channel_round_comes_out(self):
+        """Переписки не было в прошлых кругах (граница — засев канала): входящее новее засева — новое."""
+        sources.WA_LAST["*whatsapp"] = self.T0
+        sources.run = fake_run({"new": [self.read_chat(("m1", self.T0 + 60, "Buenas, el lunes pueden pasar?"))]})
+        self.assertEqual(len(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0]), 1)
+        sources.run = fake_run({"new": [self.read_chat(("m0", self.T0 - 60, "Buenas, el lunes pueden pasar?"))]})
+        sources.WA_LAST.clear(); sources.WA_LAST["*whatsapp"] = self.T0
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])   # до засева — старое
+
+    def test_read_and_answered_on_the_phone_is_not_raised(self):
+        """Прочитал и ответил с телефона — ждать нечего."""
+        sources.WA_LAST["*whatsapp"] = self.T0
+        sources.run = fake_run({"new": [self.read_chat(("m1", self.T0 + 60, "Pueden pasar el lunes?"),
+                                                       out=self.T0 + 120)]})
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0], [])
+
+    def test_text_not_read_yet_does_not_move_the_boundary(self):
+        """Текста нет и чат не дочитан — пункт не вышел, граница стоит: следующий круг его не потеряет."""
+        sources.WA_LAST["*whatsapp"] = self.T0
+        chat = self.read_chat(("m1", self.T0 + 60, ""), ("m2", self.T0 + 120, ""))
+        for m in chat["messages"]:
+            m["cached"] = False
+        sources.run = fake_run({"new": [chat]})
+        self.assertEqual(sources.whatsapp({"channels": ["whatsapp"], "read": False}, NOW)[0], [])
+        self.assertNotIn("wa:whatsapp:5491100000009@c.us", sources.WA_LAST)
+        for m, x in zip(chat["messages"], ("Hola!", "Pueden pasar el lunes?")):
+            m.update(text=x, cached=True)
+        self.assertEqual(len(sources.whatsapp({"channels": ["whatsapp"]}, NOW)[0]), 1)
 
     def test_only_unread_personal_chats_with_substance(self):
         sources.run = fake_run({"new": [
@@ -764,6 +841,25 @@ class BetweenSources(unittest.TestCase):
         finally:
             main.OWN = old
         self.assertEqual(order, ["drain", "whatsapp", "drain", "telegram"])
+
+    def test_whatsapp_boundary_lives_in_the_plugin_state(self):
+        """Граница учтённых входящих WhatsApp — в состоянии плагина: после рестарта прочитанное не выходит заново."""
+        import json as J, main
+        d = tempfile.mkdtemp()
+        old, orig, last = main.OWN, dict(main.sources.SOURCES), getattr(main.sources, "WA_LAST", {})
+        main.OWN = d
+        try:
+            with open(os.path.join(d, "sources.json"), "w") as f:
+                J.dump({"whatsapp": {}}, f)
+            def wa(c, now):
+                main.sources.WA_LAST["wa:whatsapp:x"] = 123.0
+                return [], set(), []
+            main.sources.SOURCES = {"whatsapp": {"every": 0, "fn": wa}}
+            st = {"wa_last": {"*whatsapp": 100.0}}
+            main.run_sources(st, __import__("datetime").datetime.now(), put=lambda p: None)
+        finally:
+            main.OWN, main.sources.SOURCES, main.sources.WA_LAST = old, orig, last
+        self.assertEqual(st["wa_last"], {"*whatsapp": 100.0, "wa:whatsapp:x": 123.0})
 
 
 class WaMedia(unittest.TestCase):

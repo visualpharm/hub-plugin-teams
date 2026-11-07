@@ -26,6 +26,10 @@ OPEN = {}      # открытые пункты сборщика (ключ -> [bo
 OUT = {}       # переписка (box) -> время последнего исходящего владельца (unix, out_last_t): сборщик по нему
                # дочитывает открытую владельцем переписку (main.thread_refresh)
 GONE = set()   # ключи открытых пунктов, все ждущие сообщения которых собеседник удалил: сборщик их закрывает
+SEEN = set()   # ключи пунктов, уже выданных (seen состояния): по ним первый круг канала ставит границу wa_bound
+WA_LAST = {}   # переписка WhatsApp/Telegram (box) -> время (unix) последнего входящего, которое сборщик уже учёл;
+               # "*<канал>" — когда канал впервые прошёл круг с этой памятью. Хранимый словарь состояния кладёт run_sources
+WA_LAST_KEEP = 48 * 3600
 
 
 def source(name, every=120):
@@ -171,6 +175,27 @@ def waiting(r):
     if after:
         msgs = [m for m in msgs if (m.get("t") or after + 1) > after]
     return msgs[-n:] if n else []
+
+
+def wa_bound(ch, box, r, now):
+    """Время, до которого входящие переписки уже учтены (07.11: сообщение прочитано на телефоне раньше круга сборщика —
+    счётчик непрочитанных 0, и в Inbox оно не пришло). Входящее позже границы ждёт владельца, даже прочитанное.
+    Первый круг канала с этой памятью: граница — последнее сообщение строки, по которому уже выдан пункт (seen/open),
+    иначе последнее входящее — старое не выпускаем. Дальше переписка без записи новая с момента первого круга канала."""
+    if box in WA_LAST:
+        return WA_LAST[box]
+    if "*" + ch in WA_LAST:
+        return WA_LAST["*" + ch]
+    msgs = r.get("messages") or []
+    done = [m.get("t") or 0 for m in msgs if f"{box}:{m.get('id')}" in SEEN or f"{box}:{m.get('id')}" in OPEN]
+    return max(done) if done else max([m.get("t") or 0 for m in msgs if not m.get("out")] or [now])
+
+
+def wa_fresh(r, bound):
+    """Сколько входящих (без служебных) пришло позже границы и после последнего ответа владельца."""
+    after = max(bound, r.get("out_last_t") or 0)
+    return len([m for m in r.get("messages") or [] if m.get("type") not in SERVICE_TYPES and not m.get("out")
+                and (m.get("t") or 0) > after])
 
 
 def work_group(cfg, cid, name, group):
@@ -332,10 +357,16 @@ def whatsapp(cfg, now):
         for r in rows:
             cid, text = r.get("chat_id") or "", clean_preview(r.get("preview") or "")
             n = r.get("unread") or 0
+            box = f"wa:{ch}:{cid}"
+            seed = max([m.get("t") or 0 for m in r.get("messages") or [] if not m.get("out")] or [0])
+            def counted(b=box, t=seed):   # входящие строки учтены (пункт вышел или не нужен) — второй раз не считаем
+                if t:
+                    WA_LAST[b] = max(WA_LAST.get(b, 0), t)
+            if cid:   # 07.11: прочитанное на телефоне до круга сборщика — тоже новое (счётчик непрочитанных уже 0)
+                n = max(n, wa_fresh(r, wa_bound(ch, box, r, now.timestamp())))
             gone = revoked(r)
             if gone:   # удалённое снимает счётчик непрочитанных; что из ждущего осталось — по его последнему ответу
                 n = max(n, team_wait(r))
-            box = f"wa:{ch}:{cid}"
             if cid and r.get("out_last_t"):
                 OUT[box] = max(OUT.get(box, 0), r["out_last_t"])
             dead = [f"{box}:{x}" for x, _t in gone]   # пункт удалённого: ничего не осталось — закрыть
@@ -348,6 +379,8 @@ def whatsapp(cfg, now):
                 n = max(n, team_wait(r))
             if not cid or not n:
                 GONE.update(k for k in dead if k in OPEN)
+                if cid:
+                    counted()
                 continue   # всё прочитано или отвечено — внимания не требует
             wait = waiting({**r, "unread": n})
             def blind(ms):   # текстовые без текста; у последнего хватает строки из списка чатов
@@ -370,6 +403,7 @@ def whatsapp(cfg, now):
                 continue
             if r.get("messages") and not wait:
                 GONE.update(k for k in dead if k in OPEN)
+                counted()
                 continue   # после его ответа нового нет (или только служебное) — отвеченное не поднимаем
             latest = max(r.get("messages") or [{}], key=lambda m: m.get("t") or 0)
             if gone and latest.get("type") == "revoked":
@@ -393,6 +427,7 @@ def whatsapp(cfg, now):
             t = tier(text)
             if t == "C" or (group and t != "A" and not whole):
                 GONE.update(k for k in dead if k in OPEN)
+                counted()
                 continue
             last = datetime.fromisoformat(r["last"]) if r.get("last") else now
             digits = re.sub(r"\D", "", cid.split("@")[0])
@@ -429,6 +464,7 @@ def whatsapp(cfg, now):
                    **({"react": expand(cfg["react"]), "msg": (r.get("messages") or [{}])[-1].get("id")}
                       if cfg.get("react") and (r.get("messages") or [{}])[-1].get("id") else {})}
             context = wa_context(ref, wait, f"{box}:{mark}")
+            counted()
             items.append({"key": f"{box}:{mark}", "box": box, "src": "whatsapp", "tier": t, "unread": n,
                           **({"media": media} if media else {}), **({"context": context} if context else {}),
                           **({"links": links} if links else {}),
@@ -437,6 +473,9 @@ def whatsapp(cfg, now):
                           "link": f"https://wa.me/{digits}" if digits and not group and len(digits) <= 15 else "",
                           "mention": False, **({"team": True} if team else {}), **({"revoked": True} if gone else {}),
                           "ref": ref})
+        WA_LAST.setdefault("*" + ch, now.timestamp())   # канал прошёл круг: дальше переписка без записи — новая
+    for b in [b for b, t in WA_LAST.items() if not b.startswith("*") and t < now.timestamp() - WA_LAST_KEEP]:
+        del WA_LAST[b]   # старше окна `wa new` (сутки) с запасом: граница уже ничего не отсекает
     if errors and not ok:
         raise OSError("; ".join(errors))
     return items, boxes, errors
