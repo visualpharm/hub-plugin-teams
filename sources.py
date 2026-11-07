@@ -30,6 +30,7 @@ SEEN = set()   # ключи пунктов, уже выданных (seen сос
 WA_LAST = {}   # переписка WhatsApp/Telegram (box) -> время (unix) последнего входящего, которое сборщик уже учёл;
                # "*<канал>" — когда канал впервые прошёл круг с этой памятью. Хранимый словарь состояния кладёт run_sources
 WA_LAST_KEEP = 48 * 3600
+TG_READ_HOURS = 48   # `tgnew new --read-hours`: прочитанные чаты с входящим последним, не старше — на проверку границей
 
 
 def source(name, every=120):
@@ -971,13 +972,27 @@ def telegram(cfg, now):
     all_groups все, кроме skip_groups, — целиком); заглушённые,
     каналы-рассылки и боты командой не отдаются. Ответ — `send tg` (ночной запрет и выходные действуют там)."""
     cmd = expand(cfg.get("cmd") or "tgnew")
+    base = [cmd, "new", "--hours", "24", "--json"]
     try:
-        rows = json.loads(run([cmd, "new", "--hours", "24", "--json"]) or "[]")
+        try:   # 07.11: и прочитанные на телефоне чаты с входящим последним — граница по времени решит, новое ли
+            raw = run(base + ["--read-hours", str(TG_READ_HOURS)])
+        except OSError as e:
+            if "unrecognized arguments" not in str(e):
+                raise
+            raw = run(base)   # старая команда флага не знает — только непрочитанные, как раньше
+        rows = json.loads(raw or "[]")
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
         raise OSError(f"Telegram: {e}")
     items, boxes = [], set()
     for r in rows:
         cid, n = r.get("chat_id") or "", r.get("unread") or 0
+        box = f"tg:{cid}"
+        seed = max([m.get("t") or 0 for m in r.get("messages") or [] if not m.get("out")] or [0])
+        def counted(b=box, t=seed):   # входящие строки учтены (пункт вышел или не нужен) — второй раз не считаем
+            if t and cid:
+                WA_LAST[b] = max(WA_LAST.get(b, 0), t)
+        if cid:   # 07.11: прочитанное на телефоне до круга сборщика — тоже новое (как у WhatsApp)
+            n = max(n, wa_fresh(r, wa_bound("telegram", box, r, now.timestamp())))
         if cid and r.get("out_last_t"):
             OUT[f"tg:{cid}"] = max(OUT.get(f"tg:{cid}", 0), r["out_last_t"])
         team = work_group(cfg, cid, r.get("name"), r.get("group"))
@@ -985,9 +1000,11 @@ def telegram(cfg, now):
         if whole:
             n = max(n, team_wait(r))
         if not cid or not n:
+            counted()
             continue
         wait = waiting({**r, "unread": n})
         if r.get("messages") and not wait:
+            counted()
             continue
         text = unread_digest(wait, len(wait), preview=r.get("preview") or "",
                              **({"authors": True} if whole else {}))
@@ -1003,9 +1020,9 @@ def telegram(cfg, now):
                 text = f"{last['from']}: {text}" if " · " not in text else text
         t = tier(text)
         if t == "C" or (group and t != "A" and not whole):
+            counted()
             continue
         at = datetime.fromisoformat(r["last"]) if r.get("last") else now
-        box = f"tg:{cid}"
         boxes.add(box)
         mark = (wait[-1].get("id") if wait else "") or r.get("last")
         user = r.get("username") or ""
@@ -1023,6 +1040,10 @@ def telegram(cfg, now):
                       "link": f"https://t.me/{user}" if user else (f"tg://user?id={cid}" if not group else ""),
                       "ref": {"tg": cid, "cmd": cmd, "send": expand(cfg.get("send") or "send"),
                               **contact_of(r.get("name"), text, group, wait)}})
+        counted()
+    WA_LAST.setdefault("*telegram", now.timestamp())   # канал прошёл круг: дальше переписка без записи — новая
+    for b in [b for b, t in WA_LAST.items() if not b.startswith("*") and t < now.timestamp() - WA_LAST_KEEP]:
+        del WA_LAST[b]
     tg_gone(cmd, boxes)
     return items, boxes, []
 

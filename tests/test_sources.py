@@ -486,9 +486,80 @@ class WaVoice(unittest.TestCase):
 class Telegram(unittest.TestCase):
     def setUp(self):
         self._run = sources.run
+        self._last, self._seen = getattr(sources, "WA_LAST", None), getattr(sources, "SEEN", None)
+        sources.WA_LAST, sources.SEEN = {}, set()
 
     def tearDown(self):
         sources.run = self._run
+        for k, v in (("WA_LAST", self._last), ("SEEN", self._seen)):
+            if v is None: delattr(sources, k)
+            else: setattr(sources, k, v)
+
+    T0 = NOW.timestamp() - 3 * 3600   # граница: канал прошёл круг три часа назад
+    CFG = {"cmd": "tg-cli", "send": "send-cli"}   # в живых настройках команды заданы явно
+
+    def read_chat(self, *msgs, out=0, unread=0):
+        """Личный чат, прочитанный на телефоне: счётчик 0, входящие в выдаче есть."""
+        return {"chat_id": "3123400", "name": "Клиентка", "unread": unread, "group": False,
+                "last": "2026-10-10T11:40-03:00", "preview": msgs[-1][2] if msgs else "", "out_last_t": out,
+                "messages": [{"id": i, "t": t, "type": "chat", "text": x, "out": False} for i, t, x in msgs]}
+
+    def tg(self, *chats):
+        calls = []
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if cmd[1] == "new":
+                return json.dumps(list(chats))
+            raise OSError("не та команда")
+        sources.run = run
+        return calls
+
+    def test_message_read_on_the_phone_after_the_bound_still_comes(self):
+        """07.11: входящее, которое владелец прочитал в Telegram на телефоне раньше круга, — счётчик 0,
+        и сборщик его пропускал. Новое — что пришло после границы, а не только непрочитанное."""
+        sources.WA_LAST["*telegram"] = self.T0
+        calls = self.tg(self.read_chat(("10", self.T0 + 600, "Hola, mañana pueden venir a revisar el equipo?"),
+                                       out=self.T0 - 100))
+        items, boxes, _ = sources.telegram(self.CFG, NOW)
+        self.assertEqual([i["from"] for i in items], ["Клиентка"])
+        self.assertEqual(boxes, {"tg:3123400"})
+        self.assertIn("--read-hours", calls[0])          # и прочитанные чаты просим у команды
+        self.assertEqual(calls[0][0], "tg-cli")
+        self.assertEqual(sources.WA_LAST["tg:3123400"], self.T0 + 600)   # учтённое запомнено
+
+    def test_counted_message_does_not_come_twice(self):
+        sources.WA_LAST["*telegram"] = self.T0
+        chat = self.read_chat(("10", self.T0 + 600, "Hola, mañana pueden venir a revisar el equipo?"))
+        self.tg(chat)
+        self.assertEqual(len(sources.telegram(self.CFG, NOW)[0]), 1)
+        self.tg(chat)
+        self.assertEqual(sources.telegram(self.CFG, NOW)[0], [])
+
+    def test_first_round_without_memory_does_not_raise_old_reads(self):
+        self.tg(self.read_chat(("10", self.T0 + 600, "Hola, mañana pueden venir a revisar el equipo?")))
+        self.assertEqual(sources.telegram(self.CFG, NOW)[0], [])
+        self.assertEqual(sources.WA_LAST.get("*telegram"), NOW.timestamp())   # канал засеян
+
+    def test_reply_from_the_phone_closes_it(self):
+        sources.WA_LAST["*telegram"] = self.T0
+        self.tg(self.read_chat(("10", self.T0 + 600, "Hola, mañana pueden venir a revisar el equipo?"),
+                               out=self.T0 + 900))
+        self.assertEqual(sources.telegram(self.CFG, NOW)[0], [])
+
+    def test_old_command_without_the_flag_still_works(self):
+        sources.WA_LAST["*telegram"] = self.T0
+        chat = self.read_chat(("10", self.T0 + 600, "Pueden venir mañana?"), unread=1)
+        calls = []
+        def run(cmd, timeout=90):
+            calls.append(cmd)
+            if "--read-hours" in cmd:
+                raise OSError("tg-cli: error: unrecognized arguments: --read-hours 48")
+            return json.dumps([chat]) if cmd[1] == "new" else ""
+        sources.run = run
+        items, _, _ = sources.telegram(self.CFG, NOW)
+        self.assertEqual([i["from"] for i in items], ["Клиентка"])
+        self.assertEqual(len([c for c in calls if c[1] == "new"]), 2)
+
 
     def test_personal_chat_card_groups_quiet_and_reply_goes_through_send(self):
         sources.run = fake_run({"new": [
