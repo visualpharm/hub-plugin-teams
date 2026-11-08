@@ -483,7 +483,14 @@ export function mergeVerdict(prev, d) {
   const why=typeof d?.why==="string"?d.why.trim():"", next=typeof d?.next_action==="string"?d.next_action.trim():"";
   return why||next ? {why: why||prev?.why||"", next: next||prev?.next||""} : prev;
 }
-export function verdictLine(v) { return v ? whyLine([v.why, v.next].filter(Boolean).join("\n")) : ""; }
+// Заметка черновика хаба (плашка «Почему здесь») уже повторяет «почему» разбора — его не дублируем, остаётся «что дальше»
+// (как InboxWhy.shown в iPhone/Mac: резюме в переписке один раз)
+export function verdictLine(v, note = "") {
+  if (!v) return "";
+  const flat = (s) => String(s || "").toLowerCase().split(/\s+/).filter(Boolean).join(" ").replace(/^[.;:, ]+|[.;:, ]+$/g, "");
+  const repeated = !!v.why && !!flat(note) && flat(note).includes(flat(v.why));
+  return whyLine([repeated ? "" : v.why, v.next].filter(Boolean).join("\n"));
+}
 async function syncRanks() {
   if(rankLoading || Date.now()<rankRetryAt)return;
   rankLoading=true;
@@ -2645,7 +2652,10 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     }
   }
   // разбор proactivity — одной строкой вплотную над самой старой показанной репликой (у последнего сообщения, у которого он есть)
-  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post))).find(Boolean);
+  // заметка разбора хаба (ниже — плашкой первым блоком) нужна раньше: разбор не повторяет её
+  const noted = [...ms].reverse().find((m) => latestDraft(m));
+  const noteWhy = noted && canReply(noted) && !draftStale(noted) ? hubOffer(noted).why : "";
+  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post), noteWhy)).find(Boolean);
   if (analysed) history.append(valueElement(el, "div", "tm-verdict", analysed));
   if (h?.revealed && h.items) {
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
@@ -2685,8 +2695,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   const composeFor = ms.find((m) => composing.has(m.id));
   // заметка разбора хаба — плашкой первым блоком переписки, прокручивается с ней и видна при открытом поле (как натив
   // InboxNoteLine); пока хаб переделывает черновик, заметка прежнего не показывается
-  const noted = [...ms].reverse().find((m) => latestDraft(m));
-  const noteLine = noted && canReply(noted) && !draftStale(noted) && whyLine(hubOffer(noted).why);
+  const noteLine = noteWhy && whyLine(noteWhy);
   if (noteLine) history.querySelector(":scope > .tm-conversation-source").after(whyNote(noted, noteLine));
 
   const acts = el("div", "tm-acts");
