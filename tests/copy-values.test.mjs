@@ -142,8 +142,9 @@ await assert.rejects(copyText("c3", { navigator: {}, document: {} }));
 assert.match(src, /import \{ decorateValues, valueElement \} from "\.\/copy-values\.js";/);
 assert.match(src, /decorateValues\(el, replyText\(el,p\.text,"tm-proposed-text","p"\)\), valueElement\(el, "p", null, p\.context\), valueElement\(el, "p", null, p\.next_action\)/);
 assert.match(src, /valueElement\(el, "div", "tm-draft-why tm-note-body"/);
-assert.match(src, /valueElement\(el, "div", "tm-verdict", analysed\)/);
-assert.equal((src.match(/decorateValues\(|valueElement\(/g) || []).length, 5, "ровно 5 мест");
+assert.match(src, /valueElement\(el, "div", "tm-verdict-why", analysed\.why\)/);
+assert.match(src, /valueElement\(el, "div", "tm-verdict-next", analysed\.next\)/);
+assert.equal((src.match(/decorateValues\(|valueElement\(/g) || []).length, 6, "ровно 6 мест");
 const css = readFileSync(new URL("../web/teams.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
 for (const [, selector] of css.matchAll(/([^{}]+)\{[^}]*user-select\s*:\s*none[^}]*\}/g))
   assert.equal(selector.trim(), ".tm-copy-at", "плагин выключает выделение только у самого значка");
