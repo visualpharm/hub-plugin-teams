@@ -10,7 +10,7 @@ const cut = (name) => {   // функция целиком по скобкам
   for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) break; }
   return src.slice(a, i + 1).replace("export function", "function");
 };
-const { mergeVerdict, whyLine, verdictLine } = new Function(`${cut("whyLine")}\nconst WHY_LABEL = ${/WHY_LABEL = (\/.*\/i);/.exec(src)[1]};\n${cut("mergeVerdict")}\n${cut("verdictLine")}\nreturn { mergeVerdict, whyLine, verdictLine };`)();
+const { mergeVerdict, whyLine, verdictShown } = new Function(`${cut("whyLine")}\nconst WHY_LABEL = ${/WHY_LABEL = (\/.*\/i);/.exec(src)[1]};\n${cut("mergeVerdict")}\n${cut("verdictShown")}\nreturn { mergeVerdict, whyLine, verdictShown };`)();
 const from = (start, ...posts) => posts.reduce((a, d) => mergeVerdict(a, d), start);
 const run = (...posts) => from(undefined, ...posts);
 const why = (a) => whyLine(a?.why);
@@ -56,7 +56,8 @@ c = mergeVerdict(c, { kind: "item", post: "p4", s: "answered", why: "Synthetic a
 assert.equal(why(c), "Synthetic aunt confirmed by phone, nothing to…", "обрезок с другим началом сменяет прежний");
 assert.equal(why(mergeVerdict(c, { kind: "item", post: "p4", why: "Synthetic aunt confirmed…" })), "Synthetic aunt confirmed by phone, nothing to…", "обрезок короче — начало известного, не заменяет");
 // пост без why прежний не стирает и итог не сбрасывает
-assert.deepEqual(mergeVerdict(c, { kind: "item", post: "p4", s: "done" }), c);
+const d4 = mergeVerdict(c, { kind: "item", post: "p4", s: "done" });
+assert.equal(d4.why, c.why); assert.equal(d4.judged, c.judged); assert.equal(d4.state, "done");
 
 // следующий шаг — из последнего вердикта (как InboxWhy.merge): новый вердикт без него прежний снимает, item и delegated не трогают
 let n = run({ kind: "verdict", item: "p5", do: "draft", why: "Synthetic bank asks about the card.", next_action: "Call back" });
@@ -66,19 +67,27 @@ assert.equal(n.next, "Call back", "item и delegated шаг вердикта н�
 n = mergeVerdict(n, { kind: "verdict", item: "p5", do: "draft" });
 assert.equal(n.next, "", "вердикт без шага снимает прежний"); assert.equal(why(n), "Synthetic bank asks about the card.", "вердикт без why прежний why не стирает");
 
-// показ: обрезок и шаг одной строкой — многоточие остаётся, точку после него не ставим
-assert.equal(verdictLine({ why: "Synthetic aunt invites you to...", next: "Reply yes or no" }), "Synthetic aunt invites you to... Reply yes or no");
-assert.equal(verdictLine({ why: "Synthetic aunt invites you to…", next: "Reply yes or no" }), "Synthetic aunt invites you to… Reply yes or no");
-assert.equal(verdictLine({ why: "Dinner at 7?", next: "Reply" }), "Dinner at 7? Reply");
-assert.equal(verdictLine({ why: "Synthetic bank asks about the card;", next: "call back" }), "Synthetic bank asks about the card. Call back");
+// показ (как InboxWhy.shown): шаг — только у открытого дела, порученного другому, и отдельной второй строкой
+const lead = (who) => `Handled by ${who}`, shown = (...posts) => verdictShown(run(...posts), lead);
+const cutWhy = "Synthetic supplier confirms the order and asks to move the truck...";
+assert.deepEqual(shown({ kind: "verdict", item: "p7", do: "draft", why: cutWhy, next_action: "Approve the window" }),
+  { why: cutWhy, next: "" }, "у обычного письма шаг не показан, обрезок в сути — как есть");
+assert.deepEqual(shown({ kind: "verdict", item: "p7", do: "delegated", why: "Two synthetic voice notes from…", next_action: "Call the client back" }, { kind: "delegated", item: "p7", who: "noe" }),
+  { why: "Two synthetic voice notes from…", next: "noe: Call the client back" }, "у поручённого — «кто: шаг» второй строкой");
+assert.equal(shown({ kind: "verdict", item: "p7", do: "delegated", why: "x", next_action: "noe opens the chat" }, { kind: "delegated", item: "p7", who: "noe" }).next, "noe opens the chat", "шаг с имени — без префикса");
+assert.equal(shown({ kind: "verdict", item: "p7", do: "delegated", why: "x" }, { kind: "delegated", item: "p7", who: "noe" }).next, "Handled by noe", "шага нет — «Ведёт noe»");
+assert.equal(shown({ kind: "item", post: "p7", s: "delegated", who: "noe", why: "x" }, { kind: "verdict", item: "p7", next_action: "Call back" }).next, "noe: Call back", "поручено по состоянию item");
+assert.equal(shown({ kind: "verdict", item: "p7", do: "delegated", why: "x", next_action: "Call back" }, { kind: "delegated", item: "p7", who: "noe" }, { kind: "item", post: "p7", s: "done" }).next, "", "закрытое дело — без второй строки");
+assert.equal(shown({ kind: "verdict", item: "p7", do: "delegated", why: "x", next_action: "Call back" }).next, "", "без who — без второй строки");
 // длинный why (больше обрезка хаба) — целиком, без своего обрезания
 const long = "Synthetic supplier confirms the order, ".repeat(8).trim();
-assert.equal(verdictLine(run({ kind: "verdict", item: "p6", why: long })), long);
-// суть в CSS переносится целиком: у .tm-verdict нет обрезания строкой
+assert.equal(shown({ kind: "verdict", item: "p6", why: long }).why, long);
+// суть в CSS переносится целиком: у .tm-verdict и её строк нет обрезания
 const css = readFileSync(new URL("../web/teams.css", import.meta.url), "utf8");
 const rules = [...css.matchAll(/([^{}]*\.tm-verdict[^{}]*)\{([^}]*)\}/g)].map((m) => m[2]).join(";");
 assert.doesNotMatch(rules, /line-clamp|text-overflow|nowrap|max-height|overflow:\s*hidden/, "суть не обрезается стилем");
-assert.match(src, /history\.append\(valueElement\(el, "div", "tm-verdict", analysed\)\)/, "суть показывается строкой verdictLine целиком");
+assert.match(src, /box\.append\(valueElement\(el, "div", "tm-verdict-why", analysed\.why\)\)/);
+assert.match(src, /box\.append\(valueElement\(el, "div", "tm-verdict-next", analysed\.next\)\)/, "шаг — отдельной строкой");
 
 // смена хаба: разбор — в памяти страницы (Map модуля), не в хранилище браузера: другой хаб — другая страница, разбор с нуля
 assert.match(src, /\nconst verdicts=new Map\(\);\n/);

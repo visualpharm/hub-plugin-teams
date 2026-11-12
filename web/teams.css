@@ -268,7 +268,7 @@
 .tm-forwarded { color: var(--muted-foreground); padding-inline: 6px; }
 .tm-received-reactions { display: flex; gap: 4px; flex-wrap: wrap; }
 .tm-received-reactions > span { padding: 2px 7px; border-radius: 14px; background: var(--muted); }
-.tm-verdict { padding: 0; color: var(--foreground); overflow-wrap: anywhere; }
+.tm-verdict { display: flex; flex-direction: column; gap: 4px; padding: 0; color: var(--foreground); overflow-wrap: anywhere; }
 .tm-earlier { flex: none; align-self: center; min-height: 44px; color: var(--primary); }
 .tm-detail .tm-divider { justify-content: center; }
 .tm-detail .tm-divider::before, .tm-detail .tm-divider::after { display: none; }
