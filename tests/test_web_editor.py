@@ -2782,7 +2782,7 @@ class InboxWebAcceptance(PageInChrome):
         self.open_external_source('whatsapp',token=True)
         self.edit('Guard this exact source')
         q=self.queued('draft_control');self.assertEqual(q['id'],'external-whatsapp');self.assertEqual(q['inbox'],self.token)
-        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach:not([hidden])')"})[-1]['eval'])   # a core without files keeps the clip hidden
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-shared-compose .attach:not([hidden])')"})[-1]['eval'])   # a guarded reply keeps the clip hidden
 
     def test_quick_hub_uploaded_file_survives_reload_and_targets_only_hub(self):
         self.seed_inbox(start_editing=False);self.page({'mclick':'.tm-quick-trigger'})
@@ -4079,7 +4079,9 @@ class InboxWebAcceptance(PageInChrome):
     def acknowledge(self, q):
         self.token = {**self.token, "edit_version": self.token["edit_version"] + 1, "held": True, "holder": q["editor"]}
         self.feed({"kind": "draft_state", "id": "source-a", "rid": q["rid"], "inbox": self.token})
-        got = self.page({"until": "document.querySelector('.tm-shared-compose .tm-editor-feedback')?.hidden===true"})
+        # The fact reaches the page through the feed some hundred ms later; until then the editor control is pending
+        # (Discard stays disabled) and a send waits for it — the feedback line alone is already hidden before that.
+        got = self.page({"until": "document.querySelector('.tm-shared-compose .tm-editor-feedback')?.hidden===true && document.querySelector('.tm-shared-compose .tm-discard')?.disabled===false"})
         self.assertTrue(got[-1]["until"], got)
 
     def edit(self, text):

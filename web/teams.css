@@ -605,6 +605,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   .view-toolbar > .tm-conversation-search { width: 168px; flex: 0 1 168px; min-width: 0; min-height: 44px; margin: 0 4px; }
   .view-toolbar > .tm-conversation-search input { height: 44px; font-size: 16px; }
   .view-toolbar > .tm-conversation-search .btn { width: 36px; height: 36px; min-height: 36px; }
+  /* ⚡ рядом с поиском — тот же круг 44 со значком 22 (kit/icons.md: кнопка панели на телефоне 44×44) */
+  .view-toolbar > .tm-quick-trigger { width: 44px; height: 44px; border-radius: 22px; padding: 11px; background: var(--muted); }
 }
 
 /* Signature below the field, fixed (web-1): the reply body stays editable, the signature is appended on send. */
