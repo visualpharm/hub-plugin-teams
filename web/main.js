@@ -485,11 +485,16 @@ const verdicts=new Map();
 // Итог — why вердикта или новый why позднего поста. Хаб обрезает why постов item и delegated (~200 знаков и «…»; «…»
 // вердикта — его слова): обрезок не заменяет только полный why, началом которого он является, иначе он — слова хаба,
 // новее ранней догадки (как InboxWhy.merge в iPhone/Mac)
-// Следующий шаг — из последнего вердикта: новый вердикт без него прежний снимает; посты item и delegated его не трогают
+// Шаг — из последнего вердикта: новый вердикт без него прежний снимает. Состояние — по последнему item, кто ведёт — по
+// последнему посту с who (как InboxWhy.merge в iPhone/Mac)
 export function mergeVerdict(prev, d) {
-  const why=typeof d?.why==="string"?d.why.trim():"", next=typeof d?.next_action==="string"?d.next_action.trim():"";
-  if(!why && d?.kind!=="verdict")return prev;
-  const a={why: prev?.why||"", next: d.kind==="verdict" ? next : prev?.next||"", judged: !!prev?.judged};
+  if(!["item","verdict","delegated"].includes(d?.kind))return prev;
+  const why=typeof d.why==="string"?d.why.trim():"", next=typeof d.next_action==="string"?d.next_action.trim():"";
+  const s=d.kind==="item" && typeof d.s==="string" ? d.s : "", act=d.kind==="delegated" ? "delegated" : typeof d.do==="string" ? d.do : "";
+  const who=typeof d.who==="string" ? d.who.trim() : "";
+  if(!why && !s && !act && !who && d.kind!=="verdict")return prev;
+  const a={why: prev?.why||"", next: d.kind==="verdict" ? next : prev?.next||"", judged: !!prev?.judged,
+    state: s || prev?.state || "", act: act || prev?.act || "", who: who || prev?.who || ""};
   const early=d.early===true, w=whyLine(why), old=whyLine(a.why);
   const head=d.kind!=="verdict" && /(?:…|\.\.\.)$/.test(w) ? w.replace(/(?:…|\.\.\.)$/, "").trim() : "";
   const stale=!!head && old.length>head.length && old.startsWith(head);
@@ -500,13 +505,18 @@ export function mergeVerdict(prev, d) {
   }
   return a;
 }
-// Заметка черновика хаба (плашка «Почему здесь») уже повторяет «почему» разбора — его не дублируем, остаётся «что дальше»
-// (как InboxWhy.shown в iPhone/Mac: резюме в переписке один раз)
-export function verdictLine(v, note = "") {
-  if (!v) return "";
+// Что показать над перепиской (как InboxWhy.shown): суть — целиком; второй строкой — только у открытого дела, порученного
+// другому: «кто: шаг» (шаг уже с имени — без префикса), шага нет — lead(who) («Ведёт noe»). У остальных шаг не показан.
+// Заметка черновика хаба (плашка «Почему здесь») уже повторяет суть — её не дублируем, вторая строка остаётся
+export function verdictShown(v, lead, note = "") {
+  if(!v)return {why: "", next: ""};
   const flat = (s) => String(s || "").toLowerCase().split(/\s+/).filter(Boolean).join(" ").replace(/^[.;:, ]+|[.;:, ]+$/g, "");
   const repeated = !!v.why && !!flat(note) && flat(note).includes(flat(v.why));
-  return whyLine([repeated ? "" : v.why, v.next].filter(Boolean).join("\n"));
+  const why=repeated ? "" : whyLine(v.why);
+  const closed=["answered","replied","done","old","noise"].includes(v.state) || ["done","noise"].includes(v.act);
+  if(closed || !(v.act==="delegated" || v.state==="delegated") || !v.who)return {why, next: ""};
+  const step=whyLine(v.next);
+  return {why, next: !step ? lead(v.who) : step.toLowerCase().startsWith(v.who.toLowerCase()+" ") ? step : `${v.who}: ${step}`};
 }
 async function syncRanks() {
   if(rankLoading || Date.now()<rankRetryAt)return;
@@ -2223,9 +2233,7 @@ export function splitDraft(reply) {
 const WHY_LABEL = /^\s*(?:Контекст|Следующий шаг|Следующее действие|Почему|Context|Next action|Why|Contexto|Siguiente paso|Por qué)\s*:\s*/i;
 export function whyLine(why) {
   const parts = String(why || "").split("\n").map((l) => l.replace(WHY_LABEL, "").trim()).filter(Boolean);
-  // «…», «...», «?» и «!» в конце фразы — её слова: точку после них не ставим, многоточие не срезаем
-  return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p))
-    .map((p, i) => (i < parts.length - 1 && !/(?:…|\.\.\.|[?!])$/.test(p) ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
+  return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p)).map((p, i) => (i < parts.length - 1 ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
 }
 
 // повтор ✨ позже последнего черновика: черновик устарел, пока хаб не положит новый
@@ -2674,8 +2682,14 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
   // заметка разбора хаба (ниже — плашкой первым блоком) нужна раньше: разбор не повторяет её
   const noted = [...ms].reverse().find((m) => latestDraft(m));
   const noteWhy = noted && canReply(noted) && !draftStale(noted) ? hubOffer(noted).why : "";
-  const analysed = detail && [...ms].reverse().map((m) => verdictLine(verdicts.get(m.post), noteWhy)).find(Boolean);
-  if (analysed) history.append(valueElement(el, "div", "tm-verdict", analysed));
+  // суть — целиком; у дела, порученного другому, — вторая строка «кто: шаг» (kit inbox-why iPhone/Mac)
+  const analysed = detail && [...ms].reverse().map((m) => verdictShown(verdicts.get(m.post), (who) => T(`Ведёт ${who}`, `Handled by ${who}`, `Lo lleva ${who}`), noteWhy)).find((x) => x.why || x.next);
+  if (analysed) {
+    const box = el("div", "tm-verdict");
+    if (analysed.why) box.append(valueElement(el, "div", "tm-verdict-why", analysed.why));
+    if (analysed.next) box.append(valueElement(el, "div", "tm-verdict-next", analysed.next));
+    history.append(box);
+  }
   if (h?.revealed && h.items) {
     const flat=t=>String(t || "").replace(/\s+/g," ").trim();
     const current=ms.map(m=>flat(m.text)).join(" ");

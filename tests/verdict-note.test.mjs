@@ -10,19 +10,20 @@ const cut = (name) => {   // функция целиком по скобкам �
   for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}" && --depth === 0) break; }
   return src.slice(a, i + 1).replace("export function", "function");
 };
-const { verdictLine } = new Function(`${cut("whyLine")}\nconst WHY_LABEL = ${/WHY_LABEL = (\/.*\/i);/.exec(src)[1]};\n${cut("verdictLine")}\nreturn { verdictLine };`)();
+const { verdictShown } = new Function(`${cut("whyLine")}\nconst WHY_LABEL = ${/WHY_LABEL = (\/.*\/i);/.exec(src)[1]};\n${cut("verdictShown")}\nreturn { verdictShown };`)();
 
+const lead = (who) => `Ведёт ${who}`, verdictLine = (v, note) => Object.values(verdictShown(v, lead, note)).filter(Boolean).join(" | ");
 const v = { why: "Отель требует оплатить бронь за 48 часов, иначе снимет её", next: "" };
 // заметка черновика повторяет «почему» разбора — над письмом его нет (одно резюме — плашка)
 assert.equal(verdictLine(v, "Отель требует  оплатить бронь за 48 часов, иначе снимет её.\nОтвет — подтверждение оплаты"), "");
 // своё «что дальше» у порученного дела остаётся
-assert.equal(verdictLine({ ...v, next: "Олег: оплатить до пятницы" }, v.why), "Олег: оплатить до пятницы");
+assert.equal(verdictLine({ ...v, next: "оплатить до пятницы", act: "delegated", who: "Олег" }, v.why), "Олег: оплатить до пятницы");
 // заметка о другом — разбор на месте; без заметки — как прежде
 assert.equal(verdictLine(v, "Черновик: вежливый отказ"), v.why);
 assert.equal(verdictLine(v), v.why);
 assert.equal(verdictLine(undefined, "x"), "");
 // в переписке разбор получает ту же заметку, что рисует плашку
 const thread = src.slice(src.indexOf("function thread("));
-assert.match(thread, /verdictLine\(verdicts\.get\(m\.post\), noteWhy\)/);
+assert.match(thread, /verdictShown\(verdicts\.get\(m\.post\), [^\n]*, noteWhy\)\)/);
 assert.match(thread, /const noteLine = noteWhy && whyLine\(noteWhy\)/);
 console.log("ok verdict-note");
