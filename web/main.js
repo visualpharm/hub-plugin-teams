@@ -485,10 +485,11 @@ const verdicts=new Map();
 // Итог — why вердикта или новый why позднего поста. Хаб обрезает why постов item и delegated (~200 знаков и «…»; «…»
 // вердикта — его слова): обрезок не заменяет только полный why, началом которого он является, иначе он — слова хаба,
 // новее ранней догадки (как InboxWhy.merge в iPhone/Mac)
+// Следующий шаг — из последнего вердикта: новый вердикт без него прежний снимает; посты item и delegated его не трогают
 export function mergeVerdict(prev, d) {
   const why=typeof d?.why==="string"?d.why.trim():"", next=typeof d?.next_action==="string"?d.next_action.trim():"";
-  if(!why && !next)return prev;
-  const a={why: prev?.why||"", next: next||prev?.next||"", judged: !!prev?.judged};
+  if(!why && d?.kind!=="verdict")return prev;
+  const a={why: prev?.why||"", next: d.kind==="verdict" ? next : prev?.next||"", judged: !!prev?.judged};
   const early=d.early===true, w=whyLine(why), old=whyLine(a.why);
   const head=d.kind!=="verdict" && /(?:…|\.\.\.)$/.test(w) ? w.replace(/(?:…|\.\.\.)$/, "").trim() : "";
   const stale=!!head && old.length>head.length && old.startsWith(head);
@@ -2222,7 +2223,9 @@ export function splitDraft(reply) {
 const WHY_LABEL = /^\s*(?:Контекст|Следующий шаг|Следующее действие|Почему|Context|Next action|Why|Contexto|Siguiente paso|Por qué)\s*:\s*/i;
 export function whyLine(why) {
   const parts = String(why || "").split("\n").map((l) => l.replace(WHY_LABEL, "").trim()).filter(Boolean);
-  return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p)).map((p, i) => (i < parts.length - 1 ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
+  // «…», «...», «?» и «!» в конце фразы — её слова: точку после них не ставим, многоточие не срезаем
+  return parts.map((p, i) => (i ? p[0].toUpperCase() + p.slice(1) : p))
+    .map((p, i) => (i < parts.length - 1 && !/(?:…|\.\.\.|[?!])$/.test(p) ? p.replace(/[.;:,]+$/, "") + "." : p)).join(" ");
 }
 
 // повтор ✨ позже последнего черновика: черновик устарел, пока хаб не положит новый
