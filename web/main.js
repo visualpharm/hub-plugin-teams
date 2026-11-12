@@ -478,10 +478,25 @@ try { if(localStorage.getItem("hub.inbox.sort")==="time")sortOrder="time"; } cat
 const ranks=new Map();
 let rankSince=0, rankLoading=false, rankError="", rankRetryAt=0;
 // Разбор proactivity по посту сообщения: почему и что дальше (вердикт, пост дела, поручение); поздний пост без поля поле не стирает
+// Разбор — этого хаба (pN есть у каждого хаба): только в памяти страницы, другой хаб — другая страница, разбор с нуля
 const verdicts=new Map();
+// Ранний why (item с early:true, proactivity 1.1.11) — суть из текста письма до итога: виден сразу, итог не заменяет.
+// Итог — why вердикта или новый why позднего поста. Хаб обрезает why постов item и delegated (~200 знаков и «…»; «…»
+// вердикта — его слова): обрезок не заменяет только полный why, началом которого он является, иначе он — слова хаба,
+// новее ранней догадки (как InboxWhy.merge в iPhone/Mac)
 export function mergeVerdict(prev, d) {
   const why=typeof d?.why==="string"?d.why.trim():"", next=typeof d?.next_action==="string"?d.next_action.trim():"";
-  return why||next ? {why: why||prev?.why||"", next: next||prev?.next||""} : prev;
+  if(!why && !next)return prev;
+  const a={why: prev?.why||"", next: next||prev?.next||"", judged: !!prev?.judged};
+  const early=d.early===true, w=whyLine(why), old=whyLine(a.why);
+  const head=d.kind!=="verdict" && /(?:…|\.\.\.)$/.test(w) ? w.replace(/(?:…|\.\.\.)$/, "").trim() : "";
+  const stale=!!head && old.length>head.length && old.startsWith(head);
+  if(w && !stale && !(early && a.judged)) {
+    // повтор показанного постом без early (смена состояния) раннюю суть не закрепляет, вердикт без why — тоже
+    if(!early && (d.kind==="verdict" || w!==old))a.judged=true;
+    a.why=why;
+  }
+  return a;
 }
 // Заметка черновика хаба (плашка «Почему здесь») уже повторяет «почему» разбора — его не дублируем, остаётся «что дальше»
 // (как InboxWhy.shown в iPhone/Mac: резюме в переписке один раз)
