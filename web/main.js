@@ -243,7 +243,8 @@ const EXTERNAL_REPLIES = ['whatsapp','telegram','email'];
 // A collector capability is not a token for every source. Explicit tokens stay
 // guarded; Teams and unknown sources fail closed when CAS is advertised.
 const guardedReply = m => !!m?.inbox || inboxProtocol?.version===1 && !EXTERNAL_REPLIES.includes(m?.src);
-const acceptsFiles = m => !!hub.capabilities?.composerFiles && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
+// Files in a reply: the published core's field transport (1.28) hands them to send(body).attachments; the old fork says composerFiles.
+const acceptsFiles = m => !!(hub.capabilities?.composerTransport === 1 || hub.capabilities?.composerFiles) && historyAvailable && EXTERNAL_REPLIES.includes(m?.src) && !guardedReply(m);
 // The fork's shared field drops the paperclip itself for attachments:false (capability composerFiles). Flagman's hub.input
 // has no such option: the paperclip is always there and pasted or dropped files join the field, to be refused on send.
 // For a text-only destination the plugin hides it and stops files before the field's own listeners (textarea, form).

@@ -5,6 +5,7 @@ import os
 import time
 import sys
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 
 sys.dont_write_bytecode = True
@@ -1110,6 +1111,7 @@ class Later(unittest.TestCase):
         self.assertEqual(durable, [("send_blocked", "Archive selection changed; reload before sending.")] * 2)
         self.assertEqual(len(ran), 3)                                        # r1, s1, c2 — d1 не отправлялся
 
+    @mock.patch.object(main.hours, "CHATS", (0, 1440, True))   # окно WhatsApp/Telegram круглосуточно: ночью 23–08 автоответ ждал бы утра
     def test_automatic_reply_outside_teams_replays_once_and_archive_intent_survives(self):
         # 18.10: автоответ вне Teams на повтор получал send_blocked, а после вытеснения
         # sent_rids уходил второй раз; ждущее намерение архива вытеснялось 500 новыми; старый журнал заливал ленту
@@ -1472,6 +1474,7 @@ class LongIncoming(unittest.TestCase):
         self.assertLessEqual(len(posts[0]), 2000)
         self.assertTrue(json.loads(posts[0])["text"].endswith("…"))
 
+    @mock.patch.object(collect, "TEXT_MAX", 15000)   # предел зависит от ядра (старое: пост до 2000 → 1200); тест — про сохранение начала
     def test_unread_digest_keeps_one_long_message_from_its_start(self):
         import sources
         long = "Начало. " + "x" * 2500 + " конец"
