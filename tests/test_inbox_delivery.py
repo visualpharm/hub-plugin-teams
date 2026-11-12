@@ -536,6 +536,7 @@ class Delivery(unittest.TestCase):
         self.assertEqual((moved[0]['kind'],moved[0].get('target')),('send_blocked',target))
         self.assertEqual(legacy[0]['kind'],'send_blocked')
 
+    @patch.object(main.hours,'CHATS',(0,1440,True))   # окно мессенджеров круглосуточно: тест не зависит от часа (ночью 23–08 автоответ ждёт)
     def test_legacy_client_cannot_enable_auto_send_and_outside_teams_sends_once_plainly(self):
         st=state(); st['cfg']['inbox_guard']=False
         self.assertEqual(self.run_send(st,[self.request(st,'auto',True)],{'id':'x'})[1],[])
