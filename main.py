@@ -531,6 +531,7 @@ def contact_refresh(refs, items, opened):
 AGENT_SIG = re.compile(r"(?:—|-|–)\s*🤖\s*агент\b|\[агент [^\]]+\]|написано агентом|sent via claude code|\(агент хаба\)|агент \w+, (?:от имени|хаб )",
                        re.IGNORECASE)
 AGENT_HELD_MAX = 200   # сколько агентских сообщений ждут решения разбора (потом самые старые забываются)
+HOLD_MAX = 15 * 60     # с: столько входящее ждёт вердикта разбора скрытым (как ASK_TIMEOUT proactivity), потом показываем
 
 
 def is_agent(i, rules):
@@ -539,27 +540,67 @@ def is_agent(i, rules):
     return bool(AGENT_SIG.search(str(i.get("text") or ""))) and colleague(i, rules)
 
 
-def publish_msg(put, st, i, done, rules, extra=None):
+def publish_msg(put, st, i, done, rules, extra=None, first=False, now=None):
+    """Сообщение в канал. Агент коллеги — agent_msg (держим до surface). Пока входящие разбирает плагин (triage), новое
+    неотвеченное — held_msg: клиенты рисуют только msg, владелец видит его, когда разбор решил, что нужен он (surface),
+    или в «Сделано», когда разбор закрыл дело сам (dismiss); не решил за HOLD_MAX — показываем сами (release_stale)."""
     post_ = {**msg_post(i, done, rules), **(extra or {})}
-    if is_agent(i, rules) and i["key"] not in st.get("agent_surfaced", []):
+    key = i["key"]
+    if is_agent(i, rules) and key not in st.get("agent_surfaced", []):
         held = st.setdefault("agent_held", {})
-        held.pop(i["key"], None)
-        held[i["key"]] = post_
+        held.pop(key, None)
+        held[key] = post_
         while len(held) > AGENT_HELD_MAX:
             del held[next(iter(held))]
         post_ = {**post_, "kind": "agent_msg"}
+    elif key in st.get("triage_held", {}) or (first and not done and triage_plugin()):
+        held = st.setdefault("triage_held", {})
+        at = (held.pop(key, None) or {}).get("at") or (now or time.time())
+        held[key] = {"post": post_, "at": at}
+        post_ = {**post_, "kind": "held_msg"}
+        while len(held) > AGENT_HELD_MAX:   # переполнение: самое старое показываем, а не забываем
+            surface(next(iter(held)), st, put)
     put(post_)
 
 
-def surface(key, st, put):
-    """Разбор решил, что агентское сообщение нужно владельцу: публикуем сохранённое как обычный msg."""
-    post_ = (st.get("agent_held") or {}).pop(key, None)
+def surface(key, st, put, answered=False):
+    """Разбор решил, что сообщение нужно владельцу (или никто не решил за HOLD_MAX): публикуем сохранённое как
+    обычный msg; answered — дело закрыто без владельца, пункт ложится в «Сделано»."""
+    held = (st.get("triage_held") or {}).pop(key, None)
+    post_ = held["post"] if held else (st.get("agent_held") or {}).pop(key, None)
     if post_ is None:
         return False
     st.setdefault("agent_surfaced", []).append(key)
     del st["agent_surfaced"][:-AGENT_HELD_MAX]
-    put({**post_, "kind": "msg"})
+    put({**post_, "kind": "msg", **({"answered": True} if answered else {})})
     return True
+
+
+def release_dismissed(key, st, put):
+    """Разбор закрыл придержанное дело сам (поручено, шум, сделано, ответил): владельцу — в «Сделано», не в «Новые».
+    Агентское сообщение коллеги, закрытое разбором, владельцу не показываем вовсе (как раньше)."""
+    return key in (st.get("triage_held") or {}) and surface(key, st, put, answered=True)
+
+
+CLOSING = ("answered", "sent", "reacted")   # посты, которыми сборщик закрывает пункт у клиентов
+
+
+def held_aware(st, put):
+    """put, при котором закрытие придержанного пункта (ответ владельца, реакция, отправка, новое в переписке) сначала
+    показывает его отвеченным: в «Сделано» он есть, а в «Новые» поздно с answered:false не всплывает."""
+    def wrapped(data):
+        if isinstance(data, dict) and data.get("kind") in CLOSING and data.get("id") in (st.get("triage_held") or {}):
+            surface(data["id"], st, put, answered=True)
+        put(data)
+    return wrapped
+
+
+def release_stale(st, now, put):
+    """Страховка: придержанное, по которому разбор молчит HOLD_MAX (или разбор выключили), — показать как есть."""
+    held = st.get("triage_held") or {}
+    off = not triage_plugin()
+    for key in [k for k, h in held.items() if off or now - (h.get("at") or 0) >= HOLD_MAX]:
+        surface(key, st, put)
 
 
 def msg_post(i, done, rules):
@@ -593,6 +634,7 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
     pics = st.setdefault("pics", {})     # key → id вложений последнего поста открытого пункта
     fresh, again, keys = [], [], set()
     muted = st.get("ignored") or {}
+    put = held_aware(st, put)
     for i in sorted((({**i, "from": collect.person(i["from"])} if i.get("from") else i) for i in items),
                     key=lambda i: i["at"]):
         if contact(i) in muted:   # «Не показывать»: ни карточки, ни черновика; помечаем виденным — не вернётся
@@ -619,10 +661,11 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
         keys.add(i["key"])
         fresh.append(i)
     rules = load_colleagues()
+    release_stale(st, now.timestamp(), put)
     for i in again:
         token = inbox_delivery.observe(st,i)
         i["also"] = also(i, items)
-        publish_msg(put, st, i, False, rules, {'inbox': token} if token else None)
+        publish_msg(put, st, i, False, rules, {'inbox': token} if token else None, now=now.timestamp())
         texts[i["key"]] = i.get("text") or ""
         pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
     for i in fresh:
@@ -635,7 +678,7 @@ def tick(st, items, owner_last, now, put=post, reacted=(), gone=()):
                     put({"kind": "answered", "id": k})
                     del opened[k]
         done = (bool(i.get("box")) and owner_last.get(i["box"], "") > i["at"]) or i["key"] in reacted   # уже ответил
-        publish_msg(put, st, i, done, rules, {'inbox': token} if token else None)
+        publish_msg(put, st, i, done, rules, {'inbox': token} if token else None, first=True, now=now.timestamp())
         texts[i["key"]] = i.get("text") or ""
         pics[i["key"]] = sorted(str(x.get("id")) for x in i.get("media") or [])
         st.setdefault("who", {})[i["key"]] = {"contact": contact(i), "from": i.get("from"), "src": i.get("src"),
@@ -1246,7 +1289,7 @@ def send_replies(st, reader, queue, put=post, now=None):
     (hold). Модель всех исходов — hub-ios docs/send-model."""
     done = st.setdefault("sent_rids", [])
     later = st.setdefault("later", {})
-    put = archive_after(st, put)
+    put = held_aware(st, archive_after(st, put))
     if "rid_tombs" not in st:   # состояние до отпечатков: уже отправленные rid — тоже под защитой
         for r in done:
             tomb(st, r)
@@ -1316,6 +1359,7 @@ def send_replies(st, reader, queue, put=post, now=None):
             for r in gone:
                 done.append(r)
                 put({"kind": "canceled", "id": later.pop(r)["id"], "rid": r})
+            released = release_dismissed(q["dismiss"], st, put)
             closed = st.get("open", {}).pop(q["dismiss"], None) is not None
             # упоминание из поиска по имени (collect.channel_mentions) без переписки в «открытые» не попадает — его
             # закрывает только этот пост (26.10: разбор снял тёзку «noise», а пункт висел у владельца двое суток)
@@ -1324,7 +1368,7 @@ def send_replies(st, reader, queue, put=post, now=None):
                 free["dismissed"] = closed = True
             if closed:
                 put({"kind": "answered", "id": q["dismiss"]})
-            if closed or gone:
+            if closed or gone or released:
                 save(st)
             continue
         if q.get("bound"):
