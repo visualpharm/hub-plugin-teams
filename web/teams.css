@@ -520,9 +520,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 /* The selected native folder fills available space; extra web options stay reachable. */
 .tm-icon-inbox { --tm-icon: url("./icons/inbox.svg"); }
 .tm-container:not(.tm-core-native) .tm .tm-folder[aria-pressed="true"] { display: flex; flex: none; align-items: center; justify-content: center; gap: 6px; padding-inline: 14px; font-size: 17px; white-space: nowrap; }
-.tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 20px; height: 20px; }
+.tm-folder[aria-pressed="true"] .tm-native-icon, .tm-folder[aria-pressed="true"] .icon { width: 18px; height: 18px; }
 
-/* Native 32px capsules sit inside the web's 44px touch targets. */
+/* Native 32px capsules sit inside the web's 44px touch targets; the icon frame is 18 on phone and desktop alike
+   (cropped native assets: the visible glyph fills 78–94% of it, kit/icons.md). */
 .tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger), .tm-container:not(.tm-core-native) .tm .tm-bar > details > summary {
   position: relative; isolation: isolate; background: transparent;
 }
@@ -533,7 +534,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 }
 .tm-container:not(.tm-core-native) .tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--primary); }
 .tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
-.tm-container:not(.tm-core-native) .tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 16px; height: 16px; }
+.tm-container:not(.tm-core-native) .tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 18px; height: 18px; }
 
 /* The conversation name owns its menu; source and Hub remain the trailing actions. */
 .tm-detail .tm-title-options { min-width: 0; }

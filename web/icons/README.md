@@ -21,3 +21,5 @@ Edit (compose) is the unchanged native icon-edit asset, the «New message» butt
 Idea is the unchanged native0597a826 icon-idea asset: the field's «Private draft instruction» mode toggle. The «Draft» action keeps the sparkles, so one action has one glyph.
 
 Check is the unchanged native icon-check asset (hub-ios Resources/Assets.xcassets): the copied state of the inline copy icon after values, the same size as the copy glyph it replaces for 1.5 s.
+
+Inbox, sent, archive and sort carry the native cropped viewBox (hub-ios Resources, the same glyphs): the frame is the icon size and the visible glyph fills 78–94% of it, as in kit/icons.md. In the folder bar they sit in an 18px frame on phone and desktop, inside the 32px capsule and the 44px target.

@@ -1916,7 +1916,7 @@ function sharedReply(m, st) {
     st.updateSendHours=()=>{
       st.updateSendAction();
       const at=nextWorkingStart(sendHours,msgs.get(m.id)?.contact);
-      working.hidden=!at;if(at)working.textContent=workingStartLabel(at);
+      working.hidden=!at;if(at)working.textContent=workingStartLabel(at,new Date(),undefined,T("ru","en","es"));
       const current=msgs.get(m.id),row=weekendSettings.get(m),pending=['pending','unknown'].includes(row?.state);
       weekends.hidden=!(hoursForBound && sendHours && current?.contact && current?.target);
       weekendInput.checked=!!sendHours && sendHours.weekends!==sendHours.exceptions.has(current?.contact);
