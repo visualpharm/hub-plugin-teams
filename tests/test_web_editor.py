@@ -2283,7 +2283,9 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('.tm-shared-compose button[type=submit]')?.click();true"},{'sleep':150})
         self.assertEqual(self.non_history_actions(),[])
         self.feed({'kind':'send_failed','id':q['id'],'rid':q['rid'],'error':'Definitive refusal'})
-        got=self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')&&!document.querySelector('.tm-shared-compose button[type=submit]')?.disabled"},{'eval':"document.querySelector('.tm-shared-compose textarea').value"})
+        # the submit stays enabled while the reply is pending (the plugin holds it), so an enabled button does not mean the
+        # refusal has landed: wait for the refusal on the reply itself, or a quick retry is still held as pending
+        got=self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')&&!document.querySelector('.tm-shared-compose button[type=submit]')?.disabled&&!!document.querySelector('.tm-detail')?.innerText.includes('Definitive refusal')"},{'eval':"document.querySelector('.tm-shared-compose textarea').value"})
         self.assertTrue(got[-2]['until'],got)
         self.page({'mclick':'.tm-shared-compose button[type=submit]'},{'sleep':100})
         retry=self.queued('send');self.assertEqual(retry['id'],q['id']);self.assertEqual(retry['text'],got[-1]['eval'].strip())
@@ -3306,7 +3308,10 @@ class InboxWebAcceptance(PageInChrome):
     def test_next_working_start_uses_trusted_config_and_exact_contact(self):
         self.seed_inbox(start_editing=False);self.open_external_source('telegram',target='synthetic-target-a')
         self.edit('Reply at working start')
-        self.page({'eval':"window.__Date=Date;window.__now=__Date.parse('2026-10-16T11:00:00Z');window.Date=class extends __Date{constructor(...a){super(...(a.length?a:[window.__now]))}static now(){return window.__now}};true"})
+        # the Russian label is the subject here: fix the owner language instead of relying on the stand's default (en on the published core)
+        self.force_lang('ru')
+        # the clock ticks from the fixed moment: a frozen Date.now() stalls the sync loop, so a later config post never lands
+        self.page({'eval':"window.__Date=Date;window.__now=__Date.parse('2026-10-16T11:00:00Z');window.__t0=__Date.now();window.Date=class extends __Date{constructor(...a){super(...(a.length?a:[Date.now()]))}static now(){return window.__now+(__Date.now()-window.__t0)}};true"})
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-send-working:not([hidden])')"})[-1]['eval'])
         self.page({'mclick':'.tm-send-options > summary'})
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-send-working')?.getBoundingClientRect().height||0"})[-1]['eval'],0)

@@ -17,4 +17,15 @@ assert.equal(next('2026-10-16T01:00:00Z',{tz:'invalid',utc:330}),'2026-10-16T02:
 for(const bad of [null,{}, {...base,from:'25:00'}, {...base,to:'07:00'}, {...base,tz:'invalid',utc:null}])assert.equal(workingHours(bad),null);
 assert.equal(nextWorkingStart(null,'a',new Date()),null);
 assert.match(workingStartLabel(new Date('2026-10-19T11:00:00Z'),new Date('2026-10-16T12:00:00Z'),'Asia/Tokyo'),/Monday.*20:00/);
+// the label follows the owner's language: Russian weekday in the accusative after в/во, Spanish with el/a las
+const AR='America/Argentina/Buenos_Aires',fri=new Date('2026-10-16T12:00:00Z');
+assert.equal(workingStartLabel(new Date('2026-10-19T11:00:00Z'),fri,AR,'ru'),'Отправить в понедельник в 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-20T11:00:00Z'),fri,AR,'ru'),'Отправить во вторник в 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-21T11:00:00Z'),fri,AR,'ru'),'Отправить в среду в 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-17T11:00:00Z'),fri,AR,'ru'),'Отправить завтра в 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-16T23:00:00Z'),fri,AR,'ru'),'Отправить сегодня в 20:00');
+assert.equal(workingStartLabel(new Date('2026-10-19T11:00:00Z'),fri,AR,'es'),'Enviar el lunes a las 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-17T11:00:00Z'),fri,AR,'es'),'Enviar mañana a las 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-19T11:00:00Z'),fri,AR,'en'),'Send Monday at 08:00');
+assert.equal(workingStartLabel(new Date('2026-10-19T11:00:00Z'),fri,AR),'Send Monday at 08:00');
 console.log('Working start: exact contact, strict future, Hub timezone/DST, offset fallback and device label passed');
