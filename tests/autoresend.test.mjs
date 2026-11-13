@@ -93,3 +93,13 @@ for (const d of [{kind:'send_failed',unresolved:true,error:STALE},{kind:'send_un
   assert.equal(e.retry ?? null,null);
 }
 console.log('Inbox editor: apply without a second gesture, one CAS resend with replaces, real refusals shown passed');
+
+// Files of a reply travel with the send and with its one automatic resend.
+{
+  const e=start();const q=e.send('first','With file',{files:['uploads/a.pdf']});
+  assert.deepEqual(q.files,['uploads/a.pdf']);
+  assert.equal('files' in start().send('plain','No file'),false);
+  const fresh={v:1,version:'source-B',edit_version:3,held:true,holder:'web-tab'};
+  assert.equal(e.receive({kind:'send_blocked',id:'source',rid:'first',error:STALE,inbox:fresh}),true);
+  assert.deepEqual(e.resend('second').files,['uploads/a.pdf']);
+}

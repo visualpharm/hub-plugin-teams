@@ -246,7 +246,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'mclick':'.tm-retry-failed'})
         hold=self.queued('draft_control');self.assertEqual(hold['inbox'],self.token)
         self.assertEqual(self.non_history_actions(),[])
-        self.acknowledge(hold)
+        self.acknowledge(hold,settled=False)
         retry=self.queued('send')
         self.assertEqual(retry['text'],old['text']);self.assertNotEqual(retry['rid'],old['rid']);self.assertEqual(retry['inbox'],self.token)
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Newer guarded draft')
@@ -400,7 +400,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertFalse(self.page({'eval':"Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})[-1]['eval'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],old['text'])
         self.page({'mclick':'.tm-retry-failed'});fresh=self.queued('draft_control')
-        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh)
+        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh,settled=False)
         retry=self.queued('send');self.assertEqual(retry['text'],old['text']);self.assertEqual(retry['inbox'],self.token)
         self.assertNotEqual(retry['rid'],old['rid']);self.assertEqual(self.non_history_actions(),[])
 
@@ -417,7 +417,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],old['text'])
         self.page({'mclick':'.tm-retry-failed'});fresh=self.queued('draft_control')
-        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh)
+        self.assertNotEqual(fresh['rid'],hold['rid']);self.acknowledge(fresh,settled=False)
         retry=self.queued('send');self.assertEqual(retry['text'],old['text']);self.assertEqual(retry['inbox'],self.token)
 
     def test_different_failed_rows_cannot_admit_concurrent_retries(self):
@@ -580,7 +580,7 @@ class InboxWebAcceptance(PageInChrome):
             hold=self.queued('draft_control')
             self.assertEqual(hold['inbox'],self.token)
             self.assertEqual(self.non_history_actions(),[])
-            self.acknowledge(hold)
+            self.acknowledge(hold,settled=index==0)
             if index==0:self.page({'mclick':'.tm-shared-compose button[type=submit]'})
             retry=self.queued('send')
             self.assertEqual(retry['text'],'Corrected guarded reply')
@@ -2793,7 +2793,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-quick .pchip')?.textContent.includes('quick.txt') || false"})[-1]['eval'])
         self.page({'mclick':'.tm-quick button[type=submit]'},{'until':"!document.querySelector('.tm-quick[open]')"})
         sent=[e['data'] for e in self.spooled() if e['type']=='message.received']
-        self.assertEqual(len(sent),1,sent);self.assertEqual(sent[0]['to'],'hub');self.assertEqual(sent[0]['text'],'(вложения)');self.assertEqual(sent[0]['attachments'][0]['name'],'quick.txt')
+        # updated expectation: the published core's server writes "(attachments)" for a message of files only, the old fork "(вложения)"
+        self.assertEqual(len(sent),1,sent);self.assertEqual(sent[0]['to'],'hub');self.assertIn(sent[0]['text'],('(attachments)','(вложения)'));self.assertEqual(sent[0]['attachments'][0]['name'],'quick.txt')
         self.assertFalse(self.page({'eval':"Object.values(localStorage).some(v=>v.includes('quick.txt'))"})[-1]['eval'])
 
     def test_quick_hub_acceptance_does_not_hide_or_delete_newer_draft(self):
@@ -4076,12 +4077,14 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(found, posts)
         return found[-1]
 
-    def acknowledge(self, q):
+    def acknowledge(self, q, settled=True):
         self.token = {**self.token, "edit_version": self.token["edit_version"] + 1, "held": True, "holder": q["editor"]}
         self.feed({"kind": "draft_state", "id": "source-a", "rid": q["rid"], "inbox": self.token})
         # The fact reaches the page through the feed some hundred ms later; until then the editor control is pending
         # (Discard stays disabled) and a send waits for it — the feedback line alone is already hidden before that.
-        got = self.page({"until": "document.querySelector('.tm-shared-compose .tm-editor-feedback')?.hidden===true && document.querySelector('.tm-shared-compose .tm-discard')?.disabled===false"})
+        # A retry (settled=False) waits for the confirmation itself and sends at once, so Discard stays disabled by the delivery.
+        ready = "document.querySelector('.tm-shared-compose .tm-editor-feedback')?.hidden===true"
+        got = self.page({"until": ready + (" && document.querySelector('.tm-shared-compose .tm-discard')?.disabled===false" if settled else "")})
         self.assertTrue(got[-1]["until"], got)
 
     def edit(self, text):

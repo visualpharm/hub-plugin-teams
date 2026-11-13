@@ -258,6 +258,23 @@ const textInput = opts => {
   }
   // ядро flagman начального text в hub.input не берёт — без этого черновик хаба не вставал в поле; кладём его через set (API 1.28)
   if (opts.text && box?.set && box.draft && !box.draft().text) box.set({ text: opts.text });
+  // files the same way: without set the chip may be drawn, but send(body).attachments comes empty and the file is silently dropped
+  if (opts.attachments !== false && opts.files?.length && box?.set && box.draft && !box.draft().files?.length) box.set({ files: opts.files });
+  // Nor onFilesChange: watch the field's chips and report the uploaded files from draft() (API 1.28),
+  // otherwise an attached file is missing from the durable draft and from the send after a reload.
+  if (hub.capabilities?.composerTransport === 1 && !hub.capabilities?.composerFiles && opts.onFilesChange && box?.draft && box?.node) {
+    // only owner changes count (as the fork's onFilesChange): the plugin's own set() — restoring the draft, showing a
+    // pending reply — must not rewrite the saved draft, so the watcher starts from it and from each set()
+    const sig = () => { const d = box.draft(); return JSON.stringify({ files: d.files, uploading: d.uploading }); };
+    let last = sig();
+    const set = box.set.bind(box);
+    box.set = next => { const r = set(next); last = sig(); return r; };
+    new MutationObserver(() => {
+      const now = sig();
+      if (now === last) return;
+      last = now; const d = box.draft(); opts.onFilesChange({ files: d.files, text: d.text, uploading: d.uploading > 0 });
+    }).observe(box.node, { childList: true, subtree: true });
+  }
   if (opts.attachments !== false || hub.capabilities?.composerFiles || !box?.node) return box;
   const node = box.node, attach = node.querySelector(':scope > .attach');
   if (attach) attach.hidden = true;
@@ -1991,7 +2008,7 @@ function sharedReply(m, st) {
           if(!msgs.get(m.id) || pendingReplyKey(msgs.get(m.id))!==pendingReplyKey(m))throw Error("Reopen this editor using the current conversation.");
           if(archiveIds && !archiveSupported)throw Error("Send and Archive is unavailable. Refresh Inbox or choose Send now.");
           if(sendAt && Date.parse(sendAt)<=Date.now())throw Error("Choose a future time before scheduling this reply.");
-          q = st.state ? st.state.send(requestId(), text, {at:sendAt,target:m.target}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(m.target ? {target:m.target} : {}), ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
+          q = st.state ? st.state.send(requestId(), text, {at:sendAt,target:m.target,files:attachments?.map(f=>f.path)}) : boundedRequest({ kind: "send", id: m.id, rid: requestId(), text, ...(m.target ? {target:m.target} : {}), ...(sendAt ? {at:sendAt} : {}), ...(attachments?.length ? {files:attachments.map(f=>f.path)} : {}) });
           if(archiveIds) {
             q={...q,archive:true,archive_ids:archiveIds};
             if(JSON.stringify(q).length>1900)throw Error("This reply and archive selection are too large. Shorten the reply or choose Send now.");

@@ -50,11 +50,12 @@ export class InboxEditor {
     this.control = { rid, token: this.token, action: "hold", revision: true };
     return q;
   }
-  send(rid, text, {at, target} = {}) {
+  // files: uploaded paths of the reply; they travel with the send and with its one automatic resend.
+  send(rid, text, {at, target, files} = {}) {
     this.ready();
     if (!text.trim()) throw Error("Write your reply first.");
-    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}), ...(target ? {target} : {}) });
-    this.delivery = { rid, token: this.token, text, target, at, state: "queued" };
+    const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text, ...(at ? {at} : {}), ...(target ? {target} : {}), ...(files?.length ? {files} : {}) });
+    this.delivery = { rid, token: this.token, text, target, at, files, state: "queued" };
     return q;
   }
   // The one automatic resend after a CAS-only refusal: same text and target, new rid, current token, replaces.
@@ -64,8 +65,8 @@ export class InboxEditor {
     this.retry = null;
     try { this.ready(); } catch (e) { this.retry = r; throw e; }
     const q = boundedRequest({ kind: "send", id: this.id, rid, inbox: this.token, editor: this.editor, text: r.text,
-      replaces: r.replaces, ...(r.target ? {target: r.target} : {}) });
-    this.delivery = { rid, token: this.token, text: r.text, target: r.target, state: "queued", resend: true };
+      replaces: r.replaces, ...(r.target ? {target: r.target} : {}), ...(r.files?.length ? {files: r.files} : {}) });
+    this.delivery = { rid, token: this.token, text: r.text, target: r.target, files: r.files, state: "queued", resend: true };
     return q;
   }
   giveUp(error) {
@@ -108,7 +109,7 @@ export class InboxEditor {
       if (d.kind === "send_blocked" && STALE.test(d.error || "") && was.state === "queued" && !was.resend && !was.at
           && !this.changed && valid(d.inbox) && (!valid(this.token) || d.inbox.edit_version >= this.token.edit_version)) {
         this.token = d.inbox; this.needsHold = !(d.inbox.held && d.inbox.holder === this.editor);
-        this.retry = { replaces: d.rid, text: was.text, target: was.target }; this.error = ""; return true;
+        this.retry = { replaces: d.rid, text: was.text, target: was.target, ...(was.files?.length ? {files: was.files} : {}) }; this.error = ""; return true;
       }
       this.error = d.error || "The reply was not sent."; return true;
     }
