@@ -11,6 +11,7 @@ for (const [file,name] of [['provider-read','providerReadState'],['read-state','
 }
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8'))));   // feedMessage/oldMessage: main.js строит сообщение ленты там
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/list-advance.js','utf8'))));   // правило «открыть следующую» (list-advance.js)
 const storage=new Map();
 const c={console,URL,Map,Set,Date,location:{hash:''},...dependencies,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>{storage.set(key,value);},removeItem:key=>storage.delete(key)}};vm.createContext(c);
 vm.runInContext(source+'\nglobalThis.t={toHub,sendLatest,agentMenu,humanSummary,latestTarget,reviewAgents,handoffs,composing,editorDrafts,done,setHub:h=>hub=h,getError:()=>error};',c);

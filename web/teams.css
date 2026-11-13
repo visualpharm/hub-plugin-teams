@@ -704,3 +704,13 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-container:not(.tm-narrow) .tm-list { padding-inline: 0; }
 .tm-container:not(.tm-narrow) .tm-list > .tm-person { position: relative; grid-template-columns: 28px minmax(0, 1fr); column-gap: 0; padding-inline: 0 14px; border-bottom: 0; }
 .tm-container:not(.tm-narrow) .tm-list > .tm-person::after { content: ""; position: absolute; inset: auto 0 0 28px; height: 1px; background: var(--border); }
+
+/* Standard list actions: the leaving row fades within 180 ms; the "Archived: N · Undo" strip sits over the list bottom
+   (on a narrow screen — above the reply field of the open conversation). Inverted surface: text >= 4.5:1 in both themes. */
+.tm-person.tm-leaving { opacity: 0; transform: translateX(-12px); transition: opacity 150ms ease-out, transform 150ms ease-out; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .tm-person.tm-leaving { transition: none; transform: none; } }
+.tm-undo { position: absolute; z-index: 5; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 48px; padding: 6px 6px 6px 16px; border-radius: 12px; background: var(--foreground); color: var(--background);
+  font-size: var(--text-base, 15px); box-shadow: 0 4px 16px rgb(0 0 0 / 0.18); }
+.tm-undo[hidden] { display: none; }
+.tm-undo .tm-undo-action { min-height: 36px; padding-inline: 14px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font-weight: 600; }

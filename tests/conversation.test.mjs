@@ -8,7 +8,8 @@ const {localReadState}=await import('data:text/javascript,'+encodeURIComponent(r
 const {conversationPins}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-pins.js','utf8')));
 const chainModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8')));
 const openTargetModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
-const ctx={console,URL,Map,Set,localStorage:{getItem:()=>null,setItem:()=>{}},conversationPins,...openTargetModule,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
+const listAdvanceModule=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/list-advance.js','utf8')));   // правило «открыть следующую»
+const ctx={console,URL,Map,Set,localStorage:{getItem:()=>null,setItem:()=>{}},conversationPins,...openTargetModule,...listAdvanceModule,...chainModule,localReadState,providerReadState,...hoursModule,T:(ru,en)=>ru};vm.createContext(ctx);
 vm.runInContext(source+'\nglobalThis.t={byPerson,pinKey,conversationSource,conversationSources,personName,conversationMark,sends,reactionSends,deliveredReactions,replies,saveDraft}; hub={snapshot:()=>({sessions:[]})};',ctx);
 const message=(id,contact,src='dm')=>({id,contact,src,from:'Alex'});
 assert.equal(ctx.t.byPerson([message('a','account-a/chat-a'),message('b','account-a/chat-b')]).size,2,'Same name is not conversation identity');
