@@ -2902,7 +2902,7 @@ function updateConversation(next,back,key) {
 function paintAll() {
   messageTargets.clear();rowTargets.clear();
   ui.sort.hidden=tab!=="new";
-  ui.sort.querySelector('summary').title=`Sort: ${sortOrder==="importance"?"Importance":"Time"}`;
+  ui.sort.querySelector('summary').title=sortOrder==="importance"?T("Сортировка: по важности","Sort: Importance","Orden: importancia"):T("Сортировка: по времени","Sort: Time","Orden: hora");
   for(const b of ui.sort.querySelectorAll('[data-sort]')) b.setAttribute('aria-checked',String(b.dataset.sort===sortOrder));
   if (ui.prompt) {
     ui.prompt.hidden = inboxProtocol?.version !== 1;
@@ -2910,8 +2910,9 @@ function paintAll() {
     ui.promptFeedback.hidden = !promptState.status;
   }
   const pool = (m) => inFolder(m);
-  const folders = [["new","Inbox","Inbox conversations",null],["sent","Sent","Sent conversations","send"],["archive","Archive","Archived conversations","archive"]];
-  if (tab === "failed" || count(m=>inFolder(m,"failed"))) folders.push(["failed","Failed","Failed replies","deny"]);
+  // titles as the native Inbox (Inbox+L10n folder.*); the spoken labels in the same language as the rest of the bar
+  const folders = [["new","Inbox",T("Переписки во Inbox","Inbox conversations","Conversaciones en Inbox"),null],["sent",T("Отправленные","Sent","Enviados"),T("Отправленные переписки","Sent conversations","Conversaciones enviadas"),"send"],["archive",T("Архив","Archive","Archivo"),T("Переписки в архиве","Archived conversations","Conversaciones archivadas"),"archive"]];
+  if (tab === "failed" || count(m=>inFolder(m,"failed"))) folders.push(["failed",T("Не ушло","Failed","Fallidos"),T("Ответы, которые не ушли","Failed replies","Respuestas fallidas"),"deny"]);
   ui.tabs.replaceChildren(...folders.map(([key,title,label,icon]) => {
     const b = button("", "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; openNotice=""; paint(); },label);
     b.dataset.folder=key; b.setAttribute("aria-pressed",String(tab===key)); b.title=title;
@@ -3105,23 +3106,23 @@ function build(root) {
   const bar = el("div", "tm-bar");
   const tabs = el("div","tm-folders"), srcs = el("div", "tm-srcs"), bulk = el("div", "tm-bulk");
   const sort=el("details","tm-sort"), sortSummary=el("summary","btn quiet"), sortChoices=el("div","tm-sort-choices");
-  sortSummary.setAttribute("aria-label","Sort conversations");sortSummary.append(nativeIcon("sort"));
-  sortChoices.setAttribute("role","menu");sortChoices.setAttribute("aria-label","Conversation order");
-  for(const [key,label] of [["importance","Importance"],["time","Time"]]) {
+  sortSummary.setAttribute("aria-label",T("Сортировка переписок","Sort conversations","Ordenar conversaciones"));sortSummary.append(nativeIcon("sort"));
+  sortChoices.setAttribute("role","menu");sortChoices.setAttribute("aria-label",T("Порядок переписок","Conversation order","Orden de conversaciones"));
+  for(const [key,label] of [["importance",T("По важности","Importance","Importancia")],["time",T("По времени","Time","Hora")]]) {
     const b=button(label,"quiet",()=>{sortOrder=key;try{localStorage.setItem("hub.inbox.sort",key)}catch{}sort.open=false;paint();sortSummary.focus();});
     b.dataset.sort=key;b.setAttribute("role","menuitemradio");sortChoices.append(b);
   }
   sort.append(sortSummary,sortChoices);
   sort.addEventListener("keydown",e=>{if(e.key==="Escape"&&sort.open){e.preventDefault();e.stopPropagation();sort.open=false;sortSummary.focus();}});
   const options=el("details","tm-options"), summary=el("summary","btn quiet"), controls=el("div","tm-options-panel");
-  summary.setAttribute("aria-label","Inbox options"); summary.title="Inbox options"; summary.append(hub.icon("settings"));
+  summary.setAttribute("aria-label",T("Параметры Inbox","Inbox options","Opciones de Inbox")); summary.title=summary.getAttribute("aria-label"); summary.append(hub.icon("settings"));
   options.addEventListener("keydown", e => { if(e.key === "Escape" && options.open) { e.preventDefault(); e.stopPropagation(); options.open=false; summary.focus(); } });
   options.append(summary,controls);
   sortSummary.addEventListener("click",()=>{options.open=false;});summary.addEventListener("click",()=>{sort.open=false;});
   for(const menu of [sort,options]) menu.addEventListener("focusout",e=>{if(!menu.contains(e.relatedTarget))menu.open=false;});
-  const pick = button("Выбрать каналы", "", openPicker);
+  const pick = button(T("Выбрать каналы","Choose channels","Elegir canales"), "", openPicker);
   pick.setAttribute("aria-controls", "tm-panel");
-  controls.append(srcs,pick,bulk,button("Разобранные","quiet",()=>{tab="done";dmPerson=null;openNotice="";options.open=false;paint();}));
+  controls.append(srcs,pick,bulk,button(T("Разобранные","Reviewed","Revisados"),"quiet",()=>{tab="done";dmPerson=null;openNotice="";options.open=false;paint();}));
   const newTrigger = button("", "quiet tm-new-trigger", () => newComposer.open(), T("Новое сообщение", "New message"));
   newTrigger.append(nativeIcon("edit"));   // the core sprite of the shared page has no «edit» symbol: an empty capsule
   bar.append(tabs,sort,newTrigger);
@@ -3163,7 +3164,7 @@ function build(root) {
   const clearSearch = button("", "quiet", () => { searchQuery = ""; searchInput.value = ""; searchOpen = true; paint(); searchInput.focus(); });
   clearSearch.append(hub.icon("close")); clearSearch.setAttribute("aria-label", "Clear conversation search");
   search.append(hub.icon("search"), searchInput, clearSearch);
-  listPane.setAttribute("aria-label", "Inbox conversations"); detail.setAttribute("aria-label", "Selected conversation");
+  listPane.setAttribute("aria-label", T("Переписки во Inbox","Inbox conversations","Conversaciones en Inbox")); detail.setAttribute("aria-label", T("Выбранная переписка","Selected conversation","Conversación elegida"));
   // Settings and the conversation search are not filters: one quiet footer row, as the native list has no search field
   const foot = el("div", "tm-list-foot"), searchToggle = button("", "quiet tm-search-toggle", () => {
     searchOpen = !searchOpen; paint();

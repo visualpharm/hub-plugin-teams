@@ -640,7 +640,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({'kind':'send_blocked','id':q['id'],'rid':q['rid'],'error':'Inbox changed; refresh the current item before acting','inbox':self.token})
         hold=self.queued('draft_control')
         self.assertEqual((hold['action'],hold['inbox']),('hold',self.token))
-        self.acknowledge(hold)
+        self.acknowledge(hold,settled=False)
         again=self.queued('send')
         self.assertEqual((again['replaces'],again['inbox'],again['text']),(q['rid'],self.token,'Pressed guarded reply'))
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(again))
@@ -1038,9 +1038,18 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelector('.tm-preview').textContent==='Incoming second'"})[-1]['until'])
         self.assertEqual(self.non_history_actions(),[])
 
+    def test_folder_bar_labels_share_the_owner_language(self):
+        # every name of the folder bar (shown, spoken and tooltip) is in one language; Inbox is the native name in every locale
+        self.seed_inbox(start_editing=False);self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})
+        self.feed({'kind':'send_failed','id':'external-none','rid':'r-none','error':'x'})
+        got=self.page({'eval':"[document.querySelector('.tm-list-pane'),...document.querySelectorAll('.tm-bar :is(.tm-folder,summary,[role=menuitemradio],[role=menu]),.tm-options-panel > button,.tm-detail')]"
+                       ".flatMap(n=>[n.matches('button')?n.textContent.trim():'',n.getAttribute('aria-label')||'',n.getAttribute('title')||'']).filter(Boolean)"})[-1]['eval']
+        self.assertGreaterEqual(len(got),8,got)
+        self.assertEqual([t for t in got if t!='Inbox' and not re.search('[а-яё]',t,re.I)],[],got)
+
     def test_selected_folder_owns_native_label_and_available_toolbar_space(self):
         self.seed_inbox(start_editing=False);self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})
-        for folder,title in (('sent','Sent'),('archive','Archive'),('new','Inbox')):
+        for folder,title in (('sent','Отправленные'),('archive','Архив'),('new','Inbox')):   # native titles (Inbox+L10n folder.*)
             self.page({'mclick':f'[data-folder={folder}]'})
             for width in (320,402,834,1240):
                 self.page({'viewport':{'width':width,'height':874}},{'sleep':100})
@@ -1763,7 +1772,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({**older,'id':'new-arrival','text':'Arrived after send','target':'new-target','at':'2026-10-18T12:00:00Z'})
         receipt={'kind':'archived','id':q['id'],'rid':q['rid'],'target':q['target'],'ids':[m['id'] for m in q['archive_ids']],'members':q['archive_ids']}
         self.feed({**receipt,'target':'wrong'})
-        self.page({'sleep':200},{'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[aria-label='Archived conversations']"})
+        self.page({'sleep':200},{'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[data-folder=archive]"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
         # Real collector order: sent first. Native Sent retains the replied item;
         # Archive contains only the older members without their own answer.
@@ -1777,7 +1786,7 @@ class InboxWebAcceptance(PageInChrome):
         self.feed(receipt)
         self.page({'sleep':200})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0,'Duplicate archive receipt must not undo Restore')
-        self.page({'mclick':"[aria-label='Inbox conversations'] button[data-folder='new']"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
+        self.page({'mclick':"button[data-folder='new']"},{'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
         self.assertIn('Arrived after send',self.page({'eval':"document.body.innerText"})[-1]['eval'])
         drafts=self.page({'eval':"Object.keys(localStorage).filter(k=>k.startsWith('hub.inbox.draft.v1:')).map(k=>JSON.parse(localStorage[k]).text)"})[-1]['eval']
         self.assertIn('Newer draft stays',drafts)
@@ -1810,7 +1819,7 @@ class InboxWebAcceptance(PageInChrome):
         q=self.queued('send')
         receipt={'kind':'archived','id':q['id'],'rid':q['rid'],'target':q['target'],'ids':[q['id']],'members':q['archive_ids'],'version':q['inbox']['version'],'receipt':{'id':'synthetic-receipt'}}
         for wrong in ({'version':'other'},{'receipt':{}},{'rid':'other'},{'members':[{'id':q['id'],'target':'other'}]}):self.feed({**receipt,**wrong})
-        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[aria-label='Archived conversations']"},{'sleep':200})
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[data-folder=archive]"},{'sleep':200})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
         self.feed(receipt)
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===1"})[-1]['until'])
@@ -2272,7 +2281,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"window.fetch=__fetch;document.querySelector('.tm-shared-compose button[type=submit]')?.click();true"},{'sleep':150})
         self.assertEqual(self.non_history_actions(),[])
         self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
-        self.page({'mclick':"[aria-label='Sent conversations']"},
+        self.page({'mclick':"[data-folder=sent]"},
           {'until':"!!document.querySelector('.tm-person')"},{'mclick':'.tm-person'})
         got=self.page({'until':"!!document.querySelector('.tm-mine-ok')"});self.assertTrue(got[-1]['until'],got)
 
@@ -2499,7 +2508,7 @@ class InboxWebAcceptance(PageInChrome):
             rid='synthetic-'+name
             self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'send','id':'external-telegram','rid':rid,'text':'Reply '+name}))
             self.feed({'kind':state,'id':'external-telegram','rid':rid,'at':'2030-01-01T12:00:00Z','error':'Synthetic refusal'})
-        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[aria-label='Sent conversations']"},
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':"[data-folder=sent]"},
           {'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Synthetic telegram'))"},
           {'eval':"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic telegram')).click();true"})
         got=self.page({'until':"document.querySelectorAll('.tm-sent-chat .tm-native-icon').length===3"});self.assertTrue(got[-1]['until'],got)
@@ -2767,7 +2776,7 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertNotIn('inbox',q);self.assertNotIn('editor',q)
                 self.feed({'kind':'sent','id':q['id'],'rid':q['rid']})
                 got=self.page({'until':"!document.querySelector('.tm-detail:not([hidden]) .tm-shared-compose textarea')"},
-                  {'mclick':'[aria-label="Sent conversations"]'},
+                  {'mclick':'[data-folder=sent]'},
                   {'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Synthetic {source}')).click();true"},
                   {'until':"!!document.querySelector('.tm-detail:not([hidden]) .tm-mine-ok')"})
                 self.assertTrue(got[0]['until'],got)
@@ -2890,7 +2899,7 @@ class InboxWebAcceptance(PageInChrome):
     def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'send_failed','id':'source-a','rid':'synthetic-unresolved','unresolved':True,'error':'Delivery needs reconciliation'})
-        self.page({'until':"!!document.querySelector('[aria-label=\"Failed replies\"]')"},{'eval':"document.querySelector('.tm-close-conversation').click();true"})
+        self.page({'until':"!!document.querySelector('[data-folder=failed]')"},{'eval':"document.querySelector('.tm-close-conversation').click();true"})
         for width in (360,390,768,834,1024,1280,1440):
             got=self.page({'viewport':{'width':width,'height':874}},{'sleep':100},
               {'eval':"(()=>{const pane=document.querySelector('.tm-list-pane').getBoundingClientRect();return [...document.querySelectorAll('.tm-bar button,.tm-bar > details > summary')].filter(n=>n.getBoundingClientRect().width).map(n=>{const r=n.getBoundingClientRect();return {label:n.getAttribute('aria-label'),left:r.left,right:r.right,paneLeft:pane.left,paneRight:pane.right,width:r.width,height:r.height,hit:n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}})})()"})[-1]['eval']
@@ -3039,7 +3048,7 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox(start_editing=False)
         self.edit('Single deliberate send')
         self.page({'mclick':'.tm-shared-compose .composer button[type=submit]'})
-        hold=self.queued('draft_control');self.acknowledge(hold)
+        hold=self.queued('draft_control');self.acknowledge(hold,settled=False)
         self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Single deliberate send')"})
         q=self.queued('send');self.assertEqual(q['text'],'Single deliberate send')
         self.assertEqual(q['inbox'],self.token)
@@ -3085,7 +3094,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'mclick':'.tm-person'})
         self.assertFalse([e for e in self.non_history_actions() if e['type']=='ext.post'])
         self.page({'mclick':'.tm-shared-compose .composer button[type=submit]'})
-        self.acknowledge(self.queued('draft_control'))
+        self.acknowledge(self.queued('draft_control'),settled=False)
         self.page({'until':"document.querySelector('.tm-mine-wait')?.textContent.includes('Untouched suggestion')"})
         self.assertEqual(self.queued('send')['text'],'Untouched suggestion')
 
@@ -3389,7 +3398,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'until':"!Object.keys(localStorage).some(k=>k.startsWith('hub.inbox.pending.'))"})
         self.page({'eval':"document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':300})
         if guarded:
-            control=self.queued('draft_control');self.token=receipt['inbox'];self.acknowledge(control);self.page({'sleep':300})
+            control=self.queued('draft_control');self.token=receipt['inbox'];self.acknowledge(control,settled=False);self.page({'sleep':300})
         next_send=self.queued('send');self.assertNotEqual(next_send['rid'],original['rid']);self.assertEqual(next_send['text'],'Newer unsent reply')
 
     def test_send_menu_widths_focus_and_ordinary_send_after_invalid_date(self):
@@ -3662,17 +3671,17 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})
         original={'kind':'msg','id':'external-telegram','contact':'synthetic/telegram','src':'telegram','from':'Archived colleague','text':'Same destination','reply':True,'target':'archive-a','at':'2026-10-18T04:47:00Z'}
         self.feed(original)
-        self.page({'mclick':"[aria-label='Archived conversations']"},{'until':"document.querySelector('.tm-person')?.textContent.includes('Archived colleague')"})
+        self.page({'mclick':"[data-folder=archive]"},{'until':"document.querySelector('.tm-person')?.textContent.includes('Archived colleague')"})
         self.assertIn('Archived colleague',self.page({'eval':"document.querySelector('.tm-person').textContent"})[-1]['eval'])
         self.feed({**original,'from':'Replacement destination','text':'New target must stay visible','target':'archive-b'})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===0"})[-1]['until'])
-        self.page({'mclick':"[aria-label='Inbox conversations'] button[data-folder='new']"})
+        self.page({'mclick':"button[data-folder='new']"})
         names=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>n.textContent)"})[-1]['eval']
         self.assertTrue(any('Replacement destination' in n for n in names),names)
         self.page({'go':'about:blank'},{'until':"location.href==='about:blank'"},{'go':f'http://127.0.0.1:{self.port}/#/x/inbox'},{'until':"document.querySelectorAll('.tm-person').length===2"})
         names=self.page({'eval':"[...document.querySelectorAll('.tm-person')].map(n=>n.textContent)"})[-1]['eval']
         self.assertTrue(any('Replacement destination' in n for n in names),names)
-        self.page({'mclick':"[aria-label='Archived conversations']"})
+        self.page({'mclick':"[data-folder=archive]"})
         self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0)
 
     def test_native_folders_separate_delivery_archive_and_failure_keep_reply(self):
@@ -3688,7 +3697,7 @@ class InboxWebAcceptance(PageInChrome):
         owner({"kind":"send","id":"failed-one","rid":"failed-r","text":"Failed reply"})
         self.feed({"kind":"send_failed","id":"failed-one","rid":"failed-r","error":"Synthetic refusal"})
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"},{"until":"document.querySelectorAll('.tm-person').length===2"})
-        self.assertTrue(self.page({"eval":"!!document.querySelector('[aria-label=\"Sent conversations\"]')"})[-1]["eval"])
+        self.assertTrue(self.page({"eval":"!!document.querySelector('[data-folder=sent]')"})[-1]["eval"])
         for label,names in (("Sent conversations",["Sent colleague","Scheduled colleague"]),("Archived conversations",["Archived colleague","Scheduled colleague"]),("Failed replies",["Failed colleague"])):
             self.page({"mclick":f"[aria-label='{label}']"})
             got=self.page({"eval":"[...document.querySelectorAll('.tm-person .tm-from')].map(n=>n.textContent)"})[-1]["eval"]
@@ -3696,7 +3705,7 @@ class InboxWebAcceptance(PageInChrome):
             marks=self.page({"eval":"Object.fromEntries([...document.querySelectorAll('.tm-person')].map(n=>[n.querySelector('.tm-from').textContent,n.querySelector('.tm-row-status')?.getAttribute('aria-label') ?? null]))"})[-1]['eval']
             expected={"Sent colleague":"Sent","Scheduled colleague":"Scheduled","Failed colleague":"Send failed"}
             self.assertEqual(marks,{name:expected.get(name) for name in names})
-        self.page({"mclick":"[aria-label='Inbox conversations'] button[data-folder='new']"})
+        self.page({"mclick":"button[data-folder='new']"})
         self.page({"eval":"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('Review colleague')).click();true"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep this Inbox reply")
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"},{"viewport":{"width":402,"height":874}})
@@ -3888,13 +3897,13 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind":"reacted","id":"source-a","rid":retry["rid"],"emoji":"❤️"})
         self.page({"wait":"Реакция поставлена"})
         self.feed({"kind":"answered","id":"source-a"})
-        self.page({"mclick":"[aria-label='Sent conversations']"},{"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"})
+        self.page({"mclick":"[data-folder=sent]"},{"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
         got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-reaction-status'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
         self.assertTrue(got["attached"],got)
         self.assertNotIn("Ты ответил",got["notice"])
         self.shot("reaction-confirmed-draft-retained")
-        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('[aria-label=\"Sent conversations\"]')"},{"mclick":"[aria-label='Sent conversations']"},
+        self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('[data-folder=sent]')"},{"mclick":"[data-folder=sent]"},
                   {"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"},{"wait":"Реакция поставлена"})
         self.assertIn("❤️",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
 
@@ -3934,7 +3943,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-1]["eval"])
         self.feed({"kind": "sent", "id": "source-a", "rid": q["rid"], "submitted_inbox": self.token,
                    "inbox": {**self.token, "held": False, "holder": None, "edit_version": 2}, "receipt": {"id": "synthetic-confirmed-receipt"}})
-        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"eval": "document.querySelector('[aria-label=\"Sent conversations\"]').click();true"},
+        got = self.page({"until": "!document.querySelector('.tm-shared-compose textarea')"}, {"eval": "document.querySelector('[data-folder=sent]').click();true"},
                         {"until": "!!document.querySelector('.tm-person')"}, {"eval": "document.querySelector('.tm-person').click();true"},
                         {"until": "!!document.querySelector('.tm-mine-ok')"},
                         {"eval": "document.querySelector('.tm-mine-ok')?.textContent"})
@@ -4091,7 +4100,8 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind": "draft_state", "id": "source-a", "rid": q["rid"], "inbox": self.token})
         # The fact reaches the page through the feed some hundred ms later; until then the editor control is pending
         # (Discard stays disabled) and a send waits for it — the feedback line alone is already hidden before that.
-        # A retry (settled=False) waits for the confirmation itself and sends at once, so Discard stays disabled by the delivery.
+        # A send that the confirmation releases (a first send, a retry, an untouched suggestion: settled=False) goes out at once,
+        # so Discard stays disabled by the delivery; settled=True only where nothing is sent after the confirmation.
         ready = "document.querySelector('.tm-shared-compose .tm-editor-feedback')?.hidden===true"
         got = self.page({"until": ready + (" && document.querySelector('.tm-shared-compose .tm-discard')?.disabled===false" if settled else "")})
         self.assertTrue(got[-1]["until"], got)
@@ -4206,7 +4216,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"!!document.querySelector('[data-folder=failed]')"})[-1]['until'])
         self.page({'eval':"document.querySelector('.tm-close-conversation')?.click();true"})
         for width in (360,402,1240):
-            for folder,label in (('new','Inbox'),('failed','Failed')):
+            for folder,label in (('new','Inbox'),('failed','Не ушло')):
                 got=self.page({'viewport':{'width':width,'height':874}},{'eval':f"document.querySelector('[data-folder={folder}]').click();true"},{'sleep':200},
                     {'eval':"(()=>{const b=document.querySelector('.tm-folder[aria-pressed=true]'),l=b.querySelector('.tm-folder-label'),r=b.getBoundingClientRect(),bar=document.querySelector('.tm-folders').getBoundingClientRect();return {label:l&&l.textContent,labelShown:!!l&&l.checkVisibility(),width:r.width,bar:bar.width,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
                 self.assertEqual(got['label'],label,got);self.assertTrue(got['labelShown'],got)
