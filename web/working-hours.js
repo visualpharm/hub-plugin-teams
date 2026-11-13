@@ -55,13 +55,19 @@ export function nextWorkingStart(rule,contact,now=new Date()) {
   }
   return null;
 }
-export function workingStartLabel(at,now=new Date(),timeZone) {
+// lang — the owner's language (ru, en, es); anything else reads as Russian, like T() of the plugin
+const RU_DAYS=['в воскресенье','в понедельник','во вторник','в среду','в четверг','в пятницу','в субботу'];
+const ES_DAYS=['el domingo','el lunes','el martes','el miércoles','el jueves','el viernes','el sábado'];
+export function workingStartLabel(at,now=new Date(),timeZone,lang='en') {
   const fmt=options=>new Intl.DateTimeFormat('en-GB',{...options,...(timeZone ? {timeZone} : {})});
   const date=fmt({year:'numeric',month:'2-digit',day:'2-digit'});
   const p=d=>Object.fromEntries(date.formatToParts(d).filter(x=>x.type!=='literal').map(x=>[x.type,Number(x.value)]));
   const day=(civil(p(at))-civil(p(now)))/86400000;
-  const name=day===0 ? 'today' : day===1 ? 'tomorrow' : fmt({weekday:'long'}).format(at);
-  return 'Send '+name+' at '+fmt({hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at);
+  const time=fmt({hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at);
+  const weekday=new Date(civil(p(at))).getUTCDay();
+  if(lang==='en')return 'Send '+(day===0 ? 'today' : day===1 ? 'tomorrow' : fmt({weekday:'long'}).format(at))+' at '+time;
+  if(lang==='es')return 'Enviar '+(day===0 ? 'hoy' : day===1 ? 'mañana' : ES_DAYS[weekday])+' a las '+time;
+  return 'Отправить '+(day===0 ? 'сегодня' : day===1 ? 'завтра' : RU_DAYS[weekday])+' в '+time;
 }
 
 // A settings acknowledgement is not a receipt. Keep the original request until
