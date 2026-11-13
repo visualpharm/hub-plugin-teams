@@ -14,6 +14,13 @@ from tests.test_web_e2e import PageInChrome
 FOLDER_ICON = 18
 
 
+CAPSULE_CONTRAST = ("(()=>{const b=document.querySelector('.tm-folder[aria-pressed=true]');"
+    "const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data]};"
+    "let bg=getComputedStyle(b).backgroundColor;if(rgb(bg)[3]===0)bg=getComputedStyle(b,'::before').backgroundColor;"
+    "const lum=c=>{const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"
+    "const a=lum(getComputedStyle(b).color),z=lum(bg);return Math.round((Math.max(a,z)+.05)/(Math.min(a,z)+.05)*100)/100})()")
+
+
 class InboxWebAcceptance(PageInChrome):
     # The page speaks the owner's Russian: the core's tests run in English (tests/__init__ sets HUB_LANG=en).
     def setUp(self):
@@ -944,6 +951,9 @@ class InboxWebAcceptance(PageInChrome):
                 self.page({'mclick':f'[data-folder={folder}]'})
                 got=self.page({'eval':"(()=>{const b=document.querySelector('.tm-folder[aria-pressed=true]');return {text:getComputedStyle(b).color,icon:getComputedStyle(b.querySelector('.tm-native-icon')).backgroundColor}})()"})[-1]['eval']
                 self.assertEqual(got,{'text':'rgb(255, 255, 255)','icon':'rgb(255, 255, 255)'},(theme,folder,got))
+                # white must stay readable on the capsule in both themes (WCAG AA for 17px text: >= 4.5:1)
+                ratio=self.page({'eval':CAPSULE_CONTRAST})[-1]['eval']
+                self.assertGreaterEqual(ratio,4.5,(theme,folder,ratio))
 
     def test_folder_toolbar_keeps_native_capsules_inside_full_touch_targets(self):
         self.seed_inbox(start_editing=False);self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})

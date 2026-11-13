@@ -133,7 +133,9 @@
 .tm-top { position: relative; }
 .tm-folders { display: flex; gap: 0; flex: 1; }
 .tm-folder { min-width: 44px; min-height: 44px; border: 0; border-radius: 22px; padding: 8px; background: transparent; color: var(--foreground); }
-.tm-folder[aria-pressed="true"] { background: var(--primary); color: #fff; }
+/* selected folder: white text/icon as the native Inbox; the capsule is deepened so white keeps >= 4.5:1 (core light primary is 4.37:1, dark primary is light) */
+.tm { --tm-folder-selected: light-dark(color-mix(in srgb, var(--primary) 95%, #000), #3e57d8); }
+.tm-folder[aria-pressed="true"] { background: var(--tm-folder-selected); color: #fff; }
 .tm-folder .icon, .tm-folder .tm-native-icon, .tm-options > summary .icon { width: 28px; height: 28px; }
 /* Folder and «New message» capsules keep the 44px touch target whatever the page's own .btn.small sets (flagman: min-height auto, 27px). */
 .tm-container .tm-bar :is(.tm-folder, .tm-new-trigger) { min-height: 44px; }
@@ -532,7 +534,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
   z-index: -1; pointer-events: none;
 }
-.tm-container:not(.tm-core-native) .tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--primary); }
+.tm-container:not(.tm-core-native) .tm .tm-bar .tm-folder[aria-pressed="true"]::before { background: var(--tm-folder-selected); }
 .tm-container:not(.tm-core-native) .tm .tm-bar :is(.tm-folder, .tm-new-trigger) :is(.icon, .tm-native-icon),
 .tm-container:not(.tm-core-native) .tm .tm-bar > details > summary :is(.icon, .tm-native-icon) { width: 18px; height: 18px; }
 
