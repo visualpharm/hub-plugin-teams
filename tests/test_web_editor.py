@@ -3990,16 +3990,17 @@ class InboxWebAcceptance(PageInChrome):
                       {'eval':"(()=>{const u=document.querySelector('.tm-undo');return {shown:!u.hidden,text:u.textContent}})()"})
         self.assertTrue(got[-2]['until'],got);self.assertTrue(got[-1]['eval']['shown'])
         self.assertEqual(got[-1]['eval']['text'],'В архиве: 1Вернуть')
-        self.assertEqual(self.queued('hide')['ids'],['adv-1'])
+        self.assertEqual(self.queued('hide')['ids'],[json.loads(order[1])[1].split('/')[-1]])
         got=self.page({'mclick':'.tm-undo-action'},{'until':f"({self.OPEN})==={json.dumps(order[1])} && document.querySelectorAll('.tm-person').length===3 && document.querySelector('.tm-undo').hidden"})
         self.assertTrue(got[-1]['until'],'Undo puts the row back and opens it')
-        self.assertEqual(self.queued('unhide')['ids'],['adv-1'])
+        self.assertEqual(self.queued('unhide')['ids'],[json.loads(order[1])[1].split('/')[-1]])
         self.assertEqual(self.page({'eval':self.ORDER})[-1]['eval'],order,'the row is back in its place')
         self.open_row(order[2])
         self.archive_open()
         self.assertTrue(self.page({'until':f"({self.OPEN})==={json.dumps(order[1])}"})[-1]['until'],'the last row yields to the one above')
         # Cmd+Z outside a text field is the strip's Undo; inside the reply field it stays the field's own
-        self.page({'eval':"document.querySelector('.tm-shared-compose textarea')?.dispatchEvent(new KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true}));true"},{'sleep':300})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')"})[-1]['until'],'the next conversation opens with its reply field')
+        self.page({'eval':"document.querySelector('.tm-shared-compose textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true}));true"},{'sleep':300})
         self.assertFalse(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'],'Cmd+Z in the reply field must not undo the archive')
         self.page({'eval':"document.activeElement?.blur();document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true,cancelable:true}));true"})
         self.assertTrue(self.page({'until':f"({self.OPEN})==={json.dumps(order[2])} && document.querySelectorAll('.tm-person').length===3"})[-1]['until'],'Cmd+Z reopens')
@@ -4019,7 +4020,8 @@ class InboxWebAcceptance(PageInChrome):
         order=self.seed_people(3)
         self.open_row(order[1])
         # Archived from another device: the same hide post, but not this page's action
-        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['adv-1']}))
+        gone=json.loads(order[1])[1].split('/')[-1]
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':[gone]}))
         got=self.page({'until':"document.querySelectorAll('.tm-person').length===2"},{'sleep':300},{'eval':self.OPEN})
         self.assertTrue(got[0]['until'],got);self.assertEqual(got[-1]['eval'],'','nothing opens: opening would mark it read')
         self.assertTrue(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'])
@@ -4044,7 +4046,7 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':f"({self.OPEN})==={json.dumps(archived[1])}"},{'eval':"document.querySelector('.tm-undo').hidden"})
         self.assertTrue(got[0]['until'],got);self.assertTrue(got[-1]['eval'],'back to Inbox makes no strip: the row is already there')
 
-    def test_send_and_archive_opens_the_next_on_receipt_and_reaction_keeps_selection(self):
+    def test_send_and_archive_opens_the_next_on_receipt(self):
         self.archive_setup()
         open_key=self.page({'eval':self.OPEN})[-1]['eval']
         self.assertTrue(open_key)
@@ -4058,7 +4060,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[0]['until'],'the next conversation opens on the receipt')
         self.assertTrue(got[-1]['eval'],'Send and Archive makes no strip, as in the native lists')
 
-    def test_undo_strip_contrast_and_leaving_row_respect_reduced_motion(self):
+    def test_undo_strip_contrast_and_leaving_row_css(self):
         order=self.seed_people(2)
         self.open_row(order[0])
         self.archive_open()

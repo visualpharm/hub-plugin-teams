@@ -1066,28 +1066,38 @@ async function hide(ids, on, { own = true } = {}) {
 const advance = listAdvance();
 let shownOrder = null;   // the conversations of the last painted list, in order: the neighbours of a departed one
 let advanceTo = null;    // a conversation the next paint opens (the next one after a departure, or the restored one)
-let undoStrip = null;    // {ids, open, count, timer}
+let undoStrip = null;    // {ids, open, count, timer, done: the hide in flight}
+const leaving = new Set(); // conversations fading out before their hide: a repaint keeps the fade, a second click is void
 const conversationKeys = (ids) => [...new Set(ids.map((id) => msgs.get(id)).filter(Boolean).map(conversationKey))];
 
 async function archive(ids) {
   const keys = conversationKeys(ids), open = dmPerson && keys.includes(dmPerson) ? dmPerson : null;
+  if (!keys.length || keys.some((k) => leaving.has(k))) return false;
   const rows = [...(ui?.root.querySelectorAll(".tm-person") || [])].filter((r) => keys.includes(r.dataset.conversation) && r.checkVisibility());
-  if (rows.length && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    for (const r of rows) r.classList.add("tm-leaving");
-    await new Promise((done) => setTimeout(done, 160));
-  }
-  dropUndo();
-  undoStrip = { ids, open, count: keys.length, timer: setTimeout(() => { dropUndo(); paintUndo(); }, UNDO_SECONDS * 1000) };
-  return hide(ids, true);
+  for (const k of keys) leaving.add(k);
+  try {
+    if (rows.length && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      for (const r of rows) r.classList.add("tm-leaving");
+      await new Promise((done) => setTimeout(done, 160));
+    }
+    dropUndo();
+    const strip = undoStrip = { ids, open, count: keys.length, timer: setTimeout(() => { if (undoStrip === strip) { dropUndo(); paintUndo(); } }, UNDO_SECONDS * 1000) };
+    strip.done = hide(ids, true);
+    return await strip.done;
+  } finally { for (const k of keys) leaving.delete(k); }
 }
 
 function dropUndo() { if (undoStrip) clearTimeout(undoStrip.timer); undoStrip = null; }
 
-function undoArchive() {
+async function undoArchive() {
   const u = undoStrip;
   if (!u) return;
   dropUndo();
-  if (u.open) advanceTo = u.open;
+  advance.kept(conversationKeys(u.ids));   // the restored rows are no longer "removed here"
+  paintUndo();
+  // The unhide goes after the hide it undoes: in the other order the feed replay would hide the row again.
+  if (!(await u.done)) return;   // refused: the hide already put everything back and reopened it
+  if (u.open) advanceTo = u.open;   // hide() paints at once with the rows back: that paint opens it
   hide(u.ids, false, { own: false });
 }
 
@@ -1095,9 +1105,12 @@ function paintUndo() {
   if (!ui) return;
   const strip = ui.undo;
   strip.hidden = !undoStrip;
-  if (!undoStrip) return;
-  strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
-    button(T("Вернуть", "Undo", "Deshacer"), "tm-undo-action", undoArchive));
+  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; return; }
+  if (strip.tmFor !== undoStrip) {   // rebuilt only for a new strip: a repaint keeps focus and is not announced again
+    strip.tmFor = undoStrip;
+    strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
+      button(T("Вернуть", "Undo", "Deshacer"), "tm-undo-action", undoArchive));
+  }
   // Over the bottom of the list; on a narrow screen with a conversation open — above its reply field.
   const host = strip.offsetParent?.getBoundingClientRect();
   if (!host) return;
@@ -1570,6 +1583,7 @@ function personRow(key, group) {
   const name = personName(latest.from) || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
+  if(leaving.has(key))row.classList.add("tm-leaving");
   row.dataset.conversation=key;
   rowTargets.set(key,{identity:key,items:[
     {label:pins.has(pinKey(latest)) ? T("Открепить","Unpin") : T("Закрепить","Pin"),icon:nativeIcon("pin"),run:()=>{togglePin(latest);paint();}},
@@ -3035,8 +3049,9 @@ function paintAll() {
   ui.wrap.classList.toggle("tm-flat", !grouped);
   const shownKeys = matching.map(([key]) => key);
   let opening = null;
-  if (grouped && advanceTo) { opening = matching.find(([key]) => key === advanceTo); advanceTo = null; if (opening) dmPerson = null; }
-  if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) {   // ушёл из пула
+  if (grouped && advanceTo) { opening = matching.find(([key]) => key === advanceTo); if (opening) dmPerson = null; }
+  advanceTo = null;   // one paint only: a target not shown now never opens later
+  if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) {   // ушёл из пула (сменилась вкладка)
     // Left by the owner's action here — the next conversation below, else above, opens; any other departure (another
     // folder, the hub closed it, a reply from another device) goes back to the list, as before.
     const gone = dmPerson, was = shownOrder?.tab === tab && shownOrder?.src === src ? shownOrder.keys : [];
@@ -3245,6 +3260,7 @@ function build(root) {
   listPane.append(head, search, listNode, foot); detail.hidden = true;
   const undo = el("div", "tm-undo"); undo.hidden = true; undo.setAttribute("role", "status");
   wrap.append(listPane, detail, emptyDetail, undo);
+  wrap.addEventListener("input", () => { if (undoStrip) paintUndo(); });   // a growing reply field keeps the strip above it
   root.replaceChildren(wrap);
   ui = { undo, listPane, foot, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
