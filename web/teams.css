@@ -292,10 +292,10 @@
 /* A local Discard action belongs beside this reply, not on an extra composer row. */
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) { grid-template-columns: auto minmax(0, 1fr) 44px;
   grid-template-areas: "reply reply reply" "pending pending pending" "discard entry actions" "feedback feedback feedback" "error error error"; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions { display: contents; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .tm-discard { grid-area: discard; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > :last-child { grid-area: actions; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .spacer { display: none; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .bar { display: contents; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > .tm-discard { grid-area: discard; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > :last-child { grid-area: actions; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > .spacer { display: none; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) .hint.has-result { grid-area: feedback; padding: 4px 0; }
 @media (max-width: 680px) {
   .tm-empty-detail { display: none; }
@@ -506,8 +506,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec):not(.tm-core-leading):has(> .attach:not([hidden])):has(.tm-send-options) { grid-template-columns: auto minmax(0, 1fr) 44px 44px 44px;
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "discard entry attach actions options" "feedback feedback feedback feedback feedback" "error error error error error"; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer:not(.rec) .tm-send-leading > .tm-discard { grid-area: discard; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-trailing:not(.rec) > .composer-actions > :nth-last-child(2) { grid-area: actions; }
-.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .tm-send-options { grid-area: options; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-trailing:not(.rec) > .bar > :nth-last-child(2) { grid-area: actions; }
+.tm-container:not(.tm-web1) .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > .tm-send-options { grid-area: options; }
 .tm-container:not(.tm-web1) .tm-shared-compose form.composer.tm-expanded-reply:not(.rec):not(.tm-core-leading):has(.tm-send-options) {
   grid-template-columns: auto minmax(0,1fr) 44px 44px;
   grid-template-areas: "reply reply reply reply" "pending pending pending pending" "entry entry entry entry" "discard . actions options" "feedback feedback feedback feedback" "error error error error";
@@ -640,14 +640,14 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-core-leading > .bar > .send, .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
 /* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» */
-.tm-shared-compose form.composer > .composer-actions:has(.tm-native-footer) > .spacer { display: none; }
+.tm-shared-compose form.composer > .bar:has(.tm-native-footer) > .spacer { display: none; }
 @media (max-width: 899px) {
   /* signature, bin and Send share one row; on a phone the capsule shrinks to the round send icon, as on iPhone */
-  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; width: 100%; grid-column: 1 / -1; }
-  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > * { grid-area: auto; }
-  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions .tm-native-footer { grid-column: 1; grid-row: 1; }
-  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions > .send { grid-row: 1; grid-column: 2; }
-  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .composer-actions .tm-send-options { grid-row: 1; grid-column: 3; grid-area: auto; }
+  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; width: 100%; grid-column: 1 / -1; }
+  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > * { grid-area: auto; }
+  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .bar .tm-native-footer { grid-column: 1; grid-row: 1; }
+  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .bar > .send { grid-row: 1; grid-column: 2; }
+  .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer.has-leading:not(.rec) > .bar .tm-send-options { grid-row: 1; grid-column: 3; grid-area: auto; }
 }
 @media (max-width: 520px) {
   .tm-container:not(.tm-web1) .tm-core-native .tm-shared-compose form.composer .btn.round.send[data-label] { padding: 0; width: 44px; }
@@ -687,8 +687,8 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
    в несколько строк (kit/composer.md) */
 .tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply):not(:has(.hint.has-result)) {
   grid-template-areas: "reply reply reply" "pending pending pending" "entry attach actions" "error error error"; }
-.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions { flex-wrap: nowrap; align-self: center; }
-.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .composer-actions > .spacer { display: none; }
+.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .bar { flex-wrap: nowrap; align-self: center; }
+.tm-web1 .tm-shared-compose form.composer.has-leading:not(.rec):not(.tm-expanded-reply) > .bar > .spacer { display: none; }
 /* круглые кнопки шапки на телефоне — с промежутком 8, как ‹ › на столе */
 .view-toolbar > .tm-quick-trigger + .tm-search-toggle { margin-left: 8px; }
 

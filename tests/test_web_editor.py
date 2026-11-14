@@ -21,6 +21,17 @@ CAPSULE_CONTRAST = ("(()=>{const b=document.querySelector('.tm-folder[aria-press
     "const a=lum(getComputedStyle(b).color),z=lum(bg);return Math.round((Math.max(a,z)+.05)/(Math.min(a,z)+.05)*100)/100})()")
 
 
+def core_static(name):
+    """Text of one of the running core's web scripts: what the page was built on (the fork and the live core differ)."""
+    import modules.web.server as srv
+    return (Path(srv.__file__).parent / "static" / name).read_text(encoding="utf-8")
+
+
+def needs_core_feature(marker, why, script="js/ext.js"):
+    """Skip a test whose behaviour rests on a Plugin API piece this core does not have; the plugin falls back without it."""
+    return unittest.skipUnless(marker in core_static(script), why)
+
+
 class InboxWebAcceptance(PageInChrome):
     # The page speaks the owner's Russian: the core's tests run in English (tests/__init__ sets HUB_LANG=en).
     def setUp(self):
@@ -1489,6 +1500,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
         self.assertEqual(self.non_history_actions(),[])
 
+    @needs_core_feature('inboxHandoff', 'this core has no inboxHandoff (hub.handoff.latest): the menu offers no «latest thread» target')
     def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):
         # I-54: «Hand it to the assistant, make it possible to change the agent; a quick item to send to the latest thread»
         self.ev("session.requested", "aide", session_id="s-aide", cwd="/aide", role="agent", about="Aide — ассистент владельца: входящие", channel="cli", owner=True)
@@ -2184,6 +2196,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({'eval':'window.__copied'})[-1]['eval'],'Second question')
         self.assertEqual(self.non_history_actions(),[])
 
+    @needs_core_feature('compose(session', 'this core has no hub.compose (Plugin API 1.16): «В работу хабу» sends directly instead of prefilling the field')
     def test_message_menu_historical_work_quotes_exact_thread_post(self):
         self.menu_history()
         thread_post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).kind==='thread'}catch{return false}}).id)"})[-1]['eval']
@@ -2215,6 +2228,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-message-menu')"})[-1]['eval'])
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-message-menu .tm-icon-copy')"})[-1]['eval'])
 
+    @needs_core_feature('compose(session', 'this core has no hub.compose (Plugin API 1.16): «В работу хабу» sends directly instead of prefilling the field')
     def test_native_message_menu_touch_widths_and_work_prefill(self):
         self.seed_inbox(start_editing=False)
         rows=[]
@@ -2903,7 +2917,7 @@ class InboxWebAcceptance(PageInChrome):
             self.page({'viewport':{'width':width,'height':874}})
             for text in ('','Short reply'):
                 self.edit(text)
-                got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.composer-actions > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
+                got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.bar > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
                 self.assertLessEqual(got['height'],78,(width,text,got))   # one row + the recipient line;self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
 
     def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
@@ -3444,6 +3458,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"document.querySelector('.tm-send-options').open=false;document.querySelector('.tm-shared-compose form').requestSubmit();true"},{'sleep':300})
         self.assertNotIn('at',self.queued('send'))
 
+    @needs_core_feature('view-nav', "this core's page has no .view-nav header bar: the single-header layout is not defined here", script="css/base.css")
     def test_narrow_conversation_has_one_header_and_keeps_draft_when_returning(self):
         self.seed_inbox(start_editing=False)
         self.edit("Keep my exact draft")
