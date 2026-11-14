@@ -21,6 +21,7 @@ import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
 import { inboxAge } from "./inbox-time.js";
 import { openTarget, openFolder, feedMessage, canLoadOld, oldMessage } from "./open-target.js";
+import { listAdvance, nextAfter, UNDO_SECONDS } from "./list-advance.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
 const hubName = () => ((hub.snapshot().sessions || []).find((x) => x.kind === "hub") || {}).name || "hub";   // главная сессия называется по-разному (hub, hub-core…)
@@ -1034,8 +1035,11 @@ function handoffMenu(m) {
   return menu;
 }
 
-async function hide(ids, on) {
+// own=false: the Undo of the strip — it puts the row back itself and must not advance the list
+async function hide(ids, on, { own = true } = {}) {
   const previous=new Map(ids.map(id=>[id,{hidden:hidden.has(id),reply:replyArchived.has(id)}]));
+  const keys=conversationKeys(ids), wasOpen=dmPerson && keys.includes(dmPerson) ? dmPerson : null;
+  if (own) advance.acted(keys);
   for (const id of ids) {if(on)hidden.add(id);else {hidden.delete(id);replyArchived.delete(id);}}
   confirmAll = false;
   error = "";
@@ -1046,10 +1050,78 @@ async function hide(ids, on) {
         previous.get(id).hidden ? hidden.add(id) : hidden.delete(id);
         previous.get(id).reply ? replyArchived.add(id) : replyArchived.delete(id);
       }
+      // The hub refused: the row is back in place and, if it was open when it left, open again; its Undo is void.
+      advance.kept(keys);
+      if (wasOpen) advanceTo = wasOpen;
+      if (undoStrip?.ids === ids) dropUndo();
       paint();
-      return;
+      return false;
     }
   }
+  return true;
+}
+
+// Standard list actions (list-advance.js): "Archive" leaves an "Archived: N · Undo" strip for ten seconds; Undo and
+// Cmd/Ctrl+Z put the rows back and reopen the one that was open. The leaving row fades out first (<=180 ms).
+const advance = listAdvance();
+let shownOrder = null;   // the conversations of the last painted list, in order: the neighbours of a departed one
+let advanceTo = null;    // a conversation the next paint opens (the next one after a departure, or the restored one)
+let undoStrip = null;    // {ids, open, count, timer, done: the hide in flight}
+const leaving = new Set(); // conversations fading out before their hide: a repaint keeps the fade, a second click is void
+const conversationKeys = (ids) => [...new Set(ids.map((id) => msgs.get(id)).filter(Boolean).map(conversationKey))];
+
+async function archive(ids) {
+  const keys = conversationKeys(ids), open = dmPerson && keys.includes(dmPerson) ? dmPerson : null;
+  if (!keys.length || keys.some((k) => leaving.has(k))) return false;
+  const rows = [...(ui?.root.querySelectorAll(".tm-person") || [])].filter((r) => keys.includes(r.dataset.conversation) && r.checkVisibility());
+  for (const k of keys) leaving.add(k);
+  try {
+    if (rows.length && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      for (const r of rows) r.classList.add("tm-leaving");
+      await new Promise((done) => setTimeout(done, 160));
+    }
+    dropUndo();
+    const strip = undoStrip = { ids, open, count: keys.length, timer: setTimeout(() => { if (undoStrip === strip) { dropUndo(); paintUndo(); } }, UNDO_SECONDS * 1000) };
+    strip.done = hide(ids, true);
+    return await strip.done;
+  } finally { for (const k of keys) leaving.delete(k); }
+}
+
+function dropUndo() { if (undoStrip) clearTimeout(undoStrip.timer); undoStrip = null; }
+
+async function undoArchive() {
+  const u = undoStrip;
+  if (!u) return;
+  dropUndo();
+  advance.kept(conversationKeys(u.ids));   // the restored rows are no longer "removed here"
+  paintUndo();
+  // The unhide goes after the hide it undoes: in the other order the feed replay would hide the row again.
+  if (!(await u.done)) return;   // refused: the hide already put everything back and reopened it
+  if (u.open) advanceTo = u.open;   // hide() paints at once with the rows back: that paint opens it
+  hide(u.ids, false, { own: false });
+}
+
+function paintUndo() {
+  if (!ui) return;
+  const strip = ui.undo;
+  strip.hidden = !undoStrip;
+  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; return; }
+  if (strip.tmFor !== undoStrip) {   // rebuilt only for a new strip: a repaint keeps focus and is not announced again
+    strip.tmFor = undoStrip;
+    strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
+      button(T("Вернуть", "Undo", "Deshacer"), "tm-undo-action", undoArchive));
+  }
+  // Over the bottom of the list; on a narrow screen with a conversation open — above its reply field.
+  const host = strip.offsetParent?.getBoundingClientRect();
+  if (!host) return;
+  const pane = ui.listPane.checkVisibility() ? ui.listPane : ui.detail;
+  const box = pane.getBoundingClientRect();
+  const floor = pane === ui.listPane ? ui.foot.getBoundingClientRect().top
+    : (ui.detail.querySelector(".tm-shared-compose, .tm-compose")?.getBoundingClientRect().top ?? box.bottom);
+  strip.style.left = `${box.left - host.left + 8}px`;
+  strip.style.width = `${Math.max(0, box.width - 16)}px`;
+  strip.style.top = "auto";
+  strip.style.bottom = `${host.bottom - Math.min(floor, box.bottom) + 8}px`;
 }
 
 function button(text, cls, fn, label) {
@@ -1511,6 +1583,7 @@ function personRow(key, group) {
   const name = personName(latest.from) || "—";
   const row = el("article", "tm-card tm-person" + (group.every(done) ? " tm-done" : ""));
   if(dmPerson===key){row.classList.add("tm-selected");row.setAttribute("aria-current","true");}
+  if(leaving.has(key))row.classList.add("tm-leaving");
   row.dataset.conversation=key;
   rowTargets.set(key,{identity:key,items:[
     {label:pins.has(pinKey(latest)) ? T("Открепить","Unpin") : T("Закрепить","Pin"),icon:nativeIcon("pin"),run:()=>{togglePin(latest);paint();}},
@@ -2029,6 +2102,7 @@ function sharedReply(m, st) {
         }
         st.text = text; st.files=attachments || [];
         if (st.error==="This browser could not save the draft. Keep this page open.") st.error="";
+        if(archiveIds)advance.acted([conversationKey(m)]);   // leaves with the receipt: the next conversation opens then
         let accepted=false;try {accepted=await mark(q.kind,q);}catch { /* The original request may already have arrived. */ }
         if (!accepted && !["ok","later"].includes(sends.get(q.rid)?.state)) {
           if(sends.get(q.rid)?.state==="wait")sends.set(q.rid, { ...sends.get(q.rid), state: "unresolved" });
@@ -2764,7 +2838,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
     if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
     acts.prepend(react);
-    acts.prepend(action(T("Убрать","Archive"), "archive", () => hide(open.map((m) => m.id), true), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
+    acts.prepend(action(T("Убрать","Archive"), "archive", () => archive(open.map((m) => m.id)), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
     acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));
   }
@@ -2826,6 +2900,7 @@ function paint() {
   const scroll=oldHistory?.scrollTop, follow=toBottom, scrollHeight=oldHistory?.scrollHeight, anchored=anchorHistory;
   anchorHistory=null;
   paintAll();
+  paintUndo();
   syncQuickButtons();
   messageMenu?.validate();rowMenu?.validate();
   for (const options of ui.root.querySelectorAll('.tm-conversation-options')) {
@@ -2935,7 +3010,7 @@ function paintAll() {
     if (!confirmAll) ui.bulk.append(button(`${T("Убрать все","Archive all")} (${shown})`, "quiet", () => { confirmAll = true; paint(); }));
     else {
       ui.bulk.append(el("span", "tm-confirm", T(`Убрать переписки: ${shown}?`,`Archive ${shown} conversations?`)),
-        button(T("Убрать","Archive"), "danger", () => hide(items.map((m) => m.id), true)),
+        button(T("Убрать","Archive"), "danger", () => archive(items.map((m) => m.id))),
         button(T("Отмена","Cancel"), "quiet", () => { confirmAll = false; paint(); }));
     }
   }
@@ -2972,9 +3047,21 @@ function paintAll() {
   // как и в личке»); в «Упоминания»/«Каналы» — как раньше, по сообщению (там чаще важен порядок/канал, не человек)
   const grouped = src === "dm" || src === "all";
   ui.wrap.classList.toggle("tm-flat", !grouped);
-  if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) dmPerson = null;   // ушёл из пула (сменилась вкладка) — назад к списку людей
+  const shownKeys = matching.map(([key]) => key);
+  let opening = null;
+  if (grouped && advanceTo) { opening = matching.find(([key]) => key === advanceTo); if (opening) dmPerson = null; }
+  advanceTo = null;   // one paint only: a target not shown now never opens later
+  if (grouped && dmPerson && !items.some((m) => conversationKey(m) === dmPerson)) {   // ушёл из пула (сменилась вкладка)
+    // Left by the owner's action here — the next conversation below, else above, opens; any other departure (another
+    // folder, the hub closed it, a reply from another device) goes back to the list, as before.
+    const gone = dmPerson, was = shownOrder?.tab === tab && shownOrder?.src === src ? shownOrder.keys : [];
+    dmPerson = null;
+    if (advance.mine([gone])) { const next = nextAfter(gone, was, shownKeys); opening = next && matching.find(([key]) => key === next); }
+  }
+  if (grouped && loaded) shownOrder = { tab, src, keys: shownKeys };
+  if (opening) queueMicrotask(() => { if (ui?.root.isConnected && !dmPerson) openPerson(...opening); });
 
-  if (autoOpen && loaded && grouped && !dmPerson && tab === "new" && !searchQuery && !picking && matching.length && ui.root.getBoundingClientRect().width > 900) {
+  if (autoOpen && !opening && loaded && grouped && !dmPerson && tab === "new" && !searchQuery && !picking && matching.length && ui.root.getBoundingClientRect().width > 900) {
     const [key, group] = matching[0];
     autoOpen = false;
     queueMicrotask(() => { if (ui?.root.isConnected && !dmPerson) openPerson(key, group); });
@@ -3171,9 +3258,11 @@ function build(root) {
   searchInput.addEventListener("keydown", (e) => { if (e.key === "Escape" && search.classList.contains("tm-search-over")) { e.preventDefault(); searchQuery = ""; searchInput.value = ""; searchOpen = false; paint(); searchToggle.focus(); } });
   search.hidden = !searchQuery;
   listPane.append(head, search, listNode, foot); detail.hidden = true;
-  wrap.append(listPane, detail, emptyDetail);
+  const undo = el("div", "tm-undo"); undo.hidden = true; undo.setAttribute("role", "status");
+  wrap.append(listPane, detail, emptyDetail, undo);
+  wrap.addEventListener("input", () => { if (undoStrip) paintUndo(); });   // a growing reply field keeps the strip above it
   root.replaceChildren(wrap);
-  ui = { listPane, foot, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
+  ui = { undo, listPane, foot, search, searchToggle, root, resize, wrap, detail, emptyDetail, list: listNode, tabs, sort, srcs, bulk, alerts, pick, panel: panelNode, prompt, promptFeedback, clearSearch };
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
@@ -3247,6 +3336,9 @@ export default function register(h) {
   window.addEventListener('storage',e=>{if(e.key===null || e.key===quickKey() || e.key===quickKey()+':files')syncQuickButtons();if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});
+  // Cmd/Ctrl+Z — the strip's Undo, as in the native lists; inside a text field it stays the field's own undo
+  document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==="z" && undoStrip && location.hash.startsWith("#/x/inbox") && !document.querySelector("dialog[open]") && !e.target.closest?.("input,textarea,select,[contenteditable]:not([contenteditable=false])")){e.preventDefault();undoArchive();}});
+  window.addEventListener("resize", paintUndo);
   document.addEventListener("pointerdown",e=>{for(const menu of ui?.root.querySelectorAll('.tm-sort[open],.tm-options[open],.tm-editor-options[open],.tm-conversation-options[open],.tm-send-options[open],.tm-handoff[open]')||[])if(!menu.contains(e.target))menu.open=false;});
   window.addEventListener("resize", fitOpenHandoffs); window.visualViewport?.addEventListener("resize", fitOpenHandoffs);
   if (location.hash === "#/x/teams") location.hash = "#/x/inbox";   // прежний адрес вкладки

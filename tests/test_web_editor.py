@@ -3960,6 +3960,123 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(got[-2]["until"], got); self.assertIn("Owner approved reply", got[-1]["eval"])
         self.shot("confirmed-sent-detail-phone")
 
+    # Standard list actions (list-advance.js, as the native ListAdvance): the open conversation left the list by the owner's
+    # action here — the next one below opens, none below — the nearest above, none left — nothing; Archive leaves an Undo strip.
+    OPEN = "document.querySelector('.tm-detail:not([hidden])')?.dataset.conversation||''"
+    ORDER = "[...document.querySelectorAll('.tm-person')].map(r=>r.dataset.conversation)"
+
+    def seed_people(self, n):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['source-a']}))
+        for i in range(n):
+            self.feed({'kind':'msg','id':f'adv-{i}','contact':f'synthetic/adv-{i}','src':'dm','from':f'Person {i}','text':f'Advance fixture {i}',
+                       'reply':True,'at':f'2026-11-1{i}T12:00:00Z'})
+        want=json.dumps(sorted(json.dumps(['teams',f'synthetic/adv-{i}'],separators=(',',':')) for i in range(n)))
+        got=self.page({'until':f"JSON.stringify(({self.ORDER}).sort())===JSON.stringify({want})"},{'eval':self.ORDER})   # only the fixture rows: the seed row is hidden
+        self.assertTrue(got[-2]['until'],got)
+        return got[-1]['eval']
+
+    def open_row(self, key):
+        self.page({'eval':f"[...document.querySelectorAll('.tm-person')].find(r=>r.dataset.conversation==={json.dumps(key)}).click();true"},
+                  {'until':f"({self.OPEN})==={json.dumps(key)}"})
+
+    def archive_open(self):
+        self.page({'eval':"document.querySelector('.tm-detail [aria-label^=\"Убрать сообщения\"]').click();true"})
+
+    def test_archive_opens_next_below_then_above_and_undo_reopens(self):
+        order=self.seed_people(3)
+        self.open_row(order[1])
+        self.archive_open()
+        got=self.page({'until':f"({self.OPEN})==={json.dumps(order[2])} && document.querySelectorAll('.tm-person').length===2"},
+                      {'eval':"(()=>{const u=document.querySelector('.tm-undo');return {shown:!u.hidden,text:u.textContent}})()"})
+        self.assertTrue(got[-2]['until'],got);self.assertTrue(got[-1]['eval']['shown'])
+        self.assertEqual(got[-1]['eval']['text'],'В архиве: 1Вернуть')
+        self.assertEqual(self.queued('hide')['ids'],[json.loads(order[1])[1].split('/')[-1]])
+        got=self.page({'mclick':'.tm-undo-action'},{'until':f"({self.OPEN})==={json.dumps(order[1])} && document.querySelectorAll('.tm-person').length===3 && document.querySelector('.tm-undo').hidden"})
+        self.assertTrue(got[-1]['until'],'Undo puts the row back and opens it')
+        self.assertEqual(self.queued('unhide')['ids'],[json.loads(order[1])[1].split('/')[-1]])
+        self.assertEqual(self.page({'eval':self.ORDER})[-1]['eval'],order,'the row is back in its place')
+        self.open_row(order[2])
+        self.archive_open()
+        self.assertTrue(self.page({'until':f"({self.OPEN})==={json.dumps(order[1])}"})[-1]['until'],'the last row yields to the one above')
+        # Cmd+Z outside a text field is the strip's Undo; inside the reply field it stays the field's own
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-shared-compose textarea')"})[-1]['until'],'the next conversation opens with its reply field')
+        self.page({'eval':"document.querySelector('.tm-shared-compose textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true}));true"},{'sleep':300})
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'],'Cmd+Z in the reply field must not undo the archive')
+        self.page({'eval':"document.activeElement?.blur();document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'z',metaKey:true,bubbles:true,cancelable:true}));true"})
+        self.assertTrue(self.page({'until':f"({self.OPEN})==={json.dumps(order[2])} && document.querySelectorAll('.tm-person').length===3"})[-1]['until'],'Cmd+Z reopens')
+
+    def test_archive_of_the_only_conversation_opens_nothing_and_strip_expires(self):
+        order=self.seed_people(1)
+        self.open_row(order[0])
+        self.archive_open()
+        got=self.page({'until':"!document.querySelector('.tm-person') && !document.querySelector('.tm-empty-detail').hidden"},{'eval':self.OPEN})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],'')
+        self.assertFalse(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'])
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-undo').hidden",'ms':13000})[-1]['until'],'the strip lives ten seconds')
+        self.page({'eval':"document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'z',ctrlKey:true,bubbles:true}));true"},{'sleep':300})
+        self.assertEqual(self.page({'eval':"document.querySelectorAll('.tm-person').length"})[-1]['eval'],0,'no strip — Ctrl+Z does nothing')
+
+    def test_departure_not_by_the_owner_here_opens_nothing(self):
+        order=self.seed_people(3)
+        self.open_row(order[1])
+        # Archived from another device: the same hide post, but not this page's action
+        gone=json.loads(order[1])[1].split('/')[-1]
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':[gone]}))
+        got=self.page({'until':"document.querySelectorAll('.tm-person').length===2"},{'sleep':300},{'eval':self.OPEN})
+        self.assertTrue(got[0]['until'],got);self.assertEqual(got[-1]['eval'],'','nothing opens: opening would mark it read')
+        self.assertTrue(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'])
+
+    def test_hub_refusal_puts_the_archived_back_and_opens_it(self):
+        order=self.seed_people(2)
+        self.open_row(order[0])
+        act=self.web.act
+        with mock.patch.object(self.web,'act',side_effect=lambda path,body:(403,'Synthetic archive refusal') if path=='/api/feed/post' and '\"hide\"' in body.get('text','') else act(path,body)):
+            self.archive_open()
+            got=self.page({'until':f"({self.OPEN})==={json.dumps(order[0])} && document.querySelectorAll('.tm-person').length===2 && document.querySelector('.tm-undo').hidden"})
+        self.assertTrue(got[-1]['until'],got)
+
+    def test_move_to_inbox_from_archive_opens_the_next_archived(self):
+        order=self.seed_people(3)
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps({'kind':'hide','ids':['adv-0','adv-1','adv-2']}))
+        got=self.page({'mclick':'[data-folder=archive]'},{'until':"document.querySelectorAll('.tm-person').length>=3"},{'eval':self.ORDER})
+        archived=[k for k in got[-1]['eval'] if 'adv-' in k]
+        self.assertEqual(len(archived),3,got)
+        self.open_row(archived[0])
+        self.page({'eval':"document.querySelector('.tm-detail [aria-label^=\"Вернуть сообщения\"]').click();true"})
+        got=self.page({'until':f"({self.OPEN})==={json.dumps(archived[1])}"},{'eval':"document.querySelector('.tm-undo').hidden"})
+        self.assertTrue(got[0]['until'],got);self.assertTrue(got[-1]['eval'],'back to Inbox makes no strip: the row is already there')
+
+    def test_send_and_archive_opens_the_next_on_receipt(self):
+        self.archive_setup()
+        open_key=self.page({'eval':self.OPEN})[-1]['eval']
+        self.assertTrue(open_key)
+        self.edit('Reply and archive')
+        self.page({'mclick':'.tm-send-options > summary'},{'mclick':'.tm-send-archive'})
+        q=self.queued('send')
+        self.assertEqual(self.page({'eval':self.OPEN})[-1]['eval'],open_key,'the conversation stays until the receipt')
+        self.feed({**q,'kind':'sent'})
+        self.feed({'kind':'archived','id':q['id'],'rid':q['rid'],'target':q['target'],'ids':[m['id'] for m in q['archive_ids']],'members':q['archive_ids']})
+        got=self.page({'until':f"({self.OPEN})!=='' && ({self.OPEN})!=={json.dumps(open_key)}"},{'eval':"document.querySelector('.tm-undo').hidden"})
+        self.assertTrue(got[0]['until'],'the next conversation opens on the receipt')
+        self.assertTrue(got[-1]['eval'],'Send and Archive makes no strip, as in the native lists')
+
+    def test_undo_strip_contrast_and_leaving_row_css(self):
+        order=self.seed_people(2)
+        self.open_row(order[0])
+        self.archive_open()
+        self.page({'until':"!document.querySelector('.tm-undo').hidden"})
+        ratio=("(()=>{const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data].slice(0,3)};"
+               "const L=c=>{const v=rgb(c).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"
+               "const u=document.querySelector('.tm-undo'),s=getComputedStyle(u),a=L(s.color),b=L(s.backgroundColor);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)})()")
+        for theme in ('light','dark'):
+            for width in (390,1440):
+                self.page({'media':theme},{'viewport':{'width':width,'height':844}})
+                self.assertGreaterEqual(self.page({'eval':ratio})[-1]['eval'],4.5,(theme,width))
+        css=Path(__file__).resolve().parents[1].joinpath('web','teams.css').read_text()
+        self.assertRegex(css,r'\.tm-person\.tm-leaving \{[^}]*transition: opacity 1[0-8]\dms')
+        self.assertRegex(css,r'prefers-reduced-motion: reduce\) \{ \.tm-person\.tm-leaving \{ transition: none')
+
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 

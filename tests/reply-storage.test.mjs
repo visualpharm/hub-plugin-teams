@@ -9,6 +9,7 @@ for (const [file,name] of [['provider-read','providerReadState'],['read-state','
 }
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/conversation-chain.js','utf8'))));   // цепочка переписки
 Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8'))));   // feedMessage/oldMessage: main.js строит сообщение ленты там
+Object.assign(dependencies,await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/list-advance.js','utf8'))));   // правило «открыть следующую» (list-advance.js)
 let blocked=true;
 const values=new Map(), requests=[];
 const storage={getItem:k=>values.get(k)??null,removeItem:k=>values.delete(k),setItem(k,v){if(blocked)throw Error('quota');values.set(k,v);}};
