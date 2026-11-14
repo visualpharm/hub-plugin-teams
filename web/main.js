@@ -20,7 +20,7 @@ import { localReadState } from "./read-state.js";
 import { providerReadState } from "./provider-read.js";
 import { workingHours, nextWorkingStart, workingStartLabel, recipientWeekendState } from "./working-hours.js";
 import { inboxAge } from "./inbox-time.js";
-import { openTarget, openFolder, feedMessage, canLoadOld, oldMessage } from "./open-target.js";
+import { openTarget, openFolder, feedMessage, canLoadOld, oldMessage, bellAnswered } from "./open-target.js";
 import { listAdvance, nextAfter, UNDO_SECONDS } from "./list-advance.js";
 
 const AUTHOR = "плагин teams";   // так ядро подписывает посты процесса плагина
@@ -46,6 +46,7 @@ function see(group) {
 }
 const answered = new Set();
 const answeredAt = new Map(); // exact trusted closure post; stale corrections cannot reopen a newer answer
+const reopened = new Set();   // карточки, открытые заново после ответа: отметка «отвечено» из адреса колокола их не закрывает
 const hidden = new Set();
 const replyArchived = new Set(); // Receipt-bound archive never hides a newer unsent draft.
 const archivedRequests = new Set(); // Replayed success cannot undo a later explicit Restore.
@@ -637,7 +638,7 @@ async function sync() {
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
           deliveredReactions.delete(d.id);
-          answered.delete(d.id);answeredAt.delete(d.id);
+          answered.delete(d.id);answeredAt.delete(d.id);reopened.delete(d.id);
           for (const [rid,send] of sends) if (send.id===d.id) {
             clearTimeout(send.cancelTimer);detachedSends.add(rid);sends.delete(rid);
           }
@@ -665,7 +666,7 @@ async function sync() {
       else if (p.by === AUTHOR && d?.kind === "reopened") {
         const m = msgs.get(d.id);
         if (m?.post === d.post && m.contact === d.contact && answeredAt.get(d.id) === d.corrects && !sentOk(d.id)) {
-          answered.delete(d.id); answeredAt.delete(d.id);
+          answered.delete(d.id); answeredAt.delete(d.id); reopened.add(d.id);
           // Keep the original post/draft relationship and any owner edits. This
           // opens an unsent editor; only the existing owner Send action delivers.
           const draft = hubOffer(m);
@@ -1578,12 +1579,14 @@ async function loadOldMessage(target) {
   const message = oldMessage(posts, target, AUTHOR);
   if (!message) return undefined;
   if (!msgs.has(message.id)) msgs.set(message.id, message);
-  if (target.state === "answered" && !answered.has(message.id)) { answered.add(message.id); answeredAt.set(message.id, target.post); }
   return msgs.get(message.id);
 }
 async function openMessage(target) {
   const find = () => target.id ? msgs.get(target.id) : [...msgs.values()].find((x) => x.post === target.post);
   const m = find() || await loadOldMessage(target);
+  // «отвечено» из адреса — и для карточки, что уже была в списке (живая лента принесла её раньше), не только для догруженной
+  const closedAt = bellAnswered(target, m, { answered, reopened });
+  if (closedAt) { answered.add(m.id); answeredAt.set(m.id, closedAt); }
   const folder = openFolder(m, inFolder);
   if (!folder) {
     openNotice = T("Этого сообщения нет в ленте — оно старое или уже убрано.", "That message is no longer in the feed — it is old or already removed.");
