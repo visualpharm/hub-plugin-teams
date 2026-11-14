@@ -4090,9 +4090,9 @@ class InboxWebAcceptance(PageInChrome):
         mark=("(()=>{const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data].slice(0,4)};"
               "const L=c=>{const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"
               "const r=document.querySelector('.tm-person[aria-current=true]'),o=[...document.querySelectorAll('.tm-person:not([aria-current])')];if(!r)return null;"
-              "const bg=getComputedStyle(r).backgroundColor,worst=Math.min(...[...r.querySelectorAll('.tm-from,.tm-text,.ago,.tm-age')].map(e=>{const a=L(getComputedStyle(e).color),b=L(bg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)}));"
+              "const fill=e=>{const b=getComputedStyle(e,'::before').backgroundColor;return rgb(b)[3]?b:getComputedStyle(e).backgroundColor},bg=fill(r),worst=Math.min(...[...r.querySelectorAll('.tm-from,.tm-text,.ago,.tm-age')].map(e=>{const a=L(getComputedStyle(e).color),b=L(bg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)}));"
               "let p=r.parentElement;while(p&&rgb(getComputedStyle(p).backgroundColor)[3]===0)p=p.parentElement;const pane=p?getComputedStyle(p).backgroundColor:'';"
-              "return {key:r.dataset.conversation,worst,same:o.filter(e=>getComputedStyle(e).backgroundColor===bg).length+(rgb(bg).join()===rgb(pane).join()?1:0)}})()")
+              "return {key:r.dataset.conversation,worst,same:o.filter(e=>fill(e)===bg).length+(rgb(bg).join()===rgb(pane).join()?1:0)}})()")
         for theme in ('light','dark'):
             self.page({'media':theme},{'viewport':{'width':1440,'height':900}})
             got=self.page({'until':"!!document.querySelector('.tm-person[aria-current=true]')"},{'eval':mark})

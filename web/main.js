@@ -1118,9 +1118,10 @@ function paintUndo() {
   const box = pane.getBoundingClientRect();
   // In the conversation the strip sits above its row of actions, so «Убрать» on the next one stays reachable.
   const tops = pane === ui.listPane ? [ui.foot.getBoundingClientRect().top]
-    : [...ui.detail.querySelectorAll(".tm-thread > .tm-acts, .tm-shared-compose, .tm-compose")]
+    : [...ui.detail.querySelectorAll(".tm-thread > .tm-acts, .tm-thread > .tm-reactions, .tm-shared-compose, .tm-compose")]
       .map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top);
-  const floor = tops.length ? Math.min(...tops) : box.bottom;
+  // A low pane (phone on its side, a grown reply field) keeps the strip inside it, over the history, not above the header
+  const floor = Math.max(tops.length ? Math.min(...tops) : box.bottom, box.top + (strip.offsetHeight || 48) + 16);
   strip.style.left = `${box.left - host.left + 8}px`;
   strip.style.width = `${Math.max(0, box.width - 16)}px`;
   strip.style.top = "auto";
