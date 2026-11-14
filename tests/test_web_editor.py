@@ -4246,7 +4246,9 @@ class InboxWebAcceptance(PageInChrome):
                     "at": "2026-09-01T10:00:00Z", "text": "A question from long ago.", "react": True})
         for n in range(520):
             post({"kind": "note", "n": n})   # push the old post out of the 500-post window of the channel
-        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"eval": "location.reload();true"}, {"until": "!!document.querySelector('.tm-folder')"})
+        # wait for the reloaded page, not the old one that still shows folders: the old page may have the card from the live feed
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"eval": "window.__beforeReload=true;location.reload();true"},
+                  {"until": "!window.__beforeReload && !!document.querySelector('.tm-folder')"})
         self.assertFalse(self.page({"eval": "fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.some(p=>p.id==='p%d'))" % old})[-1]["eval"],
                          "the old post must be out of the window, or the test proves nothing")
         # the bell names the post and says it is answered: the card opens in «Разобранные», read back from the journal by its number
@@ -4258,6 +4260,19 @@ class InboxWebAcceptance(PageInChrome):
         # a post number the journal does not have: the notice, as before
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=old-card&post=p999999&state=answered"},
                   {"until": "[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('нет в ленте'))"})
+
+    def test_bell_address_answered_opens_done_for_a_card_already_in_the_list(self):
+        self.seed_inbox(start_editing=False, open_editor=False)
+        old = self.j.append("ext.post", None, {"plugin": "teams", "channel": "plugin", "sender": "teams", "text": json.dumps(
+            {"kind": "msg", "id": "old-card", "contact": "synthetic-account/conversation-old", "src": "whatsapp", "from": "Old sender",
+             "at": "2026-09-01T10:00:00Z", "text": "A question from long ago.", "react": True})})["seq"]
+        # the live feed brings the card into the list first; the answer itself is not in this feed, only the bell knows it
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"},
+                  {"until": "[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Old sender'))"})
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox?plugin=proactivity&id=old-card&post=p{old}&state=answered"},
+                  {"until": "document.body.textContent.includes('A question from long ago.') && !!document.querySelector('.tm-person[aria-current=true]')"})
+        opened = self.page({"eval": "({selected:document.querySelectorAll('.tm-person[aria-current=true]').length,folder:document.querySelector('.tm-folder[aria-pressed=true]')?.dataset.folder||'done',text:document.body.textContent.includes('A question from long ago.')})"})[-1]["eval"]
+        self.assertEqual(opened, {"selected": 1, "folder": "done", "text": True}, opened)
 
     def p14_shot(self, name, width, height=874):
         if os.environ.get("HUB_INBOX_SCREENSHOTS") and width in (402, 1240):

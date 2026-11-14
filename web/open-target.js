@@ -18,6 +18,17 @@ export function openTarget(params) {
   return null;
 }
 
+// Колокол сказал «отвечено» (state=answered): отметку ставим сообщению, которое назвал адрес, где бы оно ни нашлось — в
+// загруженном списке или догруженным по номеру поста. Лента уже знает про ответ (answered) — оставляем её факт; карточку
+// открыли заново после ответа (reopened) — слово ленты новее уведомления. Возвращает номер поста для отметки или null.
+export function bellAnswered(target, message, { answered, reopened } = {}) {
+  if (!message || target?.state !== "answered") return null;
+  if (target.id ? message.id !== target.id : message.post !== target.post) return null;
+  if (target.post && message.post && message.post !== target.post) return null;   // id занят новым сообщением: старый колокол его не закрывает
+  if (answered?.has(message.id) || reopened?.has(message.id)) return null;
+  return target.post || message.post || null;
+}
+
 // Папка, где лежит сообщение; нет сообщения или ни одна папка его не держит — undefined.
 export function openFolder(message, inFolder) {
   return message ? OPEN_FOLDERS.find((folder) => inFolder(message, folder)) : undefined;
