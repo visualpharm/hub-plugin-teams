@@ -1466,11 +1466,13 @@ class InboxWebAcceptance(PageInChrome):
         for i,(contact,name) in enumerate([('b','Second person'),('b','Second person'),('c','Third person')]):
             self.feed({'kind':'msg','id':f'count-{i}','contact':'synthetic/'+contact,'src':'telegram','from':name,'text':f'Synthetic {i}','reply':True,'at':now})
         rows="document.querySelectorAll('.tm-list .tm-person').length"
-        badge="import('/static/js/ext.js').then(m=>m.viewInfo('inbox').badge)"
-        got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3"},{'eval':rows},{'eval':badge},
+        badge=self.NAV_COUNT
+        dots="document.querySelectorAll('.tm-list .tm-person .tm-unread').length"
+        got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3 && "+badge+"==='2'"},{'eval':rows},{'eval':dots},{'eval':badge},
                       {'eval':"document.querySelector('.tm-bulk')?.textContent || ''"})
-        self.assertTrue(got[-4]['until'],got)
-        self.assertEqual((got[-3]['eval'],got[-2]['eval']),(3,3),'4 messages in 3 conversations: the count is what the list shows')
+        self.assertTrue(got[-5]['until'],got)
+        # 4 messages in 3 conversations, the first one already read: the menu counts the unread the list marks, «Archive all» — every conversation
+        self.assertEqual((got[-4]['eval'],got[-3]['eval'],got[-2]['eval']),(3,2,'2'),got)
         self.assertIn('(3)',got[-1]['eval'])
         status="document.querySelector('.tm-offline')?.textContent || ''"
         self.assertEqual(self.page({'eval':status})[-1]['eval'],'')
@@ -1485,8 +1487,51 @@ class InboxWebAcceptance(PageInChrome):
                       {'until':rows+"===3 && ("+status+").includes('Нет связи')","ms":15000},{'eval':"[...document.querySelectorAll('.tm-list .tm-person .tm-from')].map(n=>n.textContent).sort()"})
         self.assertTrue(got[-2]['until'],got)
         self.assertEqual(got[-1]['eval'],['Review colleague','Second person','Third person'])
-        got=self.page({'eval':"sessionStorage.removeItem('p14off');dispatchEvent(new Event('online'));true"},{'until':"!document.querySelector('.tm-offline') && "+rows+"===3","ms":15000},{'eval':badge})
-        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],3)
+        got=self.page({'eval':"sessionStorage.removeItem('p14off');dispatchEvent(new Event('online'));true"},{'until':"!document.querySelector('.tm-offline') && "+rows+"===3","ms":15000},{'until':self.NAV_MATCHES_DOTS})
+        self.assertTrue(got[-2]['until'],got);self.assertTrue(got[-1]['until'],got)
+        self.assertEqual(self.non_history_actions(),[])
+
+    # the Inbox item of the ☰ menu: its count as the page shows it ('' — no number)
+    NAV_COUNT=("(()=>{const b=[...document.querySelectorAll('#nav-extra .srow.nav')].find(n=>n.querySelector('.nm')?.textContent==='Inbox');"
+               "const c=b?.querySelector('.nav-count');return c && !c.hidden && getComputedStyle(c).display!=='none' ? c.textContent : ''})()")
+    # after a reload the wide list opens a conversation itself and so reads it: the number follows the unread marks of the list
+    NAV_MATCHES_DOTS=("(()=>{const n=document.querySelectorAll('.tm-list .tm-person .tm-unread').length;return (n?String(n):'')==="+NAV_COUNT+"})()")
+
+    def test_inbox_menu_count_is_unread_conversations_as_plain_text(self):
+        # client-coordinator: the Inbox number counts only unread conversations, plain text in the theme's text colour, as the clients' tile counts
+        self.seed_inbox(start_editing=False)   # the first conversation is opened, so read
+        now=datetime.now(timezone.utc).isoformat()
+        for i,(contact,name) in enumerate([('b','Second person'),('b','Second person'),('c','Third person')]):
+            self.feed({'kind':'msg','id':f'unread-{i}','contact':'synthetic/'+contact,'src':'telegram','from':name,'text':f'Synthetic {i}','reply':True,'at':now})
+        count=self.NAV_COUNT
+        got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"document.querySelectorAll('.tm-list .tm-person').length===3 && "+count+"==='2'"},{'eval':count})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],'2','three conversations, one read: the number is the unread two')
+        # reading one lowers the number at once, marking it unread raises it back; all read — no number at all
+        open_row=lambda name:{'eval':"[...document.querySelectorAll('.tm-list .tm-person')].find(r=>r.querySelector('.tm-from').textContent==="+json.dumps(name)+").click();true"}
+        got=self.page(open_row('Second person'),{'until':count+"==='1'"})
+        self.assertTrue(got[-1]['until'],got)
+        got=self.page({'eval':"document.querySelector('.tm-detail:not([hidden]) [data-action=mark-unread]').click();true"},{'until':count+"==='2'"})
+        self.assertTrue(got[-1]['until'],got)
+        got=self.page(open_row('Second person'),{'until':count+"==='1'"},open_row('Third person'),{'until':count+"===''"},
+                      {'eval':"document.querySelector('#nav-extra .srow.nav .nav-count:not([hidden])')?.textContent ?? 'none'"})
+        self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],'none','zero is not shown')
+        # plain text: no plate, the theme's text colour (not red, not the accent), contrast ≥ 4.5 on the menu in light and dark
+        self.page({'eval':"document.querySelector('.tm-detail:not([hidden]) [data-action=mark-unread]').click();true"},{'until':count+"==='1'"},
+                  open_row('Second person'),{'eval':"document.querySelector('.tm-detail:not([hidden]) [data-action=mark-unread]').click();true"},{'until':count+"==='2'"})
+        look=("(()=>{const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data]};"
+              "const L=c=>{const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"
+              "const c=document.querySelector('#nav-extra .srow.nav .nav-count:not([hidden])'),s=getComputedStyle(c),b=c.closest('.srow.nav'),"
+              "pop=getComputedStyle(document.getElementById('nav-extra')).backgroundColor;"
+              "const a=L(s.color),z=L(pop);return {plate:rgb(s.backgroundColor)[3],radius:s.borderRadius,neutral:(([r,g,b])=>Math.max(r,g,b)-Math.min(r,g,b)<=24)(rgb(s.color)),"
+              "ratio:Math.round((Math.max(a,z)+.05)/(Math.min(a,z)+.05)*100)/100,label:b.textContent.includes('Inbox')}})()")
+        for name in ('clean','classic'):
+            go={'go':f'http://127.0.0.1:{self.port}/#/x/inbox','init':"localStorage.setItem('hub.theme',"+json.dumps(json.dumps({'id':'core:'+name}))+")"}
+            for theme in ('light','dark'):
+                got=self.page({'go':'about:blank'},{'media':theme},go,{'until':"document.querySelectorAll('.tm-list .tm-person').length===3 && "+count+"!=='' && "+self.NAV_MATCHES_DOTS,"ms":15000},{'eval':"document.documentElement.classList.contains('th-clean')"},{'eval':look})
+                self.assertTrue(got[-3]['until'],(name,theme,got));self.assertEqual(got[-2]['eval'],name=='clean',(name,theme))
+                got=got[-1]['eval']
+                self.assertEqual((got['plate'],got['neutral']),(0,True),(name,theme,got))   # a neutral text colour: not red, not the accent
+                self.assertGreaterEqual(got['ratio'],4.5,(name,theme,got))
         self.assertEqual(self.non_history_actions(),[])
 
     def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):
