@@ -2211,7 +2211,7 @@ function sharedReply(m, st) {
     st.box.set({text:native ? replyBody(text,m) : text.trim() ? signed(text,m) : text});
     st.nativeMode=native;
   } else st.box.set({});
-  st.box.node.classList.toggle('tm-core-leading', native && hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions);
+  st.box.node.classList.toggle('tm-core-leading', hub.capabilities?.composerLeading === 1 && !hub.capabilities?.composerActions);
   if(st.replyFooter) {
     st.replyFooter.classList.toggle('tm-native-footer',native);
     st.replyFooter.style.display=native ? '' : 'contents';

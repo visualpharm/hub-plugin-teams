@@ -619,25 +619,25 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-native-footer .tm-discard { flex: none; margin-left: auto; }
 /* Shared-core leading slot: the whole signature is readable above the actions,
    as in the native reply field. The fork's composer-actions layout is unchanged. */
-.tm-core-native .tm-shared-compose .tm-to-field > form.composer.tm-core-leading:not(.rec) {
-  grid-template-columns: auto minmax(0,1fr);
+.tm-shared-compose .tm-to-field > form.composer.tm-core-leading:not(.rec) {
+  display: grid; grid-template-columns: auto minmax(0,1fr);
   grid-template-areas: "reply reply" "pending pending" "entry entry" "attach actions" "error error";
   grid-template-rows: auto;
 }
-.tm-core-native .tm-core-leading > .prompt { grid-area: entry; }
-.tm-core-native .tm-core-leading > .pending { grid-area: pending; }
-.tm-core-native .tm-core-leading > .reply-bar { grid-area: reply; }
-.tm-core-native .tm-core-leading > .attach { grid-area: attach; }
-.tm-core-native .tm-shared-compose form.composer.tm-core-leading:not(.rec) > .bar:not(.reply-bar) {
+.tm-core-leading > .prompt { grid-area: entry; }
+.tm-core-leading > .pending { grid-area: pending; }
+.tm-core-leading > .reply-bar { grid-area: reply; }
+.tm-core-leading > .attach { grid-area: attach; }
+.tm-shared-compose form.composer.tm-core-leading:not(.rec) > .bar:not(.reply-bar) {
   grid-area: actions; display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 0 2px; align-items: center;
 }
-.tm-core-native .tm-core-leading .tm-native-footer { display: contents; }
-.tm-core-native .tm-core-leading .tm-signature {
+.tm-core-leading .tm-native-footer { display: contents; }
+.tm-core-leading .tm-signature {
   grid-column: 1 / -1; grid-row: 1; white-space: normal; overflow: visible; padding-block: 6px;
 }
-.tm-core-native .tm-core-leading .tm-discard { grid-column: 1; grid-row: 2; justify-self: end; }
-.tm-core-native .tm-core-leading .tm-send-options { grid-column: 3; grid-row: 2; }
-.tm-core-native .tm-core-leading > .bar > .send, .tm-core-native .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
+.tm-core-leading .tm-discard { grid-column: 1; grid-row: 2; justify-self: end; }
+.tm-core-leading .tm-send-options { grid-column: 3; grid-row: 2; }
+.tm-core-leading > .bar > .send, .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
 /* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» */
 .tm-shared-compose form.composer > .composer-actions:has(.tm-native-footer) > .spacer { display: none; }
