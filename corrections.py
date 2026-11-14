@@ -33,8 +33,14 @@ def plan_reopen(posts, source, corrects, name='teams'):
     msg, closed = by_post.get(source, {}), by_post.get(corrects, {})
     key, contact = msg.get('id'), msg.get('contact')
     if (msg.get('kind') != 'msg' or not key or not contact or not msg.get('reply')
-            or closed.get('kind') != 'answered' or closed.get('id') != key
-            or int(corrects[1:]) <= int(source[1:])):
+            or closed.get('id') != key):
+        raise ValueError('Source and false answered posts do not match')
+    # closure: a separate `answered` post after the message, or the message post itself re-posted with answered:true
+    if closed.get('kind') == 'answered':
+        ok = int(corrects[1:]) > int(source[1:])
+    else:
+        ok = closed.get('kind') == 'msg' and bool(closed.get('answered')) and int(corrects[1:]) >= int(source[1:])
+    if not ok:
         raise ValueError('Source and false answered posts do not match')
     closure, latest, applied = None, None, False
     for pid, d in trusted:

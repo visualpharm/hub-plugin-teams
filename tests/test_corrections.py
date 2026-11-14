@@ -143,6 +143,20 @@ class Correction(unittest.TestCase):
                 corrections.reopen(st, '/unused', 'teams', 'p10', 'p20', out.append)
             self.assertFalse(out)
 
+    def test_message_reposted_answered_is_a_closure_and_reopens(self):
+        import corrections
+        key, contact = 'abcd1234abcd1234', 'dm-contact'
+        feed = [{'id': 'p10', 'by': 'плагин teams', 'reply_to': None, 'text': json.dumps(
+                    {'kind': 'held_msg', 'id': key, 'contact': contact, 'at': '2026-11-14T11:50:03Z', 'reply': True})},
+                {'id': 'p20', 'by': 'плагин teams', 'reply_to': None, 'text': json.dumps(
+                    {'kind': 'msg', 'id': key, 'contact': contact, 'at': '2026-11-14T11:50:03Z', 'reply': True, 'answered': True})}]
+        st = {'who': {key: {'contact': contact}}}; out = []
+        with patch.object(corrections, 'feed', return_value=feed):
+            self.assertTrue(corrections.reopen(st, '/unused', 'teams', 'p20', 'p20', out.append))
+            self.assertEqual([(o['kind'], o['post'], o['corrects']) for o in out], [('reopened', 'p20', 'p20')])
+            with self.assertRaises(ValueError):   # a msg without answered is not a closure
+                corrections.plan_reopen([dict(feed[1], text=json.dumps(dict(json.loads(feed[1]['text']), answered=False)))], 'p20', 'p20')
+
 
 if __name__ == '__main__':
     unittest.main()
