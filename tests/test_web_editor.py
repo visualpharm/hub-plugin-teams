@@ -593,14 +593,17 @@ class InboxWebAcceptance(PageInChrome):
         mid='answered-elsewhere'
         self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
         self.feed({'kind':'answered','id':mid})
-        self.page({'mclick':'[data-folder=all]'})
-        self.assertTrue(self.page({'until':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('{mid}'))"})[-1]['until'])
-        for folder in ('new','sent','archive'):   # answered elsewhere is in none of the other folders
-            self.page({'mclick':f'[data-folder={folder}]'})
-            self.assertFalse(self.page({'eval':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('{mid}'))"})[-1]['eval'],folder)
-        self.assertFalse(self.page({'eval':"!!document.querySelector('[data-folder=all] .tm-badge, [data-folder=all] .tm-count')"})[-1]['eval'])
-        self.page({'mclick':'[data-folder=all]'})
-        self.page({'mclick':f'[aria-label="Вернуть сообщение {mid}"]'})
+        shown=f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('{mid}'))"
+        folder=lambda f:self.page({'eval':f"document.querySelector('[data-folder={f}]').click();true"})
+        folder('all')
+        self.assertTrue(self.page({'until':shown})[-1]['until'])
+        for f in ('new','sent','archive'):   # answered elsewhere is in none of the other folders
+            folder(f);self.assertFalse(self.page({'eval':shown})[-1]['eval'],f)
+        folder('all')
+        self.assertFalse(self.page({'eval':"/\\d/.test(document.querySelector('[data-folder=all]').textContent)"})[-1]['eval'])   # no count on «Все»
+        self.page({'eval':f"[...document.querySelectorAll('.tm-person')].find(n=>n.textContent.includes('{mid}')).click();true"})
+        self.assertTrue(self.page({'until':f"!!document.querySelector('[aria-label=\"Вернуть сообщение {mid}\"]')"})[-1]['until'])
+        self.page({'eval':f"document.querySelector('[aria-label=\"Вернуть сообщение {mid}\"]').click();true"})
         got=self.queued('reopen')
         self.assertRegex(got['post'],r'^p\d+$');self.assertRegex(got['corrects'],r'^p\d+$')
 
