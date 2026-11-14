@@ -1105,23 +1105,41 @@ function paintUndo() {
   if (!ui) return;
   const strip = ui.undo;
   strip.hidden = !undoStrip;
-  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; return; }
+  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; undoRoom(0); return; }
   if (strip.tmFor !== undoStrip) {   // rebuilt only for a new strip: a repaint keeps focus and is not announced again
     strip.tmFor = undoStrip;
     strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
       button(T("Вернуть", "Undo", "Deshacer"), "tm-undo-action", undoArchive));
   }
-  // Over the bottom of the list; on a narrow screen with a conversation open — above its reply field.
+  // Over the bottom of the list; on a narrow screen with a conversation open — above its actions and reply field.
   const host = strip.offsetParent?.getBoundingClientRect();
   if (!host) return;
   const pane = ui.listPane.checkVisibility() ? ui.listPane : ui.detail;
   const box = pane.getBoundingClientRect();
-  const floor = pane === ui.listPane ? ui.foot.getBoundingClientRect().top
-    : (ui.detail.querySelector(".tm-shared-compose, .tm-compose")?.getBoundingClientRect().top ?? box.bottom);
+  // In the conversation the strip sits above its row of actions, so «Убрать» on the next one stays reachable.
+  const tops = pane === ui.listPane ? [ui.foot.getBoundingClientRect().top]
+    : [...ui.detail.querySelectorAll(".tm-thread > .tm-acts, .tm-thread > .tm-reactions, .tm-shared-compose, .tm-compose")]
+      .map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top);
+  // A low pane (phone on its side, a grown reply field) keeps the strip inside it, over the history, not above the header
+  const floor = Math.max(tops.length ? Math.min(...tops) : box.bottom, box.top + (strip.offsetHeight || 48) + 16);
   strip.style.left = `${box.left - host.left + 8}px`;
   strip.style.width = `${Math.max(0, box.width - 16)}px`;
   strip.style.top = "auto";
   strip.style.bottom = `${host.bottom - Math.min(floor, box.bottom) + 8}px`;
+  undoRoom(pane === ui.detail ? strip.offsetHeight + 8 : 0);
+}
+// Over the conversation the strip would cover its last message — the one read to decide what next: the history
+// gives up the strip's height while it shows (the class sits on the detail, so a repainted history keeps it without animating)
+function undoRoom(px) {
+  const h = ui.detail.querySelector(".tm-history");
+  const want = px ? `${px}px` : "";
+  if (ui.detail.style.getPropertyValue("--tm-undo-room") === want) return;
+  const pinned = h && h.scrollHeight - h.scrollTop - h.clientHeight < 4;
+  if (want) ui.detail.style.setProperty("--tm-undo-room", want); else ui.detail.style.removeProperty("--tm-undo-room");
+  ui.detail.classList.toggle("tm-undo-room", !!px);
+  if (!pinned) return;
+  const end = performance.now() + 200, keep = () => { h.scrollTop = h.scrollHeight; if (performance.now() < end) requestAnimationFrame(keep); };
+  keep();
 }
 
 function button(text, cls, fn, label) {
