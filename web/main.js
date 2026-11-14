@@ -489,7 +489,12 @@ function watchConnection() {
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   if (offline) retryTimer = setTimeout(async () => { retryTimer = null; if (ui?.root.isConnected && (await sync())) paint(); }, 5000);
 }
-const inboxCount = () => byPerson([...msgs.values()].filter((m) => !done(m))).size;
+// число у пункта Inbox — только непрочитанные переписки (синяя точка у строки): прочитанная, но не отвеченная в число
+// не входит, как у счётчиков плиток в клиентах; «Убрать все (N)» по-прежнему считает все переписки списка
+// новые сверху; при равном времени — порядок прихода (сортировка устойчива): строка берёт group[0] из list(), число — то же сообщение
+const newestFirst = (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+const latestOf = (group) => [...group].sort(newestFirst)[0];
+const inboxCount = () => [...byPerson([...msgs.values()].filter((m) => !done(m))).values()].filter((g) => reads.isUnread(latestOf(g))).length;
 let tab = "new", src = "all", confirmAll = false, error = "";
 let searchQuery = "";
 let sortOrder="importance";
@@ -790,7 +795,7 @@ const watching = () => watch ?? directory?.default ?? [];
 function list() {
   return [...msgs.values()]
     .filter((m) => inFolder(m) && (src === "all" || m.src === src))
-    .sort((a, b) => (a.at < b.at ? 1 : -1));
+    .sort(newestFirst);
 }
 
 const count = (pred) => [...msgs.values()].filter(pred).length;
@@ -2910,6 +2915,7 @@ function seg(items, value, set, label) {
 
 function paint() {
   if (!ui) return;
+  queueMicrotask(syncBadge);   // прочитал или отметил непрочитанным — число в меню меняется сразу, не со следующим снимком
   const sendFocus=ui.root.contains(document.activeElement) && document.activeElement.closest('.tm-send-options') ? document.activeElement : null;
   const optionStates = [...ui.root.querySelectorAll('.tm-conversation-options')].filter(menu=>menu.checkVisibility()).map(menu=>({key:menu.dataset.optionKey,open:menu.open,
     focus:menu.contains(document.activeElement) ? document.activeElement.dataset.action || 'summary' : null,
@@ -3289,8 +3295,8 @@ function build(root) {
 }
 
 // пункт в боковой панели — значок как был (владелец 09.10: «в панели слева остался текущий», логотип Teams —
-// только внутри самой вкладки), «Inbox», подпись и число новых — пилюлей, как у «Исполнители N» (sidebar.js:
-// countBadge/.gcount). addView своего же плагина с тем же id — обновление записи, не новая (ext.js:addView), так
+// только внутри самой вкладки), «Inbox», подпись и число непрочитанных переписок (badge) — ядро рисует его простым
+// текстом, как счётчики плиток в клиентах. addView своего же плагина с тем же id — обновление записи, не новая (ext.js:addView), так
 // что звать её заново на каждом render — безопасно и дёшево
 let badgeShown = -1;
 function registerView() {
@@ -3348,6 +3354,9 @@ async function poll() {
   if (loaded && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); }
 }
 let badgeTimer = null;
+// пока список из кэша, число не трогаем: его обновит конец render после загрузки ленты (перерисовка посреди загрузки
+// сбивала переход колокола к разобранному)
+function syncBadge() { if (loaded && !cachedView && badgeShown >= 0 && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); } }
 
 export default function register(h) {
   hub = h;
