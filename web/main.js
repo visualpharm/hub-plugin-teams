@@ -1748,8 +1748,9 @@ function line(m, source=m, named=false) {
   const copyText=messageText(m);
   if(copyText)items.push({label:T('Копировать','Copy'),icon:nativeIcon('copy'),run:()=>navigator.clipboard.writeText(copyText)});
   if(/^p\d+$/.test(source.post) && (source===m || m._place)) {
-    items.push({label:T('Это сообщение — в работу хабу','Hand This Message to Hub'),icon:nativeIcon('reply'),
-      run:()=>hub.compose(hubName(),'Разбери.',{quote:inboxRef({...source,from:m.from || source.from,text:m.text,_place:m._place,providerId:m.providerId})})});
+    if(typeof hub.compose==='function')  // Plugin API below 1.16: no prefill, so no action that would open an empty field
+      items.push({label:T('Это сообщение — в работу хабу','Hand This Message to Hub'),icon:nativeIcon('reply'),
+        run:()=>hub.compose(hubName(),'Разбери.',{quote:inboxRef({...source,from:m.from || source.from,text:m.text,_place:m._place,providerId:m.providerId})})});
     items.push({label:T('Черновик ответа на это сообщение','Draft Reply to This Message'),icon:nativeIcon('draft'),run:async()=>{
       const q=boundedRequest({kind:'ask',what:'draft',rid:requestId(),post:source.post,
         ...(source!==m ? {place:m._place,...(m.providerId ? {msg:m.providerId} : {}),from:m.from || '',at:m.at || ''} : {})});
