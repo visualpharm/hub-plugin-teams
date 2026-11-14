@@ -3354,7 +3354,9 @@ async function poll() {
   if (loaded && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); }
 }
 let badgeTimer = null;
-function syncBadge() { if (loaded && badgeShown >= 0 && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); } }
+// пока список из кэша, число не трогаем: его обновит конец render после загрузки ленты (перерисовка посреди загрузки
+// сбивала переход колокола к разобранному)
+function syncBadge() { if (loaded && !cachedView && badgeShown >= 0 && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); } }
 
 export default function register(h) {
   hub = h;
