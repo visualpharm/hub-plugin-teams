@@ -24,6 +24,7 @@ export function openTarget(params) {
 export function bellAnswered(target, message, { answered, reopened } = {}) {
   if (!message || target?.state !== "answered") return null;
   if (target.id ? message.id !== target.id : message.post !== target.post) return null;
+  if (target.post && message.post && message.post !== target.post) return null;   // id занят новым сообщением: старый колокол его не закрывает
   if (answered?.has(message.id) || reopened?.has(message.id)) return null;
   return target.post || message.post || null;
 }

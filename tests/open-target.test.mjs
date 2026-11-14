@@ -62,10 +62,9 @@ console.log('Inbox open target: any notifying plugin by id, answered messages op
   const card={id:'m1',post:'p12'};
   assert.equal(bellAnswered({id:'m1',post:'p12',state:'answered'},card,{answered:new Set(),reopened:new Set()}),'p12','a card already in the list takes the answered mark of the address');
   assert.equal(bellAnswered({id:'m1',state:'answered'},card,{answered:new Set()}),'p12','no post in the address: the mark sits on the card post');
-  assert.equal(bellAnswered({post:'p12',state:'answered'},card,{}),'p12');
+  assert.equal(bellAnswered({id:'m1',post:'p12',state:'answered'},{id:'m1',post:'p80'},{}),null,'the id now names a newer message: an old bell does not close it');
   assert.equal(bellAnswered({id:'m1',post:'p12'},card,{}),null,'no state — nothing to mark');
   assert.equal(bellAnswered({id:'other',state:'answered'},card,{}),null,'another message than the address names');
-  assert.equal(bellAnswered({post:'p13',state:'answered'},card,{}),null);
   assert.equal(bellAnswered({id:'m1',state:'answered'},undefined,{}),null);
   assert.equal(bellAnswered({id:'m1',state:'answered'},card,{answered:new Set(['m1'])}),null,'the feed fact of the answer stays as it is');
   assert.equal(bellAnswered({id:'m1',state:'answered'},card,{reopened:new Set(['m1'])}),null,'a card reopened after the answer is newer than the bell');

@@ -651,8 +651,8 @@ async function sync() {
         if (!previous && chain.predecessors(d.id).length) replaced.push([d.id, chain.predecessors(d.id)[0]]);
         restorePendingReply(message);
         editorStates.get(d.id)?.observe(msgs.get(d.id));
-        if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); }
-      } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); chain.closed(d.id, d.newer, Number(p.id.slice(1))); }
+        if (d.answered) { answered.add(d.id); answeredAt.set(d.id, p.id); reopened.delete(d.id); }
+      } else if (p.by === AUTHOR && d?.kind === "answered") { answered.add(d.id); answeredAt.set(d.id, p.id); reopened.delete(d.id); chain.closed(d.id, d.newer, Number(p.id.slice(1))); }
       else if (p.by === AUTHOR && ["read","read_failed"].includes(d?.kind)) {
         const accepted=typeof navigator!=='undefined' && navigator.locks
           ? await navigator.locks.request('hub.inbox.provider-read:'+hubName(),()=>providerReads.accept(d)) : providerReads.accept(d);
