@@ -3971,7 +3971,8 @@ class InboxWebAcceptance(PageInChrome):
         for i in range(n):
             self.feed({'kind':'msg','id':f'adv-{i}','contact':f'synthetic/adv-{i}','src':'dm','from':f'Person {i}','text':f'Advance fixture {i}',
                        'reply':True,'at':f'2026-11-1{i}T12:00:00Z'})
-        got=self.page({'until':f"document.querySelectorAll('.tm-person').length==={n}"},{'eval':self.ORDER})
+        want=json.dumps(sorted(json.dumps(['teams',f'synthetic/adv-{i}'],separators=(',',':')) for i in range(n)))
+        got=self.page({'until':f"JSON.stringify(({self.ORDER}).sort())===JSON.stringify({want})"},{'eval':self.ORDER})   # only the fixture rows: the seed row is hidden
         self.assertTrue(got[-2]['until'],got)
         return got[-1]['eval']
 
