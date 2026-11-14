@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-const {openTarget,openFolder,OPEN_FOLDERS,feedMessage,canLoadOld,oldMessage}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
+const {openTarget,openFolder,OPEN_FOLDERS,feedMessage,canLoadOld,oldMessage,bellAnswered}=await import('data:text/javascript,'+encodeURIComponent(readFileSync('web/open-target.js','utf8')));
 
 // Колокольчик хаба: уведомление плагина proactivity, id — id сообщения ленты teams
 assert.deepEqual(openTarget({plugin:'proactivity',id:'wa:whatsapp:549@c.us:ABC'}),{id:'wa:whatsapp:549@c.us:ABC'},
@@ -56,3 +56,16 @@ assert.ok(/canLoadOld\(target, hub\.snapshot\(\)\?\.features\)/.test(main) && ma
 assert.ok(!/const reply = d\.src === "support"/.test(main),'the message shape of a feed post is built in one place');
 assert.ok(main.includes('openNotice'),'a message that is not found says so instead of a silent empty list');
 console.log('Inbox open target: any notifying plugin by id, answered messages open in the done folder');
+
+// «Отвечено» из адреса колокола — и для карточки, что уже в списке, не только для догруженной по номеру поста
+{
+  const card={id:'m1',post:'p12'};
+  assert.equal(bellAnswered({id:'m1',post:'p12',state:'answered'},card,{answered:new Set(),reopened:new Set()}),'p12','a card already in the list takes the answered mark of the address');
+  assert.equal(bellAnswered({id:'m1',state:'answered'},card,{answered:new Set()}),'p12','no post in the address: the mark sits on the card post');
+  assert.equal(bellAnswered({id:'m1',post:'p12',state:'answered'},{id:'m1',post:'p80'},{}),null,'the id now names a newer message: an old bell does not close it');
+  assert.equal(bellAnswered({id:'m1',post:'p12'},card,{}),null,'no state — nothing to mark');
+  assert.equal(bellAnswered({id:'other',state:'answered'},card,{}),null,'another message than the address names');
+  assert.equal(bellAnswered({id:'m1',state:'answered'},undefined,{}),null);
+  assert.equal(bellAnswered({id:'m1',state:'answered'},card,{answered:new Set(['m1'])}),null,'the feed fact of the answer stays as it is');
+  assert.equal(bellAnswered({id:'m1',state:'answered'},card,{reopened:new Set(['m1'])}),null,'a card reopened after the answer is newer than the bell');
+}
