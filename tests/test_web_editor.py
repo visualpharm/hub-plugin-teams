@@ -4224,7 +4224,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual([t for t in en if __import__("re").search("[а-яё]", t, __import__("re").I)], [], en)
 
     def non_history_actions(self):
-        return [e for e in self.spooled() if not (e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "history")]
+        # page.held is the page's own restart-hold beat in the live core (core/restart.py), not an action of the plugin.
+        return [e for e in self.spooled() if e["type"] != "page.held"
+                and not (e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "history")]
 
     def queued(self, kind):
         if kind=='read':
