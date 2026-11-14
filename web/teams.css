@@ -714,3 +714,10 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   font-size: var(--text-base, 15px); box-shadow: 0 4px 16px rgb(0 0 0 / 0.18); }
 .tm-undo[hidden] { display: none; }
 .tm-undo .tm-undo-action { min-height: 36px; padding-inline: 14px; border: 1px solid currentColor; border-radius: 18px; background: transparent; color: inherit; font-weight: 600; }
+
+/* Открытая переписка в списке — как выбранный тред на Mac: заливка акцентом, белый текст.
+   Тот же акцент, что у выбранной папки (--tm-folder-selected): белый на нём читается в обеих темах. */
+.tm-person.tm-selected, .tm-person.tm-selected:hover, .tm-person.tm-selected:focus-visible { background: var(--tm-folder-selected); color: #fff; border-radius: 8px; }
+.tm-person.tm-selected :is(.tm-from, .tm-text, .tm-text.tm-clamp, .ago, .tm-age, .tm-pinned, .tm-row-status) { color: #fff; }
+.tm-person.tm-selected .tm-unread { background: #fff; }
+.tm-container:not(.tm-narrow) .tm-list > .tm-person.tm-selected::after { display: none; }

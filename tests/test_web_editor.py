@@ -4077,6 +4077,28 @@ class InboxWebAcceptance(PageInChrome):
         self.assertRegex(css,r'\.tm-person\.tm-leaving \{[^}]*transition: opacity 1[0-8]\dms')
         self.assertRegex(css,r'prefers-reduced-motion: reduce\) \{ \.tm-person\.tm-leaving \{ transition: none')
 
+    def test_undo_strip_clears_the_actions_and_the_open_row_is_marked(self):
+        order=self.seed_people(3)
+        self.page({'viewport':{'width':390,'height':844}})
+        self.open_row(order[1])
+        self.archive_open()
+        got=self.page({'until':f"({self.OPEN})==={json.dumps(order[2])} && !document.querySelector('.tm-undo').hidden"},
+                      {'eval':"(()=>{const u=document.querySelector('.tm-undo').getBoundingClientRect(),a=document.querySelector('.tm-detail:not([hidden]) .tm-thread > .tm-acts').getBoundingClientRect();return {strip:u.bottom,acts:a.top,h:a.height}})()"})
+        self.assertTrue(got[0]['until'],got);row=got[-1]['eval']
+        self.assertGreater(row['h'],0,row);self.assertLessEqual(row['strip'],row['acts'],'the strip must not cover the next conversation\'s actions')
+        # Desktop: the open row is filled like the selected thread on the Mac, white text readable on it, unlike its neighbours and the list behind
+        mark=("(()=>{const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data].slice(0,4)};"
+              "const L=c=>{const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"
+              "const r=document.querySelector('.tm-person[aria-current=true]'),o=[...document.querySelectorAll('.tm-person:not([aria-current])')];if(!r)return null;"
+              "const bg=getComputedStyle(r).backgroundColor,worst=Math.min(...[...r.querySelectorAll('.tm-from,.tm-text,.ago,.tm-age')].map(e=>{const a=L(getComputedStyle(e).color),b=L(bg);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)}));"
+              "let p=r.parentElement;while(p&&rgb(getComputedStyle(p).backgroundColor)[3]===0)p=p.parentElement;const pane=p?getComputedStyle(p).backgroundColor:'';"
+              "return {key:r.dataset.conversation,worst,same:o.filter(e=>getComputedStyle(e).backgroundColor===bg).length+(rgb(bg).join()===rgb(pane).join()?1:0)}})()")
+        for theme in ('light','dark'):
+            self.page({'media':theme},{'viewport':{'width':1440,'height':900}})
+            got=self.page({'until':"!!document.querySelector('.tm-person[aria-current=true]')"},{'eval':mark})
+            m=got[-1]['eval'];self.assertTrue(m,got)
+            self.assertEqual(m['key'],order[2]);self.assertGreaterEqual(m['worst'],4.5,(theme,m));self.assertEqual(m['same'],0,(theme,m))
+
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 

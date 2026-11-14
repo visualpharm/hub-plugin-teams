@@ -1111,13 +1111,16 @@ function paintUndo() {
     strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
       button(T("Вернуть", "Undo", "Deshacer"), "tm-undo-action", undoArchive));
   }
-  // Over the bottom of the list; on a narrow screen with a conversation open — above its reply field.
+  // Over the bottom of the list; on a narrow screen with a conversation open — above its actions and reply field.
   const host = strip.offsetParent?.getBoundingClientRect();
   if (!host) return;
   const pane = ui.listPane.checkVisibility() ? ui.listPane : ui.detail;
   const box = pane.getBoundingClientRect();
-  const floor = pane === ui.listPane ? ui.foot.getBoundingClientRect().top
-    : (ui.detail.querySelector(".tm-shared-compose, .tm-compose")?.getBoundingClientRect().top ?? box.bottom);
+  // In the conversation the strip sits above its row of actions, so «Убрать» on the next one stays reachable.
+  const tops = pane === ui.listPane ? [ui.foot.getBoundingClientRect().top]
+    : [...ui.detail.querySelectorAll(".tm-thread > .tm-acts, .tm-shared-compose, .tm-compose")]
+      .map((e) => e.getBoundingClientRect()).filter((r) => r.height > 0).map((r) => r.top);
+  const floor = tops.length ? Math.min(...tops) : box.bottom;
   strip.style.left = `${box.left - host.left + 8}px`;
   strip.style.width = `${Math.max(0, box.width - 16)}px`;
   strip.style.top = "auto";
