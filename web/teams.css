@@ -634,7 +634,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 }
 .tm-core-leading .tm-native-footer { display: contents; }
 .tm-core-leading .tm-signature {
-  grid-column: 1 / -1; grid-row: 1; white-space: normal; overflow: visible; padding-block: 6px;
+  grid-area: sig; white-space: normal; overflow: visible; padding-block: 6px;
 }
 .tm-core-leading .tm-discard { grid-area: discard; justify-self: end; height: 38px; min-height: 0; }
 .tm-container .tm-shared-compose .tm-to-field > form.composer.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading:not(.rec) {
@@ -645,8 +645,11 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-container .tm-shared-compose .tm-to-field > form.composer.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-expanded-reply:not(.rec) {
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" "discard . attach actions options" "feedback feedback feedback feedback feedback" "error error error error error";
 }
+.tm-container .tm-shared-compose .tm-to-field > form.composer.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading.tm-core-leading:has(.tm-signature:not([hidden])):not(.rec) {
+  grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" "sig sig sig sig sig" "discard . attach actions options" "feedback feedback feedback feedback feedback";
+}
 .tm-core-leading .tm-send-options { grid-area: options; }
-.tm-core-leading .tm-send-options > summary { height: 38px; }
+.tm-core-leading .tm-send-options > summary { height: 44px; margin-block: -3px; }
 .tm-core-leading > .bar > .send, .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
 /* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» */
