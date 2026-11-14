@@ -54,3 +54,9 @@ management work owns the protocol; this slice changes only its web consumer.
 - LetterRow uses the first attachment label followed by its14px media-type glyph when no message text exists. Audio prefers transcript, otherwise voice label plus m:ss duration; files use their name.
 - Collapse preview newlines; preserve two-line clamp and outgoing folder preview priority. Thumbnails are44px squares, radius8, gap8; explicit video/file thumbnails are valid too.
 - Source tests and synthetic captures do not prove actual Safari or complete native pixel parity.
+
+## Standard list actions (2026-11-13)
+- One rule with the native lists (ListAdvance): the open conversation left the list by the owner's action on this page (Archive, Archive all, Send and Archive on its receipt, Move to Inbox from Archive) — the next one below opens; none below — the nearest above; none left — nothing (desktop: the empty column, phone: the list).
+- A departure that is not the owner's action here (the hub closed it, another device archived it, another folder) opens nothing: opening marks a conversation read. The own mark lives 60 s and shrinks to 1 s after the first step, as in the native.
+- Archive leaves "Archived: N · Undo" for ten seconds over the list bottom (phone: above the reply field of the open conversation); Undo and Cmd/Ctrl+Z put the rows back and reopen the one that was open. Cmd/Ctrl+Z inside a text field stays the field's own. Send and Archive and Move to Inbox make no strip, as in the native. A hub refusal of Archive puts the rows back and reopens the open one.
+- No single-key Delete and no new group actions. The leaving row fades in 150 ms; reduced motion removes the movement.
