@@ -834,8 +834,11 @@ class InboxWebAcceptance(PageInChrome):
                     self.assertEqual(got['text'],got['foreground'],(src,theme,width,got));self.assertEqual(got['overflow'],0)
             self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"})
         self.page({'mclick':'.tm-options summary'},{'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Каналы')).click();document.querySelector('.tm-options').open=false;true"})
-        got=self.page({'eval':"(()=>{const t=document.querySelector('.tm-list .tm-line.tm-done > .tm-text');return [getComputedStyle(t).color,getComputedStyle(document.querySelector('.tm')).color,getComputedStyle(document.querySelector('.tm-sent-chat > .tm-draft-text')).color]})()"})[-1]['eval']
-        self.assertEqual(got[0],got[1]);self.assertEqual(got[2],'rgb(255, 255, 255)')
+        got=self.page({'eval':"(()=>{const t=document.querySelector('.tm-list .tm-line.tm-done > .tm-text');return [getComputedStyle(t).color,getComputedStyle(document.querySelector('.tm')).color,getComputedStyle(document.querySelector('.tm-sent-chat > .tm-draft-text')).color,getComputedStyle(document.querySelector('.tm-sent-chat > .tm-draft-text')).backgroundColor,document.querySelector('.tm').classList.contains('tm-core-native')]})()"})[-1]['eval']
+        self.assertEqual(got[0],got[1])
+        # the native look paints the bubble in the accent with white text; without it the text must still differ from its bubble
+        if got[4]: self.assertEqual(got[2],'rgb(255, 255, 255)')
+        else: self.assertNotEqual(got[2],got[3])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_sent_reply_does_not_follow_target_only_rebinding(self):
