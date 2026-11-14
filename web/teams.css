@@ -355,6 +355,7 @@
 .tm-icon-open { --tm-icon: url("icons/open.svg"); }
 .tm-icon-archive { --tm-icon: url("icons/archive.svg"); }
 .tm-icon-sent { --tm-icon: url("icons/sent.svg"); } /* Shared native Icons8 SF Regular asset. */
+.tm-icon-all { --tm-icon: url("icons/all.svg"); } /* Shared native Icons8 SF Regular list asset. */
 .tm-icon-sort { --tm-icon: url("icons/sort.svg"); }
 .tm-sort { position: relative; flex: none; }
 .tm-sort[hidden] { display: none; }

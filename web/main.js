@@ -580,6 +580,7 @@ const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pend
 function inFolder(m, folder = tab) {
   if (folder === "sent") return sentOk(m.id) || deliveredReactions.has(m.id) || outgoing(m,["later"]);
   if (folder === "archive") return (hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m)) && !answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id);
+  if (folder === "all") return true;   // «Все»: прочитанные, отвеченные и убранные — ничего не прячется (счёта на вкладке нет)
   if (folder === "failed") return !hidden.has(m.id) && !answered.has(m.id) && outgoing(m,["fail","unresolved"]);
   return folder === "new" ? !done(m) : done(m);
 }
@@ -1042,6 +1043,15 @@ function handoffMenu(m) {
   body.append(quick);
   if (!saved) body.append(el("p", "tm-note", T("История передач недоступна. Открой тред, чтобы продолжить.", "Handoff history is unavailable. Open the thread to continue.")));
   return menu;
+}
+
+async function reopenAnswered(m) {
+  const corrects = answeredAt.get(m.id);
+  if (!corrects) return false;
+  const ok = await mark("reopen", { post: m.post, corrects });
+  if (ok) tab = "new";   // карточка вернётся постом reopened от collector'а
+  paint();
+  return ok;
 }
 
 // own=false: the Undo of the strip — it puts the row back itself and must not advance the list
@@ -1634,7 +1644,7 @@ function personRow(key, group) {
   head.append(listAge(secs(latest.at)));
   // непрочитано — синяя точка 9 в колонке знака слева, как у строк тредов (list-controls-sync §2.2); пустая колонка той же ширины
   const sign = el("span", "tm-sign");
-  if (tab === "new" && reads.isUnread(latest)) {
+  if ((tab === "new" || tab === "all" && !done(latest)) && reads.isUnread(latest)) {
     const dot = el("span", "tm-unread"); dot.setAttribute("role", "img"); dot.setAttribute("aria-label", T("Не прочитано", "Unread")); sign.append(dot);
   }
   row.append(sign, head);
@@ -2871,7 +2881,9 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     acts.prepend(react);
     acts.prepend(action(T("Убрать","Archive"), "archive", () => archive(open.map((m) => m.id)), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
-    acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));
+    acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));  } else if (answeredAt.has(last.id) && !sentOk(last.id) && /^p\d+$/.test(last.post || "")) {
+    // закрыто «отвечено» вне плагина (например, ответ ушёл из Teams): штатная правка collector'а reopen открывает карточку заново
+    acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => reopenAnswered(last), `${T("Вернуть сообщение","Restore message from")} ${personName(last.from)}`));
   }
   if (safeLink(last.link)) {
     const a = el("a", "tm-link");
@@ -3014,11 +3026,12 @@ function paintAll() {
   const pool = (m) => inFolder(m);
   // titles as the native Inbox (Inbox+L10n folder.*); the spoken labels in the same language as the rest of the bar
   const folders = [["new","Inbox",T("Переписки во Inbox","Inbox conversations","Conversaciones en Inbox"),null],["sent",T("Отправленные","Sent","Enviados"),T("Отправленные переписки","Sent conversations","Conversaciones enviadas"),"send"],["archive",T("Архив","Archive","Archivo"),T("Переписки в архиве","Archived conversations","Conversaciones archivadas"),"archive"]];
+  folders.push(["all",T("Все","All","Todos"),T("Все переписки","All conversations","Todas las conversaciones"),"all"]);
   if (tab === "failed" || count(m=>inFolder(m,"failed"))) folders.push(["failed",T("Не ушло","Failed","Fallidos"),T("Ответы, которые не ушли","Failed replies","Respuestas fallidas"),"deny"]);
   ui.tabs.replaceChildren(...folders.map(([key,title,label,icon]) => {
     const b = button("", "tm-folder", () => { tab=key; dmPerson=null; confirmAll=false; openNotice=""; paint(); },label);
     b.dataset.folder=key; b.setAttribute("aria-pressed",String(tab===key)); b.title=title;
-    if (icon) b.append(icon === "archive" ? nativeIcon("archive") : icon === "send" ? nativeIcon("sent") : hub.icon(icon));
+    if (icon) b.append(icon === "archive" ? nativeIcon("archive") : icon === "send" ? nativeIcon("sent") : icon === "all" ? nativeIcon("all") : hub.icon(icon));
     else b.append(nativeIcon("inbox"));
     if (tab === key) b.append(el("span","tm-folder-label",title));
     return b;

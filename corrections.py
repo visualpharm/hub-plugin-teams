@@ -64,7 +64,10 @@ def reopen(st, state_dir, name, source, corrects, put):
     key, contact = event['id'], event['contact']
     ref = st.get('refs', {}).get(key) or {}
     # Restoring a card must not silently change its delivery destination.
-    if not ref.get('wa') or f"wa:{ref['wa']}:{ref.get('to')}" != contact:
+    if ref.get('wa'):
+        if f"wa:{ref['wa']}:{ref.get('to')}" != contact:
+            raise ValueError('Stored reply destination does not match the source item')
+    elif (st.get('who') or {}).get(key, {}).get('contact') != contact:   # не WhatsApp: собеседник, записанный при показе
         raise ValueError('Stored reply destination does not match the source item')
     msg = json.loads(next(p['text'] for p in posts if p['id'] == source))
     if not msg.get('at'):

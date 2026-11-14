@@ -127,6 +127,22 @@ class Correction(unittest.TestCase):
         self.assertEqual(st, before)
         self.assertFalse(out)
 
+    def test_teams_dm_item_reopens_by_stored_contact(self):
+        import corrections
+        key, contact = 'abcd1234abcd1234', 'dm-contact'
+        feed = [{'id': 'p10', 'by': 'плагин teams', 'reply_to': None, 'text': json.dumps(
+                    {'kind': 'msg', 'id': key, 'contact': contact, 'at': '2026-11-14T11:42:49Z', 'reply': True})},
+                {'id': 'p20', 'by': 'плагин teams', 'reply_to': None, 'text': json.dumps({'kind': 'answered', 'id': key})}]
+        st = {'who': {key: {'contact': contact}}, 'hist': {key + '||': 1}}; out = []
+        with patch.object(corrections, 'feed', return_value=feed):
+            self.assertTrue(corrections.reopen(st, '/unused', 'teams', 'p10', 'p20', out.append))
+            self.assertEqual(st['open'][key], [contact, '2026-11-14T11:42:49Z'])
+            self.assertEqual([o['kind'] for o in out], ['reopened'])
+            st['who'][key]['contact'] = 'other'; out.clear()
+            with self.assertRaises(ValueError):
+                corrections.reopen(st, '/unused', 'teams', 'p10', 'p20', out.append)
+            self.assertFalse(out)
+
 
 if __name__ == '__main__':
     unittest.main()
