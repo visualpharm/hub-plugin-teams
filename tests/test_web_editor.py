@@ -3553,6 +3553,7 @@ class InboxWebAcceptance(PageInChrome):
             self.page({'eval':"document.querySelector('.tm-conversation-options').open=false;true"})
         self.assertEqual(self.non_history_actions(),[])
 
+    @needs_core_feature('taskBody', "this core has no hub.taskBody: message text is plain, there are no rendered links to read")
     def test_short_history_stacks_above_actions_and_own_links_stay_readable(self):
         self.seed_inbox(start_editing=False)
         self.feed({"kind":"thread","id":"source-a","part":0,"of":1,"more":False,"items":[
