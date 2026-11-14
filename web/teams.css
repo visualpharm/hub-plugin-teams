@@ -649,7 +649,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
   grid-template-areas: "reply reply reply reply reply" "pending pending pending pending pending" "entry entry entry entry entry" "sig sig sig sig sig" "discard . attach actions options" "feedback feedback feedback feedback feedback";
 }
 .tm-core-leading .tm-send-options { grid-area: options; }
-.tm-core-leading .tm-send-options > summary { height: 44px; margin-block: -3px; }
+.tm-core-leading .tm-send-options > summary { height: 44px; margin-bottom: -6px; }
 .tm-core-leading > .bar > .send, .tm-core-leading > .bar > .mic { grid-column: 2; grid-row: 2; }
 .tm-core-native .tm-core-leading > .bar > .spacer { display: none; }
 /* корзина черновика — одно место на всех ширинах: справа, рядом с «Отправить» */
