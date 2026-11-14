@@ -497,6 +497,7 @@ const newestFirst = (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
 const latestOf = (group) => [...group].sort(newestFirst)[0];
 const inboxCount = () => [...byPerson([...msgs.values()].filter((m) => !done(m))).values()].filter((g) => reads.isUnread(latestOf(g))).length;
 let tab = "new", src = "all", confirmAll = false, error = "";
+let reopenAsked = null;   // пост, который просили вернуть кнопкой: отказ collector'а покажем только по нему, старые отказы молчат
 let searchQuery = "";
 let sortOrder="importance";
 try { if(localStorage.getItem("hub.inbox.sort")==="time")sortOrder="time"; } catch {}
@@ -663,6 +664,9 @@ async function sync() {
           const m=msgs.get(id);
           if(m && (d.target ? accepted===true && m.target===d.target : true))m.unread=false;
         }
+      }
+      else if (p.by === AUTHOR && d?.kind === "reopen_failed") {
+        if (reopenAsked && d.post === reopenAsked) { reopenAsked = null; error = T("Не удалось вернуть: ","Could not restore: ","No se pudo restaurar: ") + (d.error || ""); }
       }
       else if (p.by === AUTHOR && d?.kind === "reopened") {
         const m = msgs.get(d.id);
@@ -1048,6 +1052,7 @@ function handoffMenu(m) {
 async function reopenAnswered(m) {
   const corrects = answeredAt.get(m.id);
   if (!corrects) return false;
+  reopenAsked = m.post; error = "";
   const ok = await mark("reopen", { post: m.post, corrects });
   if (ok) tab = "new";   // карточка вернётся постом reopened от collector'а
   paint();

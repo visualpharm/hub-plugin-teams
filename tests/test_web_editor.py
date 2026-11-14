@@ -606,6 +606,8 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':f"document.querySelector('[aria-label=\"Вернуть сообщение {mid}\"]').click();true"})
         got=self.queued('reopen')
         self.assertRegex(got['post'],r'^p\d+$');self.assertRegex(got['corrects'],r'^p\d+$')
+        self.feed({'kind':'reopen_failed','post':got['post'],'corrects':got['corrects'],'error':'The item or its closure has changed'})   # refusal shows its reason
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-alert')?.textContent.includes('The item or its closure has changed')"})[-1]['until'])
 
     def test_guarded_reply_recovers_after_definitive_refusal(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'))
