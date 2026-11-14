@@ -1492,8 +1492,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.non_history_actions(),[])
 
     # the Inbox item of the ☰ menu: its count as the page shows it ('' — no number)
+    # null: no Inbox item in the menu at all, so an absent item never passes for 'no number'
     NAV_COUNT=("(()=>{const b=[...document.querySelectorAll('#nav-extra .srow.nav')].find(n=>n.querySelector('.nm')?.textContent==='Inbox');"
-               "const c=b?.querySelector('.nav-count');return c && !c.hidden && getComputedStyle(c).display!=='none' ? c.textContent : ''})()")
+               "if(!b)return null;const c=b.querySelector('.nav-count');return c && !c.hidden && getComputedStyle(c).display!=='none' ? c.textContent : ''})()")
     # after a reload the wide list opens a conversation itself and so reads it: the number follows the unread marks of the list
     NAV_MATCHES_DOTS=("(()=>{const n=document.querySelectorAll('.tm-list .tm-person .tm-unread').length;return (n?String(n):'')==="+NAV_COUNT+"})()")
 
@@ -1532,6 +1533,18 @@ class InboxWebAcceptance(PageInChrome):
                 got=got[-1]['eval']
                 self.assertEqual((got['plate'],got['neutral']),(0,True),(name,theme,got))   # a neutral text colour: not red, not the accent
                 self.assertGreaterEqual(got['ratio'],4.5,(name,theme,got))
+        self.assertEqual(self.non_history_actions(),[])
+
+    def test_inbox_menu_count_takes_the_same_latest_message_as_the_row(self):
+        # two messages of one person at the same time, the first read: the row dot and the menu number look at the same message
+        self.seed_inbox(start_editing=False)
+        now=datetime.now(timezone.utc).isoformat()
+        self.feed({'kind':'msg','id':'tie-0','contact':'synthetic/e','src':'telegram','from':'Tie person','text':'Synthetic first','reply':True,'at':now,'unread':False})
+        self.feed({'kind':'msg','id':'tie-1','contact':'synthetic/e','src':'telegram','from':'Tie person','text':'Synthetic second','reply':True,'at':now})
+        got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},
+                      {'until':"document.querySelectorAll('.tm-list .tm-person').length===2 && "+self.NAV_COUNT+"!==null","ms":15000},
+                      {'until':self.NAV_MATCHES_DOTS,"ms":5000},{'eval':"[document.querySelectorAll('.tm-list .tm-person .tm-unread').length,"+self.NAV_COUNT+"]"})
+        self.assertTrue(got[-3]['until'],got);self.assertTrue(got[-2]['until'],got[-1])
         self.assertEqual(self.non_history_actions(),[])
 
     def test_hand_off_menu_chooses_a_hub_agent_and_the_latest_thread(self):

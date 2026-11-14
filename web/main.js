@@ -491,7 +491,9 @@ function watchConnection() {
 }
 // число у пункта Inbox — только непрочитанные переписки (синяя точка у строки): прочитанная, но не отвеченная в число
 // не входит, как у счётчиков плиток в клиентах; «Убрать все (N)» по-прежнему считает все переписки списка
-const latestOf = (group) => group.reduce((a, b) => (b.at > a.at ? b : a));
+// новые сверху; при равном времени — порядок прихода (сортировка устойчива): строка берёт group[0] из list(), число — то же сообщение
+const newestFirst = (a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
+const latestOf = (group) => [...group].sort(newestFirst)[0];
 const inboxCount = () => [...byPerson([...msgs.values()].filter((m) => !done(m))).values()].filter((g) => reads.isUnread(latestOf(g))).length;
 let tab = "new", src = "all", confirmAll = false, error = "";
 let searchQuery = "";
@@ -793,7 +795,7 @@ const watching = () => watch ?? directory?.default ?? [];
 function list() {
   return [...msgs.values()]
     .filter((m) => inFolder(m) && (src === "all" || m.src === src))
-    .sort((a, b) => (a.at < b.at ? 1 : -1));
+    .sort(newestFirst);
 }
 
 const count = (pred) => [...msgs.values()].filter(pred).length;
