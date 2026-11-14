@@ -727,3 +727,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-person.tm-selected:focus-visible { outline-color: #fff; outline-offset: -4px; }
 /* Узкий список и плоский вид — без боковых полей у строки: заливка выходит тенью на 6px, текст не прилипает к краю */
 .tm-container.tm-narrow .tm-person.tm-selected, .tm-flat .tm-person.tm-selected { box-shadow: 0 0 0 6px var(--tm-folder-selected); }
+/* Пока плашка «Вернуть» над перепиской, лента поднимается на её высоту; уходит — опускается тем же переходом */
+.tm-detail .tm-history { transition: margin-bottom 150ms ease; }
+.tm-detail.tm-undo-room .tm-history { margin-bottom: var(--tm-undo-room, 0px); }
+@media (prefers-reduced-motion: reduce) { .tm-detail .tm-history { transition: none; } }

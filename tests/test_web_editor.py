@@ -4086,6 +4086,15 @@ class InboxWebAcceptance(PageInChrome):
                       {'eval':"(()=>{const u=document.querySelector('.tm-undo').getBoundingClientRect(),a=document.querySelector('.tm-detail:not([hidden]) .tm-thread > .tm-acts').getBoundingClientRect();return {strip:u.bottom,acts:a.top,h:a.height}})()"})
         self.assertTrue(got[0]['until'],got);row=got[-1]['eval']
         self.assertGreater(row['h'],0,row);self.assertLessEqual(row['strip'],row['acts'],'the strip must not cover the next conversation\'s actions')
+        # ...nor its last message: the history gives up the strip's height while it shows, and takes it back after
+        last=("(()=>{const h=document.querySelector('.tm-detail:not([hidden]) .tm-history'),k=[...h.children].filter(e=>e.getBoundingClientRect().height>0).pop();"
+              "return Math.min(k.getBoundingClientRect().bottom,h.getBoundingClientRect().bottom)<=document.querySelector('.tm-undo').getBoundingClientRect().top})()")
+        self.assertTrue(self.page({'until':last})[-1]['until'],'the last message stands above the strip')
+        got=self.page({'mclick':'.tm-undo-action'},{'until':f"({self.OPEN})==={json.dumps(order[1])} && document.querySelector('.tm-undo').hidden"},
+                      {'eval':"document.querySelector('.tm-detail:not([hidden])').classList.contains('tm-undo-room')"})
+        self.assertTrue(got[-2]['until'],got);self.assertFalse(got[-1]['eval'],'no strip — the history is back in place')
+        self.open_row(order[1]);self.archive_open()
+        self.page({'until':f"({self.OPEN})==={json.dumps(order[2])} && !document.querySelector('.tm-undo').hidden"})
         # Desktop: the open row is filled like the selected thread on the Mac, white text readable on it, unlike its neighbours and the list behind
         mark=("(()=>{const rgb=c=>{const x=document.createElement('canvas').getContext('2d');x.fillStyle=c;x.fillRect(0,0,1,1);return [...x.getImageData(0,0,1,1).data].slice(0,4)};"
               "const L=c=>{const v=rgb(c).slice(0,3).map(x=>{x/=255;return x<=.03928?x/12.92:((x+.055)/1.055)**2.4});return .2126*v[0]+.7152*v[1]+.0722*v[2]};"

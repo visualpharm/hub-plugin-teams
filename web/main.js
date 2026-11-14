@@ -1105,7 +1105,7 @@ function paintUndo() {
   if (!ui) return;
   const strip = ui.undo;
   strip.hidden = !undoStrip;
-  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; return; }
+  if (!undoStrip) { strip.replaceChildren(); strip.tmFor = null; undoRoom(0); return; }
   if (strip.tmFor !== undoStrip) {   // rebuilt only for a new strip: a repaint keeps focus and is not announced again
     strip.tmFor = undoStrip;
     strip.replaceChildren(el("span", null, T(`В архиве: ${undoStrip.count}`, `Archived: ${undoStrip.count}`, `Archivados: ${undoStrip.count}`)),
@@ -1126,6 +1126,20 @@ function paintUndo() {
   strip.style.width = `${Math.max(0, box.width - 16)}px`;
   strip.style.top = "auto";
   strip.style.bottom = `${host.bottom - Math.min(floor, box.bottom) + 8}px`;
+  undoRoom(pane === ui.detail ? strip.offsetHeight + 8 : 0);
+}
+// Over the conversation the strip would cover its last message — the one read to decide what next: the history
+// gives up the strip's height while it shows (the class sits on the detail, so a repainted history keeps it without animating)
+function undoRoom(px) {
+  const h = ui.detail.querySelector(".tm-history");
+  const want = px ? `${px}px` : "";
+  if (ui.detail.style.getPropertyValue("--tm-undo-room") === want) return;
+  const pinned = h && h.scrollHeight - h.scrollTop - h.clientHeight < 4;
+  if (want) ui.detail.style.setProperty("--tm-undo-room", want); else ui.detail.style.removeProperty("--tm-undo-room");
+  ui.detail.classList.toggle("tm-undo-room", !!px);
+  if (!pinned) return;
+  const end = performance.now() + 200, keep = () => { h.scrollTop = h.scrollHeight; if (performance.now() < end) requestAnimationFrame(keep); };
+  keep();
 }
 
 function button(text, cls, fn, label) {
