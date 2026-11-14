@@ -1477,7 +1477,7 @@ class InboxWebAcceptance(PageInChrome):
         for i,(contact,name) in enumerate([('b','Second person'),('b','Second person'),('c','Third person')]):
             self.feed({'kind':'msg','id':f'count-{i}','contact':'synthetic/'+contact,'src':'telegram','from':name,'text':f'Synthetic {i}','reply':True,'at':now})
         rows="document.querySelectorAll('.tm-list .tm-person').length"
-        badge="import('/static/js/ext.js').then(m=>m.viewInfo('inbox').badge)"
+        badge="import('/static/js/ext.js').then(m=>m.viewInfo ? m.viewInfo('inbox').badge : Number([...document.querySelectorAll('button.nav[title^=\"Inbox\"] .nav-count:not([hidden])')].map(n=>n.textContent)[0]))"
         got=self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':rows+"===3"},{'eval':rows},{'eval':badge},
                       {'eval':"document.querySelector('.tm-bulk')?.textContent || ''"})
         self.assertTrue(got[-4]['until'],got)
