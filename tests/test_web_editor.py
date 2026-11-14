@@ -588,6 +588,22 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-list > .tm-thread').length===1"})[-1]['until'])
         self.assertEqual(self.queued('unhide')['ids'],['archive-a'])
 
+    def test_all_view_shows_answered_and_restores_it(self):
+        self.seed_inbox(start_editing=False);self.page({'eval':"document.querySelector('.tm-close-conversation')?.click();true"})
+        mid='answered-elsewhere'
+        self.feed({'kind':'msg','id':mid,'contact':mid,'src':'channel','from':mid,'text':'Incoming '+mid,'reply':True,'at':'2026-10-17T12:00:00Z'})
+        self.feed({'kind':'answered','id':mid})
+        self.page({'mclick':'[data-folder=all]'})
+        self.assertTrue(self.page({'until':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('{mid}'))"})[-1]['until'])
+        for folder in ('new','sent','archive'):   # answered elsewhere is in none of the other folders
+            self.page({'mclick':f'[data-folder={folder}]'})
+            self.assertFalse(self.page({'eval':f"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('{mid}'))"})[-1]['eval'],folder)
+        self.assertFalse(self.page({'eval':"!!document.querySelector('[data-folder=all] .tm-badge, [data-folder=all] .tm-count')"})[-1]['eval'])
+        self.page({'mclick':'[data-folder=all]'})
+        self.page({'mclick':f'[aria-label="Вернуть сообщение {mid}"]'})
+        got=self.queued('reopen')
+        self.assertRegex(got['post'],r'^p\d+$');self.assertRegex(got['corrects'],r'^p\d+$')
+
     def test_guarded_reply_recovers_after_definitive_refusal(self):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'))
         self.edit('Original guarded reply')
