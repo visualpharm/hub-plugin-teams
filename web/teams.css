@@ -3,9 +3,7 @@
 .tm { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .tm-top { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4) var(--space-5) var(--space-3);
   border-bottom: 1px solid var(--border); }
-.tm-title-row { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
 .tm-logo { width: 22px; height: 22px; flex: none; align-self: center; }   /* лого Teams — только здесь, не в боковой панели (владелец 09.10) */
-.tm-title { margin: 0; font-size: var(--text-lg); font-weight: 650; }
 .tm-bar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .tm-bulk { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
 .tm-confirm { font-size: var(--text-sm); }
@@ -116,8 +114,6 @@
   .tm-srcs { order: 3; flex-basis: 100%; }   /* вкладки и «Выбрать каналы» — в одной строке, источники — под ними */
   .tm-bulk { order: 4; margin-left: 0; }
 }
-/* внутри приложения заголовок раздела рисует само приложение */
-[data-app] .tm-title-row { display: none; }
 
 /* The same shell, composer and reading order as the shared client design. */
 .tm-container { container-type: inline-size; }
@@ -374,6 +370,8 @@
 :root :is(.tm-handoff-toggle, .tm-send-options > summary) > .tm-native-icon.tm-icon-chevron-down.tm-icon-chevron-down { width: 16px; height: 16px; }
 .tm-icon-work { --tm-icon: url("icons/work.svg"); }
 .tm-icon-quick { --tm-icon: url("icons/quick.svg"); }
+/* плавающая кнопка быстрого сообщения на странице уже есть — вторую, в шапке, не показываем */
+:root:has(.qp-fab:not([hidden])) .tm-quick-trigger { display: none; }
 .tm-quick-trigger { width: 44px; height: 44px; flex: none; padding: 10px; border: 0; border-radius: 50%; background: var(--muted); }
 .tm-quick { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 16px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 20px; background: var(--background); color: var(--foreground); box-shadow: var(--shadow-lift); }
 .tm-quick::backdrop { background: #0005; }

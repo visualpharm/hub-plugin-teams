@@ -4114,7 +4114,7 @@ class InboxWebAcceptance(PageInChrome):
         order=self.seed_people(1)
         self.open_row(order[0])
         self.archive_open()
-        got=self.page({'until':"!document.querySelector('.tm-person') && !document.querySelector('.tm-empty-detail').hidden"},{'eval':self.OPEN})
+        got=self.page({'until':"!document.querySelector('.tm-person') && document.querySelector('.tm-empty-detail').hidden"},{'eval':self.OPEN})   # an empty list says it once, in the list
         self.assertTrue(got[-2]['until'],got);self.assertEqual(got[-1]['eval'],'')
         self.assertFalse(self.page({'eval':"document.querySelector('.tm-undo').hidden"})[-1]['eval'])
         self.assertTrue(self.page({'until':"document.querySelector('.tm-undo').hidden",'ms':13000})[-1]['until'],'the strip lives ten seconds')

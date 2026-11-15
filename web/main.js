@@ -3118,12 +3118,12 @@ function paintAll() {
   }
   ui.wrap.classList.toggle("tm-detail-open", !!(grouped && dmPerson));
   ui.detail.hidden = !(grouped && dmPerson);
-  ui.emptyDetail.hidden = !grouped || !!dmPerson;
+  ui.emptyDetail.hidden = !grouped || !!dmPerson || !matching.length;   // пустой список: одна надпись в списке, без второй «Сообщение не выбрано»
   ui.detail.dataset.conversation=grouped && dmPerson || "";
   if (!loaded) { const wait = el("p", "tm-empty tm-loading", offline ? T("Нет связи с хабом. Повторю сам.", "No connection to Hub. Retrying.") : T("Загружаю…", "Loading…")); wait.setAttribute("role", "status"); wait.setAttribute("aria-busy", String(!offline)); ui.list.replaceChildren(wait); }
   else if (!items.length) {
     ui.list.replaceChildren(el("p", "tm-empty", tab === "new"
-      ? (msgs.size ? "Новых сообщений нет. Разобранные — во вкладке рядом." : emptyNote())
+      ? (msgs.size ? T("Новых сообщений нет", "No new messages", "No hay mensajes nuevos") : emptyNote())
       : tab === "sent" ? T("Отправленных и отложенных ответов нет.", "No sent or scheduled replies.") : tab === "archive" ? T("В архиве пусто.", "No archived conversations.")
       : tab === "failed" ? T("Неудачных ответов нет.", "No failed replies.") : "Здесь будут скрытые, отвеченные и переданные хабу сообщения."));
   } else if (grouped && dmPerson) {
@@ -3233,8 +3233,7 @@ function build(root) {
   resize.observe(root);
   const wrap = el("div", "tm");
   const head = el("header", "tm-top");
-  const title = el("div", "tm-title-row");
-  title.append(el("h2", "tm-title", "Inbox"));   // логотип Teams убран: здесь и WhatsApp, и почта (владелец 10.10)
+  // без заголовка раздела: «Inbox» уже написано на активной вкладке (один раз, не дважды)
   const bar = el("div", "tm-bar");
   const tabs = el("div","tm-folders"), srcs = el("div", "tm-srcs"), bulk = el("div", "tm-bulk");
   const sort=el("details","tm-sort"), sortSummary=el("summary","btn quiet"), sortChoices=el("div","tm-sort-choices");
@@ -3263,7 +3262,7 @@ function build(root) {
   panelNode.hidden = true;
   const alerts = el("div", "tm-alerts");
   alerts.setAttribute("role", "status");
-  controls.append(panelNode); head.append(title, bar, alerts);
+  controls.append(panelNode); head.append(bar, alerts);
   let prompt = null, promptFeedback = null;
   if (hub.capabilities?.composerTransport === 1) {
     prompt = el("div", "tm-whole-prompt");
