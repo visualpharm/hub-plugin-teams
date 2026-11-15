@@ -3000,7 +3000,10 @@ class InboxWebAcceptance(PageInChrome):
             for text in ('','Short reply'):
                 self.edit(text)
                 got=self.page({'eval':"(()=>{const c=document.querySelector('.tm-shared-compose .composer'),d=c.querySelector('.tm-discard'),t=c.querySelector('textarea'),a=c.querySelector('.bar > :last-child'),r=x=>x.getBoundingClientRect();return {height:r(c).height,discard:d.hidden,overlap:!d.hidden && r(d).right>r(t).left+1,actionOverlap:r(t).right>r(a).left+1,overflow:document.documentElement.scrollWidth-innerWidth}})()"})[-1]['eval']
-                self.assertLessEqual(got['height'],78,(width,text,got))   # one row + the recipient line;self.assertEqual(got['discard'],not bool(text));self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
+                # one row + the recipient line
+                self.assertLessEqual(got['height'],78,(width,text,got))
+                self.assertEqual(got['discard'],not bool(text))
+                self.assertFalse(got['overlap']);self.assertFalse(got['actionOverlap']);self.assertEqual(got['overflow'],0)
 
     def test_failed_folder_keeps_every_inbox_toolbar_control_inside_its_pane(self):
         self.seed_inbox(start_editing=False)
@@ -3820,7 +3823,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep this Inbox reply")
         self.page({"eval":"document.querySelector('.tm-close-conversation').click();true"},{"viewport":{"width":402,"height":874}})
         got=self.page({"eval":"({bottom:document.querySelector('.tm-top').getBoundingClientRect().bottom-document.querySelector('.tm-container').getBoundingClientRect().top,filterVisible:!!document.querySelector('.tm-srcs').getClientRects().length,overflow:document.documentElement.scrollWidth-innerWidth})"})[-1]["eval"]
-        self.assertLess(got["bottom"],230,got)   # measured from the plugin container: the host header differs between cores;self.assertFalse(got["filterVisible"],got);self.assertEqual(got["overflow"],0,got)
+        # measured from the plugin container: the host header differs between cores
+        self.assertLess(got["bottom"],230,got);self.assertFalse(got["filterVisible"],got);self.assertEqual(got["overflow"],0,got)
         self.page({"mclick":".tm-options summary"})
         self.assertTrue(self.page({"eval":"!!document.querySelector('.tm-srcs').getClientRects().length"})[-1]["eval"])
         self.page({"key":"Escape"})
@@ -4267,6 +4271,7 @@ class InboxWebAcceptance(PageInChrome):
                     "at": "2026-09-01T10:00:00Z", "text": "A question from long ago.", "react": True})
         for n in range(520):
             post({"kind": "note", "n": n})   # push the old post out of the 500-post window of the channel
+        self.settle()   # the tail publishes the last post before the page reloads
         # wait for the reloaded page, not the old one that still shows folders: the old page may have the card from the live feed
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"eval": "window.__beforeReload=true;location.reload();true"},
                   {"until": "!window.__beforeReload && !!document.querySelector('.tm-folder')"})
