@@ -1,5 +1,6 @@
 """Canonical collector delivery races: only synthetic accounts and transport."""
 import copy
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -42,7 +43,7 @@ class Delivery(unittest.TestCase):
         return {'id':'a', 'rid':rid, 'text':'Verified reply', 'inbox':delivery.context(st, 'a'),
                 'automatic':automatic}
 
-    def run_send(self, st, queue, result=None, error=None):
+    def run_send(self, st, queue, result=None, error=None, now=None):
         out, calls, saved = [], [], []
         def send(*args, **kwargs):
             calls.append((args, kwargs))
@@ -51,7 +52,7 @@ class Delivery(unittest.TestCase):
         reader = type('Reader', (), {'close':lambda self:None})()
         with patch.object(main, 'save', side_effect=lambda s:saved.append(copy.deepcopy(s))), \
                 patch.object(main, 'deliver', side_effect=send),patch.object(main,'preflight_guarded'):
-            main.send_replies(st, reader, queue, out.append)
+            main.send_replies(st, reader, queue, out.append, **({'now':datetime.fromtimestamp(now,timezone.utc)} if now else {}))
         return out, calls, saved
 
     def test_manual_auto_race_and_restart_have_one_commit(self):
@@ -128,6 +129,104 @@ class Delivery(unittest.TestCase):
                 delivery.control(st,{**q,'rid':action,'inbox':held,'action':action,'editor':'client-b'})
         fresh=delivery.control(st,{**q,'rid':'new-edit','inbox':held})
         self.assertEqual(fresh['edit_version'],held['edit_version']+1)
+
+    def test_owner_on_another_client_takes_over_hold_and_sends(self):
+        st=state(); st['cfg']['inbox_guard']=False
+        web=delivery.control(st,{'id':'a','rid':'web-hold','inbox':delivery.context(st,'a'),
+                                 'action':'hold','editor':'web-1'},now=1000)
+        blocked,calls,_=self.run_send(st,[{**self.request(st,'phone-early'),'editor':'phone-1'}],now=1005)
+        self.assertEqual((blocked[-1]['kind'],calls),('send_blocked',[]))
+        taken=delivery.control(st,{'id':'a','rid':'phone-take','inbox':web,'action':'takeover','editor':'phone-1'},now=1010)
+        self.assertEqual((taken['held'],taken['holder'],taken['edit_version']),(True,'phone-1',web['edit_version']+1))
+        self.assertEqual(delivery.control(st,{'id':'a','rid':'phone-take','inbox':web,'action':'takeover',
+                                              'editor':'phone-1'},now=1011),taken)   # replay: no second increment
+        for action in ('hold','release'):   # the displaced client holds a stale token and no ownership
+            with self.assertRaises(ValueError):
+                delivery.control(st,{'id':'a','rid':'web-'+action,'inbox':taken,'action':action,'editor':'web-1'},now=1012)
+        stale,calls,_=self.run_send(st,[{'id':'a','rid':'web-send','text':'Old draft','inbox':web,'editor':'web-1'}],now=1013)
+        self.assertEqual((stale[-1]['kind'],calls),('send_blocked',[]))
+        sent,calls,_=self.run_send(st,[{**self.request(st,'phone-send'),'editor':'phone-1'}],result={'id':'receipt-1'},now=1014)
+        self.assertEqual((['sent' in [e['kind'] for e in sent]],len(calls)),([True],1))
+        self.assertFalse(delivery.context(st,'a')['held'])
+
+    def test_takeover_needs_current_token_and_cannot_cross_a_delivery_claim(self):
+        st=state()
+        web=delivery.control(st,{'id':'a','rid':'web-hold','inbox':delivery.context(st,'a'),
+                                 'action':'hold','editor':'web-1'},now=1000)
+        old={**web,'edit_version':web['edit_version']-1}
+        with self.assertRaises(ValueError):
+            delivery.control(st,{'id':'a','rid':'t1','inbox':old,'action':'takeover','editor':'phone-1'},now=1001)
+        with self.assertRaises(ValueError):
+            delivery.control(st,{'id':'a','rid':'t2','inbox':web,'action':'takeover'},now=1001)
+        delivery.claim(st,{**self.request(st,'web-send'),'editor':'web-1'})
+        with self.assertRaises(ValueError):
+            delivery.control(st,{'id':'a','rid':'t3','inbox':delivery.context(st,'a'),'action':'takeover',
+                                 'editor':'phone-1'},now=1002)
+
+    def test_hold_expires_for_manual_clients_but_never_reopens_automatic_send(self):
+        st=state(); self.new_source(st)
+        web=delivery.control(st,{'id':'a','rid':'web-hold','inbox':delivery.context(st,'a'),
+                                 'action':'hold','editor':'web-1'},now=1000)
+        self.assertEqual(delivery.expire(st,1000+delivery.HOLD_TTL-1),[])
+        self.assertTrue(delivery.context(st,'a')['held'])
+        self.assertEqual(sorted(delivery.expire(st,1000+delivery.HOLD_TTL)),['a','b'])
+        free=delivery.context(st,'a')
+        self.assertEqual((free['held'],free['holder'],free['edit_version']),(False,None,web['edit_version']+1))
+        self.assertEqual(delivery.expire(st,1000+2*delivery.HOLD_TTL),[])   # once
+        with self.assertRaises(ValueError):   # inactivity is not the owner's release
+            delivery.check(st,self.request(st,'auto',True))
+        phone=delivery.control(st,{'id':'a','rid':'phone-hold','inbox':free,'action':'hold','editor':'phone-1'},now=5000)
+        self.assertEqual(phone['holder'],'phone-1')
+        released=delivery.control(st,{'id':'a','rid':'phone-release','inbox':phone,'action':'release','editor':'phone-1'},now=5001)
+        delivery.check(st,{**self.request(st,'auto2',True),'inbox':released})   # explicit release reopens it
+
+    def test_expired_hold_lets_another_client_send_manually(self):
+        st=state(); st['cfg']['inbox_guard']=False
+        delivery.control(st,{'id':'a','rid':'web-hold','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        seen=self.request(st,'phone-send')   # the phone still shows the token with the other client's hold
+        out,calls,_=self.run_send(st,[{**seen,'editor':'phone-1'}],now=1000+delivery.HOLD_TTL)
+        stale=[e for e in out if e['kind']=='send_blocked'][0]   # the term bumped edit_version: fresh token comes back
+        self.assertEqual(([e['reason'] for e in out if e['kind']=='draft_state'],stale['inbox']['held'],calls),(['expired'],False,[]))
+        sent,calls,_=self.run_send(st,[{**seen,'rid':'phone-retry','inbox':stale['inbox'],'editor':'phone-1'}],
+                                   result={'id':'receipt-1'},now=1001+delivery.HOLD_TTL)
+        self.assertEqual((['sent' in [e['kind'] for e in sent]],len(calls)),([True],1))
+
+    def test_hold_term_is_a_setting_renewed_by_hold_and_zero_disables_it(self):
+        st=state(); st['cfg']['inbox_hold_ttl']=60
+        held=delivery.control(st,{'id':'a','rid':'h1','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        delivery.control(st,{'id':'a','rid':'h2','inbox':held,'action':'hold','editor':'web-1'},now=1050)
+        self.assertEqual(delivery.expire(st,1100),[])
+        st['cfg']['inbox_hold_ttl']=0
+        self.assertEqual(delivery.expire(st,10**9),[])
+        st['cfg']['inbox_hold_ttl']=60
+        self.assertEqual(delivery.expire(st,1110),['a'])
+
+    def test_hold_without_a_start_time_gets_the_full_term_from_first_check(self):
+        st=state()
+        delivery.control(st,{'id':'a','rid':'h1','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        del delivery.editor_state(st,delivery.store(st)['items']['a'])['since']   # state written before the term existed
+        self.assertEqual(delivery.expire(st,10**6),[])
+        self.assertEqual(delivery.expire(st,10**6+delivery.HOLD_TTL-1),[])
+        self.assertEqual(delivery.expire(st,10**6+delivery.HOLD_TTL),['a'])
+
+    def test_hold_of_a_scheduled_reply_does_not_expire(self):
+        st=state()
+        held=delivery.control(st,{'id':'a','rid':'h1','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        st['later']={'night':{'id':'a','rid':'night','text':'Morning reply','inbox':held,'editor':'web-1','at':'2026-10-16T11:00:00Z'}}
+        self.assertEqual(delivery.expire(st,10**6),[])
+        self.assertEqual(delivery.context(st,'a'),held)
+
+    def test_collector_publishes_expired_hold_and_accepts_takeover_request(self):
+        st=state(); out=[]; at=lambda s: datetime.fromtimestamp(s,timezone.utc)
+        held=delivery.control(st,{'id':'a','rid':'h1','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        reader=type('Reader',(),{'close':lambda self:None})()
+        with patch.object(main,'save'):
+            main.send_replies(st,reader,[{'draft_control':True,'id':'a','rid':'take','inbox':held,'action':'takeover',
+                                          'editor':'phone-1'}],out.append,now=at(1001))
+            self.assertEqual([(e['kind'],e['inbox']['holder']) for e in out],[('draft_state','phone-1')])
+            del out[:]
+            main.send_replies(st,reader,[],out.append,now=at(1001+delivery.HOLD_TTL))
+        self.assertEqual([(e['kind'],e['id'],e['reason'],e['inbox']['held']) for e in out],[('draft_state','a','expired',False)])
 
     def new_source(self, st, key='b', chat='chat-a'):
         item=incoming(key,'New verified facts',chat)

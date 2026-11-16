@@ -33,13 +33,14 @@ and conversation generation. It is a consistency token, not a signature.
 
 Owner `draft_control` carries `id`, unique `rid`, current `inbox`, stable per-Hub
 client `editor` identity and an explicit
-`action` of `hold` or `release`. The collector compares source/editor versions,
+`action` of `hold`, `release` or `takeover`. The collector compares source/editor versions,
 persists the change, and publishes `draft_state` with the new token. Replay of an
 identical request returns current state; reused request IDs with different input
 are rejected. A fresh same-client hold increments edit_version, even if already
 held, invalidating older proposals; replay of the same request does not increment.
-Another client cannot take or release an acknowledged hold. Navigation, inactivity
-and restart never release a hold. Hold ownership and `edit_version` belong to the
+Another client cannot release an acknowledged hold and cannot acquire it with
+`hold`; it may only take it over explicitly (below). Navigation and restart never
+release a hold; inactivity ends it only after the hold term (below). Hold ownership and `edit_version` belong to the
 verified source account plus exact conversation, rather than an incoming row ID.
 A newly observed row immediately exposes any existing conversation hold; already
 observed sibling rows share it too. A client does not need to poll or reassert the
@@ -51,8 +52,63 @@ of a protected scheduled reply retains the item and acquires a hold.
 Candidate state upgrades legacy row holds into conversation editor records,
 preserving every active holder and the highest edit revision. Conflicting legacy
 holders block sends; each may explicitly release only its own hold with a current
-token. No client may take over the other holder. An unowned cancellation hold must
+token, or one client replaces them all with `takeover`. An unowned cancellation hold must
 be explicitly adopted before release. This state upgrade does not enable the guard.
+
+### Takeover
+
+The owner is one person on several clients. A client that shows the conversation
+held by another editor offers an explicit action (for example "Continue here") and
+sends:
+
+```json
+{"kind":"draft_control","id":"<item id>","rid":"<new unique id>",
+ "inbox":{"v":1,"version":"…","edit_version":7,"held":true,"holder":"web-1","manual_followup":false},
+ "editor":"phone-1","action":"takeover"}
+```
+
+`inbox` is the current token exactly as received (the one that names the other
+holder). Success is the usual `draft_state` with the same `id` and `rid`:
+
+```json
+{"kind":"draft_state","id":"<item id>","rid":"<same rid>",
+ "inbox":{"v":1,"version":"…","edit_version":8,"held":true,"holder":"phone-1","manual_followup":false}}
+```
+
+The requester now holds the conversation and sends as after its own `hold`.
+`edit_version` grows by one, so the displaced client's token is stale: its
+`hold`, `release` and Send are refused, it keeps its local text and may take the
+conversation back only with its own explicit `takeover`. A scheduled reply the
+displaced client left pending carries the old token and is refused at its hour
+instead of going out next to the new reply. Refusal is `draft_control_failed`
+with `id`, `rid`, `error`: stale token (refresh and repeat with a new `rid`),
+missing `editor`, or a delivery already claimed for this version. Takeover of a
+free or unowned hold equals `hold`. A collector older than this contract answers
+`draft_control_failed` to `takeover`; the client then keeps the previous
+behaviour. Takeover is never implied by Send: a non-holder Send stays refused.
+
+### Hold term
+
+A hold lasts `inbox_hold_ttl` seconds from its last `hold` or `takeover`
+(default 1800; owner `settings` field `inbox_hold_ttl`, integer 0–604800, 0 = no
+term; the current value is in the `config` post). A fresh `hold` from the holder
+restarts the term. When it ends the collector clears the hold, increases
+`edit_version` and publishes for every open item of the conversation
+
+```json
+{"kind":"draft_state","id":"<item id>","rid":"expired:<edit_version>:<item id>","reason":"expired",
+ "inbox":{"v":1,"version":"…","edit_version":9,"held":false,"holder":null,"manual_followup":false}}
+```
+
+Any client may then `hold` and send as usual; clients that know nothing of the
+term keep working: a Send with the older token gets the existing stale
+`send_blocked` carrying the fresh token. The former holder keeps its local text
+and must `hold` again before sending. Expiry is not the owner's release:
+automatic sends for the same conversation generation stay refused until an
+explicit `hold`/`takeover` and `release`, a manual send, or a new incoming
+message. A hold that carries a scheduled reply does not expire while that reply
+waits. A hold stored before the term existed gets a full term from the first
+check after upgrade.
 
 Clients must acquire and confirm the hold when an editor or private directive
 becomes active, preserve intentional empty edits, and handle a competing committed

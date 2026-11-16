@@ -211,7 +211,7 @@ class Choice:
         elif isinstance(body, dict) and body.get('kind') == 'draft_control':
             if all(isinstance(body.get(k),str) and body[k] for k in ('id','rid')):
                 self.sends.append({'draft_control':True, **{k:body[k] for k in
-                    ('id','rid','inbox','action','editor') if k in body}})
+                    ('id','rid','inbox','action','editor') if k in body}})   # action: hold | release | takeover
         elif isinstance(body,dict) and body.get('kind') == 'manage':
             if isinstance(body.get('rid'),str) and body['rid'] and isinstance(body.get('text'),str):
                 self.sends.append({'manage':True,'rid':body['rid'],'text':body['text']})
@@ -267,7 +267,9 @@ class Choice:
             self.settings = {"signature": str(body.get("signature") or "")[:300],
                              "autodraft": body.get("autodraft") is not False,
                              "prompt": str(body.get("prompt") or "").strip()[:PROMPT_MAX],
-                             **({'inbox_guard':body['inbox_guard']} if isinstance(body.get('inbox_guard'),bool) else {})}
+                             **({'inbox_guard':body['inbox_guard']} if isinstance(body.get('inbox_guard'),bool) else {}),
+                             **({'inbox_hold_ttl':body['inbox_hold_ttl']} if type(body.get('inbox_hold_ttl')) is int
+                                and 0 <= body['inbox_hold_ttl'] <= 604800 else {})}
         elif isinstance(body, dict) and body.get("kind") == "hours":
             self.hours = hours.clean(body) or self.hours   # пустое окно не принимаем: остаётся прежнее
         elif isinstance(body, dict) and body.get("kind") == "hours_for" and isinstance(body.get("id"), str):
@@ -819,7 +821,7 @@ def config(st, put=post):
     """Действующие настройки — постом: их читают вкладка и приложения (подпись черновиков, «черновик сразу»)."""
     cfg = st.get("cfg") or {}
     put({"kind": "config", "v": 3, "signature": cfg.get("signature") or "", "autodraft": cfg.get("autodraft") is not False,
-         'inbox_guard':cfg.get('inbox_guard') is True,
+         'inbox_guard':cfg.get('inbox_guard') is True, 'inbox_hold_ttl':inbox_delivery.hold_ttl(st),
          'inbox_protocol':{'version':1,'private_proposal':True,'editor_cas':True,'shared_claim':True,
                            'receipt_sources':['teams'],'requires_all_clients':True},
          # повтор rid ответа (Teams и вне) подтверждает итог только той же просьбе с тем же target, иначе отказ, без
@@ -1290,6 +1292,15 @@ def send_replies(st, reader, queue, put=post, now=None):
     done = st.setdefault("sent_rids", [])
     later = st.setdefault("later", {})
     put = held_aware(st, archive_after(st, put))
+    stamp = now.timestamp() if now else time.time()
+    editors = inbox_delivery.store(st)['editors'].values()
+    unstamped = any(e['holders'] and 'since' not in e for e in editors)
+    lapsed = [k for k in inbox_delivery.expire(st, stamp) if k in (st.get('open') or {})]
+    if lapsed or unstamped:
+        save(st)
+    for key in lapsed:   # every client learns the conversation is free again: no request of its own to answer
+        token = inbox_delivery.context(st, key)
+        put({'kind':'draft_state','id':key,'rid':f"expired:{token['edit_version']}:{key}"[:200],'reason':'expired','inbox':token})
     if "rid_tombs" not in st:   # состояние до отпечатков: уже отправленные rid — тоже под защитой
         for r in done:
             tomb(st, r)
@@ -1309,7 +1320,7 @@ def send_replies(st, reader, queue, put=post, now=None):
             continue
         if q.get('draft_control'):
             try:
-                token = inbox_delivery.control(st,q)
+                token = inbox_delivery.control(st,q,stamp)
                 save(st)
                 put({'kind':'draft_state','id':q['id'],'rid':q['rid'],'inbox':token})
             except ValueError as e:

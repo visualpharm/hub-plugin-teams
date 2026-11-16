@@ -7,7 +7,10 @@ contain no destination or message text; accepted source records retain the facts
 import hashlib
 import json
 import os
+import time
 from contextlib import contextmanager
+
+HOLD_TTL = 1800   # seconds an editor hold lasts without a fresh hold; cfg inbox_hold_ttl overrides, 0 = no term
 
 
 @contextmanager
@@ -130,8 +133,40 @@ def current(st, q):
     return row,ctx
 
 
-def control(st, q):
-    """Owner-only CAS hold/release, independent of presence and wall clock."""
+def hold_ttl(st):
+    value = (st.get('cfg') or {}).get('inbox_hold_ttl')
+    return value if isinstance(value,int) and not isinstance(value,bool) and value >= 0 else HOLD_TTL
+
+
+def expire(st, now):
+    """Drop holds older than the term; returns the item keys whose token changed.
+    The owner never released: manual sends from any client are free again, automatic
+    sends stay closed for this conversation generation. A hold that carries a
+    scheduled reply is kept, or that reply would turn stale before its hour.
+    """
+    db = store(st)
+    ttl = hold_ttl(st)
+    scheduled = {db['items'][q['id']]['thread'] for q in (st.get('later') or {}).values()
+                 if isinstance(q,dict) and q.get('inbox') and q.get('id') in db['items']}
+    out = []
+    for thread,edit in db['editors'].items():
+        if not edit['holders']:
+            continue
+        if not isinstance(edit.get('since'),(int,float)):
+            edit['since'] = now   # hold recorded before the term existed: full term from now
+            continue
+        if not ttl or now - edit['since'] < ttl or thread in scheduled:
+            continue
+        edit['holders'] = []
+        edit.pop('since',None)
+        edit['lapsed'] = db['threads'].get(thread)
+        edit['edit_version'] += 1
+        out += [key for key,row in db['items'].items() if row['thread'] == thread]
+    return out
+
+
+def control(st, q, now=None):
+    """Owner-only CAS hold/release/takeover. Presence never releases; only the term (expire) does."""
     db = store(st)
     editor=q.get('editor')
     if not isinstance(editor,str) or not editor or len(editor)>100:
@@ -142,11 +177,12 @@ def control(st, q):
             raise ValueError('Editor request ID was reused with different input')
         return context(st,q['id'])
     row,ctx = current(st,q)
-    if q.get('action') not in ('hold','release'):
-        raise ValueError('Explicit hold or release action required')
+    if q.get('action') not in ('hold','release','takeover'):
+        raise ValueError('Explicit hold, release or takeover action required')
     edit = editor_state(st,row)
     holders = edit['holders']
-    if holders and editor not in holders and holders != [None]:
+    takeover = q['action']=='takeover'   # the owner moved to this client: explicit, never implied by a send
+    if not takeover and holders and editor not in holders and holders != [None]:
         raise ValueError('Another client holds this editor; retain local text')
     if holders == [None] and q['action']=='release':
         raise ValueError('Adopt the unowned cancellation hold before releasing it')
@@ -154,13 +190,18 @@ def control(st, q):
         raise ValueError('Another client holds this editor; retain local text')
     if ctx['version'] in db['claims'] and db['claims'][ctx['version']]['state'] != 'held':
         raise ValueError('Delivery already claimed; reconcile its outcome')
-    edit['holders'] = [editor] if q['action']=='hold' else [h for h in holders if h != editor]
+    edit['holders'] = [h for h in holders if h != editor] if q['action']=='release' else [editor]
     edit['edit_version'] += 1
+    edit.pop('lapsed',None)
+    if q['action']=='release' and not edit['holders']:
+        edit.pop('since',None)
+    elif q['action']!='release':
+        edit['since'] = time.time() if now is None else now
     db['controls'][q['rid']] = {'id':q['id'],'input':fingerprint}
     return context(st,q['id'])
 
 
-def cancel_hold(st, key, editor=None):
+def cancel_hold(st, key, editor=None, now=None):
     """A canceled deferred send preserves the whole conversation's editor exclusion."""
     row = store(st)['items'].get(key)
     if not row:
@@ -168,6 +209,7 @@ def cancel_hold(st, key, editor=None):
     edit = editor_state(st,row)
     if not edit['holders']:
         edit['holders'] = [editor if isinstance(editor,str) and 0 < len(editor) <= 100 else None]
+        edit['since'] = time.time() if now is None else now
     edit['edit_version'] += 1
     return context(st,key)
 
@@ -178,6 +220,9 @@ def check(st, q):
         raise ValueError('Shared editor protection is not activated')
     if ctx['held'] and (q.get('automatic') or not q.get('editor') or q.get('editor') != ctx.get('holder')):
         raise ValueError('Owner is editing or directing this conversation; explicit release required')
+    if q.get('automatic') and 'lapsed' in editor_state(st,row) \
+            and editor_state(st,row)['lapsed'] == store(st)['threads'].get(row['thread']):
+        raise ValueError('Owner hold expired without release; explicit release required')
     if ctx['manual_followup'] and (q.get('automatic') or not isinstance(q.get('editor'),str)
                                   or not 0 < len(q['editor']) <= 100):
         raise ValueError('A manual follow-up requires a stable client editor')
@@ -203,6 +248,7 @@ def claim(st,q):
     edit = editor_state(st,row)
     if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
         edit['holders']=[]
+        edit.pop('since',None)
         edit['edit_version']+=1
     return key
 
