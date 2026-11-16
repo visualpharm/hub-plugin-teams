@@ -754,4 +754,5 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-ignored-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .tm-ignored-who { font-weight: 500; overflow-wrap: anywhere; }
 .tm-ignored-where { color: var(--muted-foreground); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-ignored-row .tm-restore { margin-left: auto; min-height: 44px; border: 0; background: transparent; color: var(--primary); font-weight: 500; }
+.tm-ignored-row .tm-restore { margin-left: auto; min-height: 44px; border: 0; background: transparent; font-weight: 500;
+  color: light-dark(#3f5ced, var(--primary)); }   /* light: 5.3:1 on white, 4.7:1 on the gray shell; --primary there is 4.4:1 */

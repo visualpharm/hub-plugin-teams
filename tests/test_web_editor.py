@@ -4333,6 +4333,24 @@ class InboxWebAcceptance(PageInChrome):
             color = self.page({"eval": "getComputedStyle(document.querySelector('[data-action=ignore-sender]')).color"})[-1]["eval"]
             self.assertEqual(color, want, (theme, color))
 
+    def test_restore_button_text_is_dark_enough_on_light_and_keeps_the_accent_on_dark(self):
+        """«Вернуть» in the light Clean is #3f5ced (4.5:1+ on white and on the gray shell); the dark theme keeps the accent token."""
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
+                   "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
+        clean = {"go": f"http://127.0.0.1:{self.port}/#/x/inbox", "init": "localStorage.setItem('hub.theme'," + json.dumps(json.dumps({"id": "core:clean"})) + ")"}
+        seen = {}
+        for theme in ("light", "dark"):
+            got = self.page({"viewport": {"width": 390, "height": 874}}, {"go": "about:blank"}, {"media": theme}, clean,
+                            {"until": "document.documentElement.classList.contains('th-clean') && !!document.querySelector('button.tm-folder[data-folder=archive]')", "ms": 15000})
+            self.assertTrue(got[-1]["until"], got)
+            got = self.page({"eval": "document.querySelector('button.tm-folder[data-folder=archive]').click();true"},
+                            {"until": "!!document.querySelector('.tm-restore')"})
+            self.assertTrue(got[-1]["until"], got)
+            seen[theme] = self.page({"eval": "getComputedStyle(document.querySelector('.tm-restore')).color"})[-1]["eval"]
+        self.assertEqual(seen["light"], "rgb(63, 92, 237)", seen)
+        self.assertNotEqual(seen["dark"], seen["light"], seen)
+
     def test_ignore_sender_shots_in_clean(self):
         """Frames for the owner (Clean, light and dark, phone and desktop): the conversation menu item and the list in the archive.
         The harness drops HUB_* from the environment, so the folder comes from HUB_TEST_INBOX_SHOTS; without it the test is skipped."""
