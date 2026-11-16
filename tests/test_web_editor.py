@@ -4247,6 +4247,14 @@ class InboxWebAcceptance(PageInChrome):
         self.edit("")
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
 
+    def collect(self, pick, count=1, timeout=5):
+        """spooled() consumes what it returns: poll it into one list until `count` matching requests were seen."""
+        seen, deadline = [], time.monotonic() + timeout
+        while True:
+            seen += pick()
+            if len(seen) >= count or time.monotonic() >= deadline: return seen
+            time.sleep(.05)
+
     def releases(self):
         return [json.loads(e["data"]["text"]) for e in self.spooled()
                 if e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("action") == "release"]
@@ -4259,10 +4267,7 @@ class InboxWebAcceptance(PageInChrome):
         self.acknowledge(hold)
         self.assertEqual(self.releases(), [])
         self.page({"eval": "window.dispatchEvent(new Event('pagehide'));true"})
-        deadline = time.monotonic() + 5
-        while not self.releases() and time.monotonic() < deadline:
-            time.sleep(.05)
-        got = self.releases()
+        got = self.collect(self.releases)
         self.assertEqual(len(got), 1, got)
         self.assertEqual((got[0]["id"], got[0]["editor"], got[0]["inbox"]), ("source-a", hold["editor"], self.token))
 
@@ -4271,10 +4276,8 @@ class InboxWebAcceptance(PageInChrome):
         self.edit("Kept in the draft, not in the hold")
         self.acknowledge(self.queued("draft_control"))
         self.page({"eval": "document.querySelector('.tm-close-conversation').click();true"})
-        deadline = time.monotonic() + 20
-        while not self.releases() and time.monotonic() < deadline:
-            time.sleep(.2)
-        self.assertEqual(len(self.releases()), 1, self.releases())
+        got = self.collect(self.releases, timeout=20)
+        self.assertEqual(len(got), 1, got)
 
     def sent_kind(self, kind):
         return [json.loads(e["data"]["text"]) for e in self.spooled()
@@ -4284,31 +4287,50 @@ class InboxWebAcceptance(PageInChrome):
         """Same action as iPhone: «Не показывать этого собеседника» sends ignore {id}; Архив lists them with «Вернуть» (unignore {contact})."""
         self.seed_inbox(start_editing=False, open_editor=False)
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "ignored": []})
-        self.page({"until": "!!document.querySelector('[data-action=mark-unread]') || !!document.querySelector('.tm-conversation-options > summary')"},
-                  {"mclick": ".tm-conversation-options > summary"})
-        label = self.page({"eval": "document.querySelector('[data-action=ignore-sender]')?.textContent"})[-1]["eval"]
+        got = self.page({"eval": "dispatchEvent(new Event('online'));true"},   # the page reads the feed now
+                        {"until": "!!document.querySelector('[data-action=ignore-sender]')"})
+        self.assertTrue(got[-1]["until"], got)
+        self.page({"mclick": ".tm-conversation-options > summary"})
+        label = self.page({"eval": "document.querySelector('[data-action=ignore-sender]')?.textContent||''"})[-1]["eval"]
         self.assertIn(label, ("Не показывать этого собеседника", "Don't Show This Sender", "No mostrar este remitente"))
         self.page({"mclick": "[data-action=ignore-sender]"})
-        deadline = time.monotonic() + 5
-        while not self.sent_kind("ignore") and time.monotonic() < deadline: time.sleep(.05)
-        self.assertEqual([(r["id"]) for r in self.sent_kind("ignore")], ["source-a"])
+        self.assertEqual([(r["id"]) for r in self.collect(lambda: self.sent_kind("ignore"))], ["source-a"])
         self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-person')"})[-1]["eval"])
         self.page({"mclick": "button.tm-folder[data-folder=archive]"})
-        self.assertTrue(self.page({"until": "!!document.querySelector('.tm-ignored')"})[-2]["until"])
+        self.assertTrue(self.page({"until": "!!document.querySelector('.tm-ignored')"})[-1]["until"])
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
                    "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
-        self.assertTrue(self.page({"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})[-2]["until"])
-        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
-            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
-            for theme in ('light','dark'):
-                for width in (390,1440):
-                    self.page({'media':theme},{'viewport':{'width':width,'height':874}},{'sleep':150},
-                      {'shot':str(out/f'ignore-archive-{theme}-{width}.png'),'width':width,'height':874})
+        self.assertTrue(self.page({"eval": "dispatchEvent(new Event('online'));true"},
+                                  {"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})[-1]["until"])
         self.page({"mclick": ".tm-ignored-row button"})
-        deadline = time.monotonic() + 5
-        while not self.sent_kind("unignore") and time.monotonic() < deadline: time.sleep(.05)
-        self.assertEqual([r["contact"] for r in self.sent_kind("unignore")], ["synthetic-account/conversation-a"])
+        self.assertEqual([r["contact"] for r in self.collect(lambda: self.sent_kind("unignore"))], ["synthetic-account/conversation-a"])
         self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-ignored')"})[-1]["eval"])
+
+    def test_ignore_sender_shots_in_clean(self):
+        """Frames for the owner (Clean, light and dark, phone and desktop): the conversation menu item and the list in the archive.
+        The harness drops HUB_* from the environment, so the folder comes from HUB_TEST_INBOX_SHOTS; without it the test is skipped."""
+        if not os.environ.get("HUB_TEST_INBOX_SHOTS"): self.skipTest("no HUB_TEST_INBOX_SHOTS")
+        out = Path(os.environ["HUB_TEST_INBOX_SHOTS"]); out.mkdir(parents=True, exist_ok=True)
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "ignored": []})
+        clean = {"go": f"http://127.0.0.1:{self.port}/#/x/inbox", "init": "localStorage.setItem('hub.theme'," + json.dumps(json.dumps({"id": "core:clean"})) + ")"}
+        for step in ("menu", "archive"):
+            if step == "archive":
+                self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
+                           "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
+            for theme in ("light", "dark"):
+                for width in (390, 1440):
+                    got = self.page({"viewport": {"width": width, "height": 874}}, {"go": "about:blank"}, {"media": theme}, clean,
+                                    {"until": "document.documentElement.classList.contains('th-clean') && !!document.querySelector('.tm-person, .tm-folder')", "ms": 15000})
+                    self.assertTrue(got[-1]["until"], got)
+                    if step == "menu":
+                        self.page({"eval": "document.querySelector('.tm-person').click();true"},
+                                  {"until": "!!document.querySelector('.tm-conversation-options > summary')"},
+                                  {"mclick": ".tm-conversation-options > summary"}, {"until": "!!document.querySelector('[data-action=ignore-sender]')"})
+                    else:
+                        self.page({"eval": "(document.querySelector('button.tm-folder[data-folder=archive]')||document.querySelector('[data-folder=archive]')).click();true"},
+                                  {"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})
+                    self.page({"sleep": 200}, {"shot": str(out / f"ignore-{step}-{theme}-{width}.png"), "width": width, "height": 874})
 
     def test_ignore_sender_is_offered_only_when_the_collector_lists_ignored_senders(self):
         """An older collector sends no config.ignored: no menu item (nothing would act on it)."""
@@ -4333,13 +4355,10 @@ class InboxWebAcceptance(PageInChrome):
         got = self.page({"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Draft that outlived its hold'"})
         self.assertTrue(got[-1]["until"], got)
         self.token = expired
-        before = len(self.hold_requests("hold"))
+        self.page({"eval": "dispatchEvent(new Event('online'));true"}, {"sleep": 500})   # the page reads the feed now
         self.edit("Draft that outlived its hold, continued")
-        deadline = time.monotonic() + 5
-        while len(self.hold_requests("hold")) == before and time.monotonic() < deadline:
-            time.sleep(.05)
-        again = self.hold_requests("hold")
-        self.assertEqual(len(again), before + 1, again)
+        again = self.collect(lambda: self.hold_requests("hold"))
+        self.assertEqual(len(again), 1, again)
         self.assertEqual((again[-1]["inbox"], again[-1]["editor"]), (expired, first["editor"]))
 
     def takeover_button_visible(self, supported):
@@ -4349,7 +4368,8 @@ class InboxWebAcceptance(PageInChrome):
         self.acknowledge(self.queued("draft_control"))
         held = {**self.token, "edit_version": self.token["edit_version"] + 1, "holder": "phone-1"}
         self.feed({"kind": "draft_state", "id": "source-a", "rid": "phone-take", "inbox": held})
-        got = self.page({"sleep": 300}, {"eval": "(()=>{const b=document.querySelector('.tm-shared-compose .tm-takeover');return !!b && !b.hidden})()"})
+        got = self.page({"eval": "dispatchEvent(new Event('online'));true"}, {"sleep": 500},
+                        {"eval": "(()=>{const b=document.querySelector('.tm-shared-compose .tm-takeover');return !!b && !b.hidden})()"})
         return got[-1]["eval"]
 
     def test_takeover_button_is_offered_when_the_collector_supports_it(self):

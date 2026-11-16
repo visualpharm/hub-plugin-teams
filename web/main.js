@@ -3216,7 +3216,7 @@ function paintAll() {
     }
     ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [noSearchResults()]));
   }
-  if (loaded && tab === "archive" && !(grouped && dmPerson) && !searchQuery) { const ignoredBox = ignoredSection(); if (ignoredBox) ui.list.append(ignoredBox); }
+  if (loaded && tab === "archive" && !(grouped && dmPerson) && !searchQuery) { const ignoredBox = ignoredSection(); if (ignoredBox) { ui.list.querySelector(":scope > .tm-empty")?.remove(); ui.list.append(ignoredBox); } }
 }
 
 function openPicker() {
