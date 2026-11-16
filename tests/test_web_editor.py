@@ -4368,7 +4368,9 @@ class InboxWebAcceptance(PageInChrome):
         self.acknowledge(self.queued("draft_control"))
         held = {**self.token, "edit_version": self.token["edit_version"] + 1, "holder": "phone-1"}
         self.feed({"kind": "draft_state", "id": "source-a", "rid": "phone-take", "inbox": held})
-        got = self.page({"eval": "dispatchEvent(new Event('online'));true"}, {"sleep": 500},
+        # The page reads the feed on its own; asking it to now and waiting (up to 3 s) for the button, if it is to appear.
+        got = self.page({"eval": "dispatchEvent(new Event('online'));true"},
+                        {"until": "(()=>{const b=document.querySelector('.tm-shared-compose .tm-takeover');return !!b && !b.hidden})()", "ms": 3000 if not supported else 10000},
                         {"eval": "(()=>{const b=document.querySelector('.tm-shared-compose .tm-takeover');return !!b && !b.hidden})()"})
         return got[-1]["eval"]
 
@@ -4476,8 +4478,11 @@ class InboxWebAcceptance(PageInChrome):
 
     def non_history_actions(self):
         # page.held is the page's own restart-hold beat in the live core (core/restart.py), not an action of the plugin.
+        # A hold release is the page tidying up after itself (it left, or the editor is off screen): not an action of the owner.
+        # Tests of the release itself read releases().
         return [e for e in self.spooled() if e["type"] != "page.held"
-                and not (e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "history")]
+                and not (e["type"] == "ext.post" and (json.loads(e["data"]["text"]).get("kind") == "history"
+                         or json.loads(e["data"]["text"]).get("action") == "release"))]
 
     def queued(self, kind):
         if kind=='read':
