@@ -822,7 +822,7 @@ def config(st, put=post):
     cfg = st.get("cfg") or {}
     put({"kind": "config", "v": 3, "signature": cfg.get("signature") or "", "autodraft": cfg.get("autodraft") is not False,
          'inbox_guard':cfg.get('inbox_guard') is True, 'inbox_hold_ttl':inbox_delivery.hold_ttl(st),
-         'inbox_protocol':{'version':1,'private_proposal':True,'editor_cas':True,'shared_claim':True,
+         'inbox_protocol':{'version':1,'private_proposal':True,'editor_cas':True,'shared_claim':True,'takeover':True,
                            'receipt_sources':['teams'],'requires_all_clients':True},
          # повтор rid ответа (Teams и вне) подтверждает итог только той же просьбе с тем же target, иначе отказ, без
          # новой отправки (796a2f1, 45e30b4); клиент без этого флага у сборщика держит ожидание и не повторяет

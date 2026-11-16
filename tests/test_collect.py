@@ -1333,8 +1333,8 @@ class Later(unittest.TestCase):
         hours = self.out[0].pop("hours")   # рабочие часы по умолчанию — подробно в test_hours
         self.assertEqual((hours["from"], hours["to"], hours["weekends"], hours["except"]), ("08:00", "20:00", False, []))
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
-                                  'inbox_guard':True,'inbox_protocol':{'version':1,'private_proposal':True,
-                                  'editor_cas':True,'shared_claim':True,'receipt_sources':['teams'],'requires_all_clients':True},
+                                  'inbox_guard':True,'inbox_hold_ttl':1800,'inbox_protocol':{'version':1,'private_proposal':True,
+                                  'editor_cas':True,'shared_claim':True,'takeover':True,'receipt_sources':['teams'],'requires_all_clients':True},
                                   'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1}])   # повтор rid сверяет просьбу и target; выходные
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
