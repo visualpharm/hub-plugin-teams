@@ -23,12 +23,17 @@ const prepared=[],posts=[];
 const core=process.argv[3] || process.env.HUB_CORE || resolve('../agents-hub-core');
 const api=readFileSync(`${core}/modules/web/static/js/api.js`,'utf8');
 const ext=readFileSync(`${core}/modules/web/static/js/ext.js`,'utf8');
-assert.match(ext,/import \{ post \} from "\.\/api\.js"/);assert.match(ext,/^  post,$/m);
+// hub.post is the core's api.post: ext.js imports post from ./api.js (among other names) and exposes it on hub.
+assert.match(ext,/^import \{[^}]*\bpost\b[^}]*\} from "\.\/api\.js";$/m,'ext.js imports post from api.js');assert.match(ext,/^  post,$/m,'hub exposes post');
 let response=()=>({ok:true,json:async()=>({ok:true})});
 const transport={fetch:async(path,options)=>{posts.push({path,body:JSON.parse(options.body)});return response();}};
 vm.createContext(transport);
-const postSource=api.match(/export async function post\(path, body\) \{[\s\S]*?\n\}/)?.[0];
+const postSource=api.match(/export async function post\(path, body[^)]*\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(postSource,'Actual core POST adapter must be available');
+// The adapter calls api.js helpers (bare, t, signinGone… — the set changes between core versions): a pass-through
+// stub for each free call keeps the test on the adapter's behaviour, not on the helpers it happens to use today.
+for(const [,name] of postSource.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)\(/g))
+  if(!(name in transport)&&!['post','function','if','catch','fetch'].includes(name)&&!(name in globalThis))transport[name]=(...a)=>a[0];
 vm.runInContext(postSource.replace('export ', '')+'\nglobalThis.post=post;',transport);
 const hub={snapshot:()=>({sessions}),el:(...a)=>new Element(...a),icon:()=>new Element('svg'),capabilities:{inboxHandoff:1},handoff:{latest:()=>({name:'visited',title:'Last opened conversation'})},
   compose:(...args)=>{prepared.push(args);return true;},post:transport.post};
