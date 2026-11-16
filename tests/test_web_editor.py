@@ -4276,6 +4276,40 @@ class InboxWebAcceptance(PageInChrome):
             time.sleep(.2)
         self.assertEqual(len(self.releases()), 1, self.releases())
 
+    def sent_kind(self, kind):
+        return [json.loads(e["data"]["text"]) for e in self.spooled()
+                if e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == kind]
+
+    def test_ignore_sender_menu_item_hides_the_conversation_and_restore_brings_it_back(self):
+        """Same action as iPhone: «Не показывать этого собеседника» sends ignore {id}; Архив lists them with «Вернуть» (unignore {contact})."""
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "ignored": []})
+        self.page({"until": "!!document.querySelector('[data-action=mark-unread]') || !!document.querySelector('.tm-conversation-options > summary')"},
+                  {"mclick": ".tm-conversation-options > summary"})
+        label = self.page({"eval": "document.querySelector('[data-action=ignore-sender]')?.textContent"})[-1]["eval"]
+        self.assertIn(label, ("Не показывать этого собеседника", "Don't Show This Sender", "No mostrar este remitente"))
+        self.page({"mclick": "[data-action=ignore-sender]"})
+        deadline = time.monotonic() + 5
+        while not self.sent_kind("ignore") and time.monotonic() < deadline: time.sleep(.05)
+        self.assertEqual([(r["id"]) for r in self.sent_kind("ignore")], ["source-a"])
+        self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-person')"})[-1]["eval"])
+        self.page({"mclick": "button.tm-folder[data-folder=archive]"})
+        self.assertTrue(self.page({"until": "!!document.querySelector('.tm-ignored')"})[-2]["until"])
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
+                   "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
+        self.assertTrue(self.page({"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})[-2]["until"])
+        self.page({"mclick": ".tm-ignored-row button"})
+        deadline = time.monotonic() + 5
+        while not self.sent_kind("unignore") and time.monotonic() < deadline: time.sleep(.05)
+        self.assertEqual([r["contact"] for r in self.sent_kind("unignore")], ["synthetic-account/conversation-a"])
+        self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-ignored')"})[-1]["eval"])
+
+    def test_ignore_sender_is_offered_only_when_the_collector_lists_ignored_senders(self):
+        """An older collector sends no config.ignored: no menu item (nothing would act on it)."""
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.page({"mclick": ".tm-conversation-options > summary"})
+        self.assertFalse(self.page({"eval": "!!document.querySelector('[data-action=ignore-sender]')"})[-1]["eval"])
+
     def hold_requests(self, action):
         return [json.loads(e["data"]["text"]) for e in self.spooled()
                 if e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "draft_control"

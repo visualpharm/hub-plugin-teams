@@ -23,3 +23,5 @@ Idea is the unchanged native0597a826 icon-idea asset: the field's «Private draf
 Check is the unchanged native icon-check asset (hub-ios Resources/Assets.xcassets): the copied state of the inline copy icon after values, the same size as the copy glyph it replaces for 1.5 s.
 
 Inbox, sent, archive and sort carry the native cropped viewBox (hub-ios Resources, the same glyphs): the frame is the icon size and the visible glyph fills 78–94% of it, as in kit/icons.md. In the folder bar they sit in an 18px frame on phone and desktop, inside the 32px capsule and the 44px target.
+
+Ignore is the Icons8 SF Regular «invisible» (crossed eye) glyph, id PWKe0BAu1upx, the same metaphor as the iPhone item «Don't Show This Sender» (eye.slash); unchanged file, rendered via a CSS mask in the conversation menu.

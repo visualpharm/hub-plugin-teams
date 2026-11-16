@@ -25,7 +25,7 @@ export function messageMenus(root, resolve, report, {selector='.tm-line', attrib
     menu.setAttribute('role','menu');menu.setAttribute('aria-label',label || T('Действия с сообщением','Message actions'));
     menu.setAttribute('popover','manual');
     const buttons=found.items.map(item=>{
-      const b=document.createElement('button');b.type='button';b.className='menu-item';b.tabIndex=-1;
+      const b=document.createElement('button');b.type='button';b.className='menu-item'+(item.danger?' tm-danger':'');b.tabIndex=-1;
       b.setAttribute('role','menuitem');b.textContent=item.label;if(item.icon)b.prepend(item.icon);
       b.addEventListener('click',async()=>{
         if(!current()){close(true);return;}

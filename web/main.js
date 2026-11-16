@@ -206,6 +206,11 @@ async function settlePendingReply(m,rid) {
 let inboxProtocol = null;
 let replyReplay = false;
 let archiveSupported = false;
+// «Не показывать этого собеседника» (как на iPhone): список от collector (config.ignored) плюс свои ещё не подтверждённые правки
+let ignoredServer = null;   // null — collector не присылал список, пункта нет
+const ignoredAdd = new Set(), ignoredDrop = new Set();
+const ignoredNow = () => (ignoredServer || []).filter((i) => !ignoredDrop.has(i.contact));
+const isIgnored = (m) => !!m.contact && !ignoredDrop.has(m.contact) && (ignoredAdd.has(m.contact) || (ignoredServer || []).some((i) => i.contact === m.contact));
 const sendActionKey=()=>"hub.inbox.send-action.v1:"+hubName();
 function sendAction() { try {return localStorage.getItem(sendActionKey())==='archive' ? 'archive' : 'send';} catch {return 'send';} }
 function rememberSendAction(action) {
@@ -581,6 +586,7 @@ const done = (m) => hidden.has(m.id) || (!hasOwnerDraft(m) && (replyArchived.has
 const outgoing = (m, states) => [...sends.values()].some(s => s.id === m.id && states.includes(s.state));
 const deliveryPending = m => outgoing(m,["wait","later","unresolved"]) || !!pendingReply(m);
 function inFolder(m, folder = tab) {
+  if (isIgnored(m)) return false;
   if (folder === "sent") return sentOk(m.id) || deliveredReactions.has(m.id) || outgoing(m,["later"]);
   if (folder === "archive") return (hidden.has(m.id) || replyArchived.has(m.id) && !hasOwnerDraft(m)) && !answered.has(m.id) && !sentOk(m.id) && !deliveredReactions.has(m.id);
   if (folder === "all") return true;   // «Все»: прочитанные, отвеченные и убранные — ничего не прячется (счёта на вкладке нет)
@@ -741,7 +747,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; archiveSupported=d.send_archive===1 && d.archive_selection===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; archiveSupported=d.send_archive===1 && d.archive_selection===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; applyIgnored(d.ignored); }
       else if (p.by === AUTHOR && ["hours_set","hours_failed"].includes(d?.kind)) {
         const accept=()=>weekendSettings.accept(d);
         const result=typeof navigator!=="undefined" && navigator.locks ? await navigator.locks.request('hub.inbox.weekend:'+hubName(),accept) : accept();
@@ -1087,6 +1093,55 @@ async function hide(ids, on, { own = true } = {}) {
   return true;
 }
 
+function applyIgnored(list) {
+  if (!Array.isArray(list)) { ignoredServer = null; return; }
+  ignoredServer = list.filter((i) => i && typeof i.contact === "string");
+  for (const c of [...ignoredAdd]) if (ignoredServer.some((i) => i.contact === c)) ignoredAdd.delete(c);
+  for (const c of [...ignoredDrop]) if (!ignoredServer.some((i) => i.contact === c)) ignoredDrop.delete(c);
+}
+
+// «Не показывать этого собеседника»: collector сам убирает его открытые карточки и дальше не показывает; отказ хаба возвращает переписку
+async function ignoreSender(m) {
+  if (!m.contact || ignoredServer === null) return false;
+  const keys = conversationKeys([m.id]), was = dmPerson && keys.includes(dmPerson) ? dmPerson : null;
+  advance.acted(keys);
+  ignoredAdd.add(m.contact); ignoredDrop.delete(m.contact);
+  error = ""; paint();
+  if (await mark("ignore", { id: m.id })) return true;
+  ignoredAdd.delete(m.contact);
+  advance.kept(keys);
+  if (was) advanceTo = was;
+  paint();
+  return false;
+}
+
+async function restoreSender(i) {
+  ignoredDrop.add(i.contact); ignoredAdd.delete(i.contact);
+  paint();
+  if (await mark("unignore", { contact: i.contact })) return true;
+  ignoredDrop.delete(i.contact);
+  paint();
+  return false;
+}
+
+// В Архиве — собеседники, которых Inbox не показывает; «Вернуть» снимает запрет (как в iPhone)
+function ignoredSection() {
+  const items = ignoredServer === null ? [] : [...ignoredNow(), ...[...ignoredAdd].filter((c) => !ignoredNow().some((i) => i.contact === c)).map((contact) => ({ contact, name: "", where: "" }))];
+  if (!items.length) return null;
+  const box = el("section", "tm-ignored");
+  box.setAttribute("aria-label", T("Не показывать", "Not Shown", "No mostrar"));
+  box.append(el("h3", "tm-ignored-title", T("Не показывать", "Not Shown", "No mostrar")));
+  for (const i of items) {
+    const row = el("div", "tm-ignored-row");
+    const who = el("span", "tm-ignored-who", personName(i.name) || i.contact);
+    row.append(who);
+    if (i.where) row.append(el("span", "tm-ignored-where", i.where));
+    row.append(button(T("Вернуть", "Restore", "Restaurar"), "quiet", () => restoreSender(i), `${T("Вернуть", "Restore", "Restaurar")} ${personName(i.name) || i.contact}`));
+    box.append(row);
+  }
+  return box;
+}
+
 // Standard list actions (list-advance.js): "Archive" leaves an "Archived: N · Undo" strip for ten seconds; Undo and
 // Cmd/Ctrl+Z put the rows back and reopen the one that was open. The leaving row fades out first (<=180 ms).
 const advance = listAdvance();
@@ -1273,6 +1328,10 @@ function conversationOptions(m, title=null) {
   });
   unread.dataset.action="mark-unread";
   body.append(toggle,unread);
+  if(ignoredServer!==null && m.contact) {
+    const ignore=button(T("Не показывать этого собеседника","Don't Show This Sender","No mostrar este remitente"),"quiet tm-danger",()=>{menu.open=false;ignoreSender(m);});
+    ignore.dataset.action="ignore-sender";body.append(ignore);
+  }
   if(providerReads.supported(m)) {
     const state=providerReads.get(m),name={telegram:'Telegram',whatsapp:'WhatsApp',email:T('почте','Mail')}[m.src];
     const label=state?.state==='read' ? T(`Прочитано в ${name}`,`Read in ${name}`) : state?.state==='pending' ? T('Проверить прочтение','Check read status') : state?.state==='failed' ? T('Не удалось отметить прочитанным','Could not mark read') : state?.state==='unknown' ? T('Прочтение не подтверждено','Read status unknown') : state?.state==='blocked' ? T('История прочтения недоступна','Read history unavailable') : T(`Отметить прочитанным в ${name}`,`Mark read in ${name}`);
@@ -1634,6 +1693,7 @@ function personRow(key, group) {
   rowTargets.set(key,{identity:key,items:[
     {label:pins.has(pinKey(latest)) ? T("Открепить","Unpin") : T("Закрепить","Pin"),icon:nativeIcon("pin"),run:()=>{togglePin(latest);paint();}},
     {label:T("Отметить непрочитанным","Mark unread"),icon:nativeIcon("double-tick"),run:()=>{markUnread(latest);paint();}},
+    ...(ignoredServer !== null && latest.contact ? [{label:T("Не показывать этого собеседника","Don't Show This Sender","No mostrar este remitente"),icon:nativeIcon("ignore"),danger:true,run:()=>ignoreSender(latest)}] : []),
   ]});
   const head = el("div", "tm-head");
   head.append(el("b", "tm-from", name));
@@ -3156,6 +3216,7 @@ function paintAll() {
     }
     ui.list.replaceChildren(...(visible.length ? visible.map((m) => thread([m],false)) : [noSearchResults()]));
   }
+  if (loaded && tab === "archive" && !(grouped && dmPerson) && !searchQuery) { const ignoredBox = ignoredSection(); if (ignoredBox) ui.list.append(ignoredBox); }
 }
 
 function openPicker() {

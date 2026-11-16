@@ -453,6 +453,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 @media (max-width: 479px) { .tm-new-field { grid-template-columns: minmax(0,1fr); gap: 4px; } .tm-new-field > span { padding-block: 0; } }
 
 .tm-icon-pin { --tm-icon: url("./icons/pin.svg"); }
+.tm-icon-ignore { --tm-icon: url("./icons/ignore.svg"); }
 .tm-person .tm-pinned { width: 16px; height: 16px; flex: none; align-self: center; color: var(--foreground); }
 .tm-conversation-options .tm-editor-menu { width: min(280px,calc(100vw - 160px)); white-space: normal; }
 .tm-conversation-options .tm-editor-menu .btn { display: block; width: 100%; text-align: left; }
@@ -744,3 +745,12 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-detail.tm-undo-room .tm-history { margin-bottom: var(--tm-undo-room, 0px); }
 @media (prefers-reduced-motion: reduce) { .tm-detail .tm-history { transition: none; } }
 .tm-takeover { align-self: flex-start; }
+
+/* «Не показывать этого собеседника»: красный пункт меню переписки и список скрытых собеседников в Архиве */
+.tm-message-menu .menu-item.tm-danger, .tm-editor-menu .btn.tm-danger { color: var(--destructive); }
+.tm-ignored { margin-top: 16px; padding: 0 12px; }
+.tm-ignored-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.tm-ignored-row { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.tm-ignored-who { font-weight: 500; }
+.tm-ignored-where { color: var(--muted-foreground); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-ignored-row button { margin-left: auto; min-height: 44px; }
