@@ -4276,6 +4276,48 @@ class InboxWebAcceptance(PageInChrome):
             time.sleep(.2)
         self.assertEqual(len(self.releases()), 1, self.releases())
 
+    def hold_requests(self, action):
+        return [json.loads(e["data"]["text"]) for e in self.spooled()
+                if e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("kind") == "draft_control"
+                and json.loads(e["data"]["text"]).get("action") == action]
+
+    def test_expired_hold_keeps_the_text_and_takes_a_fresh_hold_on_the_next_edit(self):
+        """Hold term ended (draft_state reason expired): nothing is lost, and typing asks for the hold again."""
+        self.seed_inbox()
+        self.edit("Draft that outlived its hold")
+        first = self.queued("draft_control")
+        self.acknowledge(first)
+        expired = {**self.token, "edit_version": self.token["edit_version"] + 1, "held": False, "holder": None}
+        self.feed({"kind": "draft_state", "id": "source-a", "rid": "expired:%d:source-a" % expired["edit_version"],
+                   "reason": "expired", "inbox": expired})
+        got = self.page({"until": "document.querySelector('.tm-shared-compose .composer textarea')?.value==='Draft that outlived its hold'"})
+        self.assertTrue(got[-1]["until"], got)
+        self.token = expired
+        before = len(self.hold_requests("hold"))
+        self.edit("Draft that outlived its hold, continued")
+        deadline = time.monotonic() + 5
+        while len(self.hold_requests("hold")) == before and time.monotonic() < deadline:
+            time.sleep(.05)
+        again = self.hold_requests("hold")
+        self.assertEqual(len(again), before + 1, again)
+        self.assertEqual((again[-1]["inbox"], again[-1]["editor"]), (expired, first["editor"]))
+
+    def takeover_button_visible(self, supported):
+        self.seed_inbox()
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True, "takeover": supported}})
+        self.edit("Typed here, held by the phone")
+        self.acknowledge(self.queued("draft_control"))
+        held = {**self.token, "edit_version": self.token["edit_version"] + 1, "holder": "phone-1"}
+        self.feed({"kind": "draft_state", "id": "source-a", "rid": "phone-take", "inbox": held})
+        got = self.page({"sleep": 300}, {"eval": "(()=>{const b=document.querySelector('.tm-shared-compose .tm-takeover');return !!b && !b.hidden})()"})
+        return got[-1]["eval"]
+
+    def test_takeover_button_is_offered_when_the_collector_supports_it(self):
+        self.assertTrue(self.takeover_button_visible(True))
+
+    def test_takeover_button_is_not_offered_without_collector_support(self):
+        self.assertFalse(self.takeover_button_visible(False))
+
     def test_bell_address_of_another_plugin_opens_the_answered_message_or_says_it_is_gone(self):
         self.seed_inbox(start_editing=False, open_editor=False)
         self.feed({"kind":"answered","id":"source-a"})

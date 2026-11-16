@@ -93,6 +93,15 @@ export class InboxEditor {
       }
       this.token = t; this.control = null; this.error = ""; this.needsHold = false; return true;
     }
+    // The hold went away without this client asking (docs/inbox-management.md, "Hold term" and "Takeover"): its term ended
+    // ("expired:<edit_version>:<id>") or another client took it over. The local text stays; a hold must be taken again
+    // before the next send, so the field stops believing it holds and the next edit asks for a fresh hold.
+    if (d.kind === "draft_state" && valid(d.inbox) && valid(this.token) && !this.changed && !this.control && !this.delivery
+        && d.inbox.version === this.token.version && d.inbox.edit_version > this.token.edit_version
+        && (d.reason === "expired" && typeof d.rid === "string" && d.rid.startsWith("expired:")
+            || this.token.held === true && this.token.holder === this.editor && d.inbox.holder !== this.editor)) {
+      this.token = d.inbox; this.needsHold = true; return true;
+    }
     if (["draft_control_failed", "ask_failed", "revision_rejected"].includes(d.kind)
         && (this.control?.rid === d.rid || this.request?.rid === d.rid)) {
       this.control = null; this.error = d.error || "The current request was refused."; return true;
