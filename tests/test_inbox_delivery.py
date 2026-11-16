@@ -215,6 +215,22 @@ class Delivery(unittest.TestCase):
         st['later']={'night':{'id':'a','rid':'night','text':'Morning reply','inbox':held,'editor':'web-1','at':'2026-10-16T11:00:00Z'}}
         self.assertEqual(delivery.expire(st,10**6),[])
         self.assertEqual(delivery.context(st,'a'),held)
+        delivery.control(st,{'id':'a','rid':'take','inbox':held,'action':'takeover','editor':'phone-1'},now=10**6)
+        self.assertEqual(delivery.expire(st,10**6+delivery.HOLD_TTL),['a'])   # the stale scheduled reply protects nothing
+
+    def test_expiry_is_saved_even_when_no_open_item_is_left_and_manual_claim_clears_the_mark(self):
+        st=state(); saved=[]; out=[]
+        delivery.control(st,{'id':'a','rid':'h1','inbox':delivery.context(st,'a'),'action':'hold','editor':'web-1'},now=1000)
+        opened=st.pop('open'); st['open']={}
+        reader=type('Reader',(),{'close':lambda self:None})()
+        with patch.object(main,'save',side_effect=lambda s:saved.append(copy.deepcopy(s))):
+            main.send_replies(st,reader,[],out.append,now=datetime.fromtimestamp(1000+delivery.HOLD_TTL,timezone.utc))
+        self.assertEqual((out,delivery.context(saved[-1],'a')['held']),([],False))
+        st['open']=opened
+        edit=delivery.editor_state(st,delivery.store(st)['items']['a'])
+        self.assertIn('lapsed',edit)
+        delivery.claim(st,{**self.request(st,'manual'),'editor':'phone-1'})
+        self.assertNotIn('lapsed',edit)
 
     def test_collector_publishes_expired_hold_and_accepts_takeover_request(self):
         st=state(); out=[]; at=lambda s: datetime.fromtimestamp(s,timezone.utc)

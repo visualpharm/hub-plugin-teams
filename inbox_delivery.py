@@ -146,8 +146,11 @@ def expire(st, now):
     """
     db = store(st)
     ttl = hold_ttl(st)
-    scheduled = {db['items'][q['id']]['thread'] for q in (st.get('later') or {}).values()
-                 if isinstance(q,dict) and q.get('inbox') and q.get('id') in db['items']}
+    scheduled = set()   # only a reply whose token is still current: one a takeover made stale protects nothing
+    for q in (st.get('later') or {}).values():
+        ctx = context(st,q.get('id')) if isinstance(q,dict) and isinstance(q.get('inbox'),dict) else None
+        if ctx and all(q['inbox'].get(k) == ctx[k] for k in ('version','edit_version')):
+            scheduled.add(db['items'][q['id']]['thread'])
     out = []
     for thread,edit in db['editors'].items():
         if not edit['holders']:
@@ -246,6 +249,8 @@ def claim(st,q):
                    'thread':row['thread'], 'submitted_inbox':submitted, 'payload':payload(q),
                    **({'target':q['target']} if q.get('target') else {})}  # adress the client saw
     edit = editor_state(st,row)
+    if not q.get('automatic'):
+        edit.pop('lapsed',None)   # the owner acted after the term ended
     if edit['holders']:  # explicit matching-client manual Send: consume hold+claim together
         edit['holders']=[]
         edit.pop('since',None)

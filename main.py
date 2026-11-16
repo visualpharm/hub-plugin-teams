@@ -1294,10 +1294,11 @@ def send_replies(st, reader, queue, put=post, now=None):
     put = held_aware(st, archive_after(st, put))
     stamp = now.timestamp() if now else time.time()
     editors = inbox_delivery.store(st)['editors'].values()
-    unstamped = any(e['holders'] and 'since' not in e for e in editors)
-    lapsed = [k for k in inbox_delivery.expire(st, stamp) if k in (st.get('open') or {})]
+    unstamped = any(e['holders'] and not isinstance(e.get('since'),(int,float)) for e in editors)
+    lapsed = inbox_delivery.expire(st, stamp)
     if lapsed or unstamped:
-        save(st)
+        save(st)   # also when only closed items were held: the cleared hold must survive a restart
+    lapsed = [k for k in lapsed if k in (st.get('open') or {})]
     for key in lapsed:   # every client learns the conversation is free again: no request of its own to answer
         token = inbox_delivery.context(st, key)
         put({'kind':'draft_state','id':key,'rid':f"expired:{token['edit_version']}:{key}"[:200],'reason':'expired','inbox':token})
