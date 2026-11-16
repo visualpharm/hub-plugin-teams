@@ -1881,6 +1881,8 @@ function beginEditing(m, st) {
   st.started = true;
   const token = st.state.token;
   if (token?.held && token.holder === st.state.editor && !st.state.needsHold) return;
+  // чужое закрепление молча не оспариваем: набор остаётся локально, перехват — кнопкой «Продолжить здесь»
+  if (inboxProtocol?.takeover === true && st.state.canTakeover(msgs.get(m.id)?.inbox)) { st.started = false; return; }
   confirmEditor(m, st);
 }
 
@@ -1982,6 +1984,9 @@ function sharedReply(m, st) {
     st.shape = composeShape(m);
     const wrap = st.root = el("div", "tm-compose tm-shared-compose");
     const feedback = st.feedback = el("p", "tm-editor-feedback"); feedback.setAttribute("role", "status");
+    // черновик переписки закреплён другим клиентом владельца: явный перехват (docs/inbox-management.md, Takeover)
+    const takeover = st.takeover = button(T("Продолжить здесь", "Continue here", "Continuar aquí"), "tm-takeover", () => confirmEditor(m, st, "takeover"));
+    takeover.hidden = true;
     const optionsBody=st.options=el("div","tm-draft-options");
     const discard=st.discard=button("","quiet tm-discard",()=>{
       if(st.state?.control || st.state?.delivery)return;
@@ -2224,7 +2229,7 @@ function sharedReply(m, st) {
       cluster.append(...[st.toggle, arrow, sendMenu].filter(Boolean));
       field.append(cluster); field.classList.add("tm-has-cluster");
     }
-    wrap.append(field, feedback);
+    wrap.append(field, feedback, takeover);
   }
   const native=nativeFooter();
   if(st.nativeMode!==native) {
@@ -2289,7 +2294,11 @@ function sharedReply(m, st) {
   }
   st.updateSendHours?.();
   // подтверждение правки — служебное, его не показываем; отправка видна в треде «отправляю…»
-  st.feedback.textContent = st.error || state?.error || "";
+  const elsewhere = inboxProtocol?.takeover === true && !!state?.canTakeover(msgs.get(m.id)?.inbox);
+  st.takeover.hidden = !elsewhere;
+  const refusal = st.error || state?.error || "";   // отказ «держит другой клиент» заменяет понятная строка с кнопкой
+  st.feedback.textContent = elsewhere && (!refusal || /^Another client holds/.test(refusal))
+    ? T("Ответ открыт на другом устройстве", "This reply is open on another device", "Esta respuesta está abierta en otro dispositivo") : refusal;
   st.feedback.hidden = !st.feedback.textContent;
   return st.root;
 }

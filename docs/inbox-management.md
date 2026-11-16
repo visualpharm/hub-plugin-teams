@@ -87,6 +87,9 @@ free or unowned hold equals `hold`. A collector older than this contract answers
 `draft_control_failed` to `takeover`; a collector that supports it says so in the
 `config` post: `inbox_protocol.takeover: true` (offer the action only then). Takeover is never implied by Send: a non-holder Send stays refused.
 
+The web client offers it as "Continue here" under the reply field while the current
+token names another holder; typing there stays local and sends no competing `hold`.
+
 ### Hold term
 
 A hold lasts `inbox_hold_ttl` seconds from its last `hold` or `takeover`

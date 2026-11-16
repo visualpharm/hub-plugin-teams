@@ -33,6 +33,14 @@ export class InboxEditor {
     this.control = { rid, token, action }; this.error = "";
     return q;
   }
+  // Another client of the same owner holds the conversation (or several legacy holders do): explicit takeover only.
+  canTakeover(token = this.token) {
+    return !this.changed && !this.control && !this.delivery && valid(token) && token.held === true && token.holder !== this.editor;
+  }
+  takeover(rid, token = this.token) {
+    if (!this.canTakeover(token)) throw Error("This conversation is not held by another client.");
+    return this.hold(rid, token, "takeover");
+  }
   ready() {
     if (this.changed) throw Error("The conversation changed. Review the current message before continuing.");
     if (this.error) throw Error(this.error);
@@ -80,7 +88,7 @@ export class InboxEditor {
       const c = this.control, t = d.inbox;
       if (this.changed || !valid(t) || t.version !== c.token.version || t.edit_version <= c.token.edit_version
           || valid(this.token) && (t.version !== this.token.version || t.edit_version <= this.token.edit_version)
-          || t.held !== (c.action === "hold") || (t.held && t.holder !== this.editor)) {
+          || t.held !== (c.action !== "release") || (t.held && t.holder !== this.editor)) {
         this.error = "The editor confirmation does not match this conversation."; return false;
       }
       this.token = t; this.control = null; this.error = ""; this.needsHold = false; return true;

@@ -743,3 +743,4 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-detail .tm-history { transition: margin-bottom 150ms ease; }
 .tm-detail.tm-undo-room .tm-history { margin-bottom: var(--tm-undo-room, 0px); }
 @media (prefers-reduced-motion: reduce) { .tm-detail .tm-history { transition: none; } }
+.tm-takeover { align-self: flex-start; }

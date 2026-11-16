@@ -98,3 +98,29 @@ refusedChanged.observe({...message,inbox:{...token,version:'replacement'}});
 assert.throws(()=>refusedChanged.hold('fresh',{...token,version:'replacement'}),/conversation changed/);
 const monotonic=start();confirm(monotonic);monotonic.token={...monotonic.token,edit_version:5};
 assert.throws(()=>monotonic.hold('old',{...monotonic.token,edit_version:1}),/changed|current/);
+// Takeover: the owner continues on this client a conversation another client holds.
+{
+  const other={...token,edit_version:3,held:true,holder:'phone-1'};
+  const t=new InboxEditor({...message,inbox:other},'web-tab','Web draft');
+  assert.equal(start().canTakeover(),false);                       // free conversation: plain hold
+  assert.equal(t.canTakeover(),true);
+  t.hold('plain');t.receive({kind:'draft_control_failed',id:'source',rid:'plain',error:'Another client holds this editor; retain local text'});
+  assert.throws(()=>t.send('s0','Web draft'),/Another client/);assert.equal(t.canTakeover(),true);
+  const q=t.takeover('take');
+  assert.deepEqual([q.kind,q.action,q.editor,q.inbox,q.id],['draft_control','takeover','web-tab',other,'source']);
+  assert.equal(t.canTakeover(),false);                              // one request at a time
+  assert.equal(t.receive({kind:'draft_state',id:'source',rid:'take',inbox:{...other,edit_version:4,holder:'phone-1'}}),false); // not ours: refused
+  const again=new InboxEditor({...message,inbox:other},'web-tab','Web draft');again.takeover('take');
+  const mine={...other,edit_version:4,holder:'web-tab'};
+  assert.equal(again.receive({kind:'draft_state',id:'source',rid:'take',inbox:mine}),true);
+  assert.equal(again.canTakeover(),false);assert.equal(again.text,'Web draft');
+  assert.equal(again.send('send','Web draft').inbox,mine);
+  const newer={...other,edit_version:5};                            // the feed already shows a later token of the holder
+  const late=new InboxEditor({...message,inbox:other},'web-tab','Web draft');
+  assert.equal(late.canTakeover(newer),true);assert.equal(late.takeover('take2',newer).inbox,newer);
+  late.receive({kind:'draft_control_failed',id:'source',rid:'take2',error:'Inbox changed; refresh the current item before acting'});
+  assert.equal(late.text,'Web draft');assert.equal(late.canTakeover(newer),true);
+  const main=readFileSync(new URL('../web/main.js',import.meta.url),'utf8');
+  assert.match(main,/inboxProtocol\?\.takeover\s*===\s*true/);     // offered only when the collector announces it
+  assert.match(main,/confirmEditor\(m,\s*st,\s*"takeover"\)/);
+}
