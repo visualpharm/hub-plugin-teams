@@ -11,6 +11,7 @@ import { T, bindHub } from "./ui-text.js";
 import { replyText } from "./reply-text.js";
 import { decorateValues, valueElement } from "./copy-values.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
+import * as holdGuard from "./hold-guard.js";
 import { openLightbox } from "/static/js/lightbox.js";
 import { newMessage } from "./new-message.js";
 import { messageMenus } from "./message-menu.js";
@@ -428,6 +429,7 @@ const requestId = () => Math.random().toString(36).slice(2, 10) + Date.now().toS
 function editorFact(d) {
   const source = msgs.get(d.id);
   if (source && d.inbox?.v === 1 && ["draft_state", "sent", "send_uncertain"].includes(d.kind)) source.inbox = d.inbox;
+  if (d.kind === "draft_state" && d.inbox?.held === true && d.inbox.holder === editorIdentity() && d.id) holdGuard.remember(globalThis.localStorage, d.inbox.holder, d.id);
   for (const [id, state] of editorStates) if (state.receive(d)) {
     const st = composing.get(id), m = msgs.get(id);
     if (m && state.token) m.inbox = state.token;
@@ -3382,7 +3384,53 @@ async function poll() {
   }
   if (loaded && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); }
 }
-let badgeTimer = null;
+// A hold the page took must not outlive it. The collector never lets go of a hold by itself, and a hold of a closed tab
+// locks the conversation for Android, iPhone and Mac. Released here: on pagehide (fetch keepalive), when the editor is
+// no longer on screen (another letter, back to the list, a closed or replaced editor), and — from the next open page —
+// for a hold this browser took before and whose page stopped answering (closed, crashed, frozen).
+const holdStrikes = new Map();
+let holdTries = null;
+function releaseHold(m, editor, keepalive = false) {
+  let q;
+  try { q = boundedRequest(holdGuard.releaseRequest(m, editor, requestId())); } catch { return Promise.resolve(false); }
+  return fetch("/api/feed/post", { method: "POST", keepalive, headers: { "Content-Type": "application/json", "X-Hub": "1" },
+    body: JSON.stringify({ plugin: "teams", text: JSON.stringify(q) }) }).then((r) => r.ok, () => false);
+}
+const editorOnScreen = (id) => {
+  const st = composing.get(id);
+  if (!st?.state) return false;
+  if (st.closing || st.state.control || st.state.delivery || st.state.retry) return true;   // a request is in flight
+  return !!st.root?.isConnected && st.root.getClientRects().length > 0;
+};
+function holdSweep(now = Date.now()) {
+  if (!hub || !loaded || cachedView) return;   // a cached list is not the collector's current word
+  const me = editorIdentity(), store = globalThis.localStorage;
+  holdTries ||= holdGuard.attempts();
+  holdGuard.beat(store, me, now);
+  const inUse = new Set([...msgs.keys()].filter(editorOnScreen));
+  const { own, orphans } = holdGuard.plan(store, me, msgs, { inUse, now });
+  for (const id of [...holdStrikes.keys()]) if (!own.includes(id)) { holdStrikes.delete(id); holdTries.clear(id); }
+  for (const id of own) {
+    const n = (holdStrikes.get(id) || 0) + 1; holdStrikes.set(id, n);
+    if (n < 2 || !holdTries.due(id, now)) continue;   // two quiet checks: a letter being switched is not an abandoned one
+    holdTries.mark(id, now);
+    const st = composing.get(id);
+    if (st?.state) { st.state.needsHold = true; st.started = false; }   // typing again takes a fresh hold
+    releaseHold(msgs.get(id), me);
+  }
+  for (const { id, editor } of orphans) {
+    const key = editor + id;
+    if (!holdTries.due(key, now)) continue;
+    holdTries.mark(key, now);
+    releaseHold(msgs.get(id), editor);
+  }
+}
+function leavePage() {
+  const me = editorIdentity();
+  holdGuard.leave(globalThis.localStorage, me);
+  for (const m of msgs.values()) if (holdGuard.heldBy(m, me)) releaseHold(m, me, true);
+}
+let badgeTimer = null, holdTimer = null;
 // пока список из кэша, число не трогаем: его обновит конец render после загрузки ленты (перерисовка посреди загрузки
 // сбивала переход колокола к разобранному)
 function syncBadge() { if (loaded && !cachedView && badgeShown >= 0 && inboxCount() !== badgeShown) { registerView(); hub.redraw?.(); } }
@@ -3416,6 +3464,11 @@ export default function register(h) {
   draftPollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility() && ui.root.querySelector(".tm-drafting")) recheck(); }, DRAFT_POLL);
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!offline && loaded && document.visibilityState === "visible" && ui?.root.checkVisibility()) recheck(); }, 15000);
+  window.addEventListener("pagehide", leavePage);
+  // a page restored from the back/forward cache lost its holds in pagehide: the open editors take a fresh one on typing
+  window.addEventListener("pageshow", (e) => { if (e.persisted) for (const st of composing.values()) if (st.state && !st.state.control && !st.state.delivery) { st.state.needsHold = true; st.started = false; } });
+  if (holdTimer !== null) clearInterval(holdTimer);
+  holdTimer = setInterval(holdSweep, holdGuard.BEAT_MS);
   registerView();
   poll();
   if (badgeTimer !== null) clearInterval(badgeTimer);

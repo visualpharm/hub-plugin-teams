@@ -4247,6 +4247,35 @@ class InboxWebAcceptance(PageInChrome):
         self.edit("")
         self.assertFalse([e for e in self.non_history_actions() if e["type"] == "ext.post"])
 
+    def releases(self):
+        return [json.loads(e["data"]["text"]) for e in self.spooled()
+                if e["type"] == "ext.post" and json.loads(e["data"]["text"]).get("action") == "release"]
+
+    def test_leaving_the_page_releases_the_editor_hold(self):
+        """Open the letter, type (the hold stands), leave the page: the collector gets the release at once."""
+        self.seed_inbox()
+        self.edit("Draft the owner walked away from")
+        hold = self.queued("draft_control")
+        self.acknowledge(hold)
+        self.assertEqual(self.releases(), [])
+        self.page({"eval": "window.dispatchEvent(new Event('pagehide'));true"})
+        deadline = time.monotonic() + 5
+        while not self.releases() and time.monotonic() < deadline:
+            time.sleep(.05)
+        got = self.releases()
+        self.assertEqual(len(got), 1, got)
+        self.assertEqual((got[0]["id"], got[0]["editor"], got[0]["inbox"]), ("source-a", hold["editor"], self.token))
+
+    def test_editor_that_left_the_screen_releases_the_hold(self):
+        self.seed_inbox()
+        self.edit("Kept in the draft, not in the hold")
+        self.acknowledge(self.queued("draft_control"))
+        self.page({"eval": "document.querySelector('.tm-close-conversation').click();true"})
+        deadline = time.monotonic() + 20
+        while not self.releases() and time.monotonic() < deadline:
+            time.sleep(.2)
+        self.assertEqual(len(self.releases()), 1, self.releases())
+
     def test_bell_address_of_another_plugin_opens_the_answered_message_or_says_it_is_gone(self):
         self.seed_inbox(start_editing=False, open_editor=False)
         self.feed({"kind":"answered","id":"source-a"})
