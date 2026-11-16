@@ -4298,6 +4298,12 @@ class InboxWebAcceptance(PageInChrome):
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
                    "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
         self.assertTrue(self.page({"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})[-2]["until"])
+        if os.environ.get('HUB_INBOX_SCREENSHOTS'):
+            out=Path(os.environ['HUB_INBOX_SCREENSHOTS']);out.mkdir(parents=True,exist_ok=True)
+            for theme in ('light','dark'):
+                for width in (390,1440):
+                    self.page({'media':theme},{'viewport':{'width':width,'height':874}},{'sleep':150},
+                      {'shot':str(out/f'ignore-archive-{theme}-{width}.png'),'width':width,'height':874})
         self.page({"mclick": ".tm-ignored-row button"})
         deadline = time.monotonic() + 5
         while not self.sent_kind("unignore") and time.monotonic() < deadline: time.sleep(.05)
