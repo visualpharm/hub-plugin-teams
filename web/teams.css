@@ -751,6 +751,7 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-ignored { margin-top: 16px; padding: 0 12px; }
 .tm-ignored-title { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
 .tm-ignored-row { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.tm-ignored-who { font-weight: 500; }
-.tm-ignored-where { color: var(--muted-foreground); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-ignored-row button { margin-left: auto; min-height: 44px; }
+.tm-ignored-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tm-ignored-who { font-weight: 500; overflow-wrap: anywhere; }
+.tm-ignored-where { color: var(--muted-foreground); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-ignored-row .tm-restore { margin-left: auto; min-height: 44px; border: 0; background: transparent; color: var(--primary); font-weight: 500; }

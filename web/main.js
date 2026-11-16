@@ -208,7 +208,7 @@ let replyReplay = false;
 let archiveSupported = false;
 // «Не показывать этого собеседника» (как на iPhone): список от collector (config.ignored) плюс свои ещё не подтверждённые правки
 let ignoredServer = null;   // null — collector не присылал список, пункта нет
-const ignoredAdd = new Set(), ignoredDrop = new Set();
+const ignoredAdd = new Map(), ignoredDrop = new Set();   // ignoredAdd: контакт → {name, where} того, что владелец только что скрыл
 const ignoredNow = () => (ignoredServer || []).filter((i) => !ignoredDrop.has(i.contact));
 const isIgnored = (m) => !!m.contact && !ignoredDrop.has(m.contact) && (ignoredAdd.has(m.contact) || (ignoredServer || []).some((i) => i.contact === m.contact));
 const sendActionKey=()=>"hub.inbox.send-action.v1:"+hubName();
@@ -1096,7 +1096,7 @@ async function hide(ids, on, { own = true } = {}) {
 function applyIgnored(list) {
   if (!Array.isArray(list)) { ignoredServer = null; return; }
   ignoredServer = list.filter((i) => i && typeof i.contact === "string");
-  for (const c of [...ignoredAdd]) if (ignoredServer.some((i) => i.contact === c)) ignoredAdd.delete(c);
+  for (const c of [...ignoredAdd.keys()]) if (ignoredServer.some((i) => i.contact === c)) ignoredAdd.delete(c);
   for (const c of [...ignoredDrop]) if (!ignoredServer.some((i) => i.contact === c)) ignoredDrop.delete(c);
 }
 
@@ -1105,7 +1105,7 @@ async function ignoreSender(m) {
   if (!m.contact || ignoredServer === null) return false;
   const keys = conversationKeys([m.id]), was = dmPerson && keys.includes(dmPerson) ? dmPerson : null;
   advance.acted(keys);
-  ignoredAdd.add(m.contact); ignoredDrop.delete(m.contact);
+  ignoredAdd.set(m.contact, { name: m.from || "", where: m.where || "" }); ignoredDrop.delete(m.contact);
   error = ""; paint();
   if (await mark("ignore", { id: m.id })) return true;
   ignoredAdd.delete(m.contact);
@@ -1126,7 +1126,7 @@ async function restoreSender(i) {
 
 // В Архиве — собеседники, которых Inbox не показывает; «Вернуть» снимает запрет (как в iPhone)
 function ignoredSection() {
-  const items = ignoredServer === null ? [] : [...ignoredNow(), ...[...ignoredAdd].filter((c) => !ignoredNow().some((i) => i.contact === c)).map((contact) => ({ contact, name: "", where: "" }))];
+  const items = ignoredServer === null ? [] : [...ignoredNow(), ...[...ignoredAdd].filter(([c]) => !ignoredNow().some((i) => i.contact === c)).map(([contact, info]) => ({ contact, ...info }))];
   if (!items.length) return null;
   const box = el("section", "tm-ignored");
   box.setAttribute("aria-label", T("Не показывать", "Not Shown", "No mostrar"));
@@ -1134,9 +1134,11 @@ function ignoredSection() {
   for (const i of items) {
     const row = el("div", "tm-ignored-row");
     const who = el("span", "tm-ignored-who", personName(i.name) || i.contact);
-    row.append(who);
-    if (i.where) row.append(el("span", "tm-ignored-where", i.where));
-    row.append(button(T("Вернуть", "Restore", "Restaurar"), "quiet", () => restoreSender(i), `${T("Вернуть", "Restore", "Restaurar")} ${personName(i.name) || i.contact}`));
+    const text = el("span", "tm-ignored-text");
+    text.append(who);
+    if (String(i.where || "").trim()) text.append(el("span", "tm-ignored-where", String(i.where).trim()));   // откуда он; нет данных — ничего
+    row.append(text);
+    row.append(button(T("Вернуть", "Restore", "Restaurar"), "quiet tm-restore", () => restoreSender(i), `${T("Вернуть", "Restore", "Restaurar")} ${personName(i.name) || i.contact}`));
     box.append(row);
   }
   return box;

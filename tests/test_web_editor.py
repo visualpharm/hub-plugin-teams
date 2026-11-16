@@ -4302,9 +4302,36 @@ class InboxWebAcceptance(PageInChrome):
                    "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
         self.assertTrue(self.page({"eval": "dispatchEvent(new Event('online'));true"},
                                   {"until": "document.querySelector('.tm-ignored')?.textContent.includes('Review colleague')"})[-1]["until"])
+        # no place in the data: no second line at all
+        self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-ignored-where')"})[-1]["eval"])
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
+                   "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": "Synthetic team"}]})
+        self.assertTrue(self.page({"eval": "dispatchEvent(new Event('online'));true"},
+                                  {"until": "document.querySelector('.tm-ignored-where')?.textContent==='Synthetic team'"})[-1]["until"])
+        look = self.page({"eval": """(() => { const b = getComputedStyle(document.querySelector('.tm-restore'));
+            const w = getComputedStyle(document.querySelector('.tm-ignored-where')), n = getComputedStyle(document.querySelector('.tm-ignored-who'));
+            return {border: b.borderTopWidth, fill: b.backgroundColor, color: b.color, where: w.color, who: n.color}; })()"""})[-1]["eval"]
+        self.assertEqual(look["border"], "0px", look)                                 # a borderless accent button, as on iPhone
+        self.assertIn(look["fill"], ("rgba(0, 0, 0, 0)", "transparent"), look)
+        self.assertNotEqual(look["where"], look["who"], look)                         # the place is the secondary colour
         self.page({"mclick": ".tm-ignored-row button"})
         self.assertEqual([r["contact"] for r in self.collect(lambda: self.sent_kind("unignore"))], ["synthetic-account/conversation-a"])
         self.assertFalse(self.page({"eval": "!!document.querySelector('.tm-ignored')"})[-1]["eval"])
+
+    def test_red_menu_text_uses_the_text_red_of_clean(self):
+        """Red as text is the core's --destructive-text in Clean (light #C4170E, dark #FF6961), not the fill red."""
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "ignored": []})
+        clean = {"go": f"http://127.0.0.1:{self.port}/#/x/inbox", "init": "localStorage.setItem('hub.theme'," + json.dumps(json.dumps({"id": "core:clean"})) + ")"}
+        for theme, want in (("light", "rgb(196, 23, 14)"), ("dark", "rgb(255, 105, 97)")):
+            got = self.page({"viewport": {"width": 1440, "height": 874}}, {"go": "about:blank"}, {"media": theme}, clean,
+                            {"until": "document.documentElement.classList.contains('th-clean') && !!document.querySelector('.tm-person')", "ms": 15000})
+            self.assertTrue(got[-1]["until"], got)
+            self.page({"eval": "document.querySelector('.tm-person').click();true"},
+                      {"until": "!!document.querySelector('.tm-conversation-options > summary')"},
+                      {"mclick": ".tm-conversation-options > summary"}, {"until": "!!document.querySelector('[data-action=ignore-sender]')"})
+            color = self.page({"eval": "getComputedStyle(document.querySelector('[data-action=ignore-sender]')).color"})[-1]["eval"]
+            self.assertEqual(color, want, (theme, color))
 
     def test_ignore_sender_shots_in_clean(self):
         """Frames for the owner (Clean, light and dark, phone and desktop): the conversation menu item and the list in the archive.
@@ -4317,7 +4344,7 @@ class InboxWebAcceptance(PageInChrome):
         for step in ("menu", "archive"):
             if step == "archive":
                 self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True},
-                           "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": ""}]})
+                           "ignored": [{"contact": "synthetic-account/conversation-a", "name": "Review colleague", "src": "dm", "where": "Synthetic team"}]})
             for theme in ("light", "dark"):
                 for width in (390, 1440):
                     got = self.page({"viewport": {"width": width, "height": 874}}, {"go": "about:blank"}, {"media": theme}, clean,
