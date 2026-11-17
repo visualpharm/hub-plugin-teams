@@ -1868,7 +1868,9 @@ function line(m, source=m, named=false) {
     if(typeof m.reply.from==="string" && m.reply.from)quote.append(el("strong","",personName(m.reply.from)));
     quote.append(el("span","",m.reply.text));text.append(quote);
   }
-  text.append(messageBody({...m, text:messageText(m)}));
+  // the letter's words are one message for the core's selection (Plugin API 1.37): a triple click takes all of them, not
+  // one line, and a selected piece gets the bar with "Copy"; the quoted message above them stays out
+  const body=messageBody({...m, text:messageText(m)});body.dataset.hubMessage="";text.append(body);
   if (!hub.taskBody && (m.text.length > 400 || m.text.split("\n").length > 6)) {
     text.classList.add("tm-clamp");
     text.addEventListener("click", () => text.classList.toggle("tm-clamp"));

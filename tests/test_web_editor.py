@@ -1310,6 +1310,30 @@ class InboxWebAcceptance(PageInChrome):
                 self.assertEqual(got['nameAlign'],'left');self.assertTrue(got['after'],got)
         self.assertEqual(self.non_history_actions(),[])
 
+    @needs_core_feature('data-hub-message','a core before Plugin API 1.37 keeps the browser triple click',script='js/quotesel.js')
+    def test_a_triple_click_selects_the_whole_letter_and_a_piece_offers_only_copy(self):
+        # three lines: the mouse presses the middle of the letter, on its middle line
+        self.seed_inbox(start_editing=False, open_editor=False)
+        self.feed({'kind':'msg','id':'whole-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague',
+                   'text':'First line.\nSecond line of the letter.\nThird line.','reply':True,'inbox':self.token,'at':datetime.now(timezone.utc).isoformat()})
+        self.assertTrue(self.page({'until':"[...document.querySelectorAll('.tm-line .tm-text')].some(n=>n.textContent.includes('Second line'))"})[-1]['until'])
+        # the innermost node holding the letter's words: it carries the mark (checked by the selection, not by the attribute)
+        mark="(()=>{const n=[...document.querySelectorAll('.tm-line .tm-text *')].filter(x=>x.textContent.includes('Second line')).at(-1);if(!n)return null;n.classList.add('probe-letter');return n.textContent;})()"
+        bar="[...document.querySelectorAll('.quote-bar:not([hidden]) button')].map(b=>b.className)"
+        piece=("(()=>{const t=document.querySelector('.probe-letter').firstChild,r=document.createRange();r.setStart(t,6);r.setEnd(t,10);"
+               "getSelection().removeAllRanges();getSelection().addRange(r);return getSelection().toString();})()")
+        got=self.page({'eval':mark},{'mclick':'.probe-letter','clicks':3},
+                      {'until':"!!document.querySelector('.quote-bar:not([hidden])')",'ms':3000},
+                      {'eval':'getSelection().toString()'},{'eval':bar},
+                      {'eval':'getSelection().removeAllRanges(),1'},{'sleep':400},{'eval':piece},
+                      {'until':"!!document.querySelector('.quote-bar:not([hidden])')",'ms':3000},{'eval':bar})
+        self.assertEqual(got[0]['eval'],'First line.\nSecond line of the letter.\nThird line.',got)   # the words only
+        self.assertTrue(got[2]['until'],got)
+        self.assertEqual(got[3]['eval'].split(),'First line. Second line of the letter. Third line.'.split(),got)
+        self.assertEqual(got[4]['eval'],['linkbtn qb-copy'],got)                                        # no reply to a piece of a letter
+        self.assertEqual(got[7]['eval'],'line',got)
+        self.assertEqual(got[-1]['eval'],['linkbtn qb-copy'],got)
+
     def test_mail_retains_its_current_message_header_after_history(self):
         self.seed_inbox(start_editing=False);self.open_external_source('email')
         self.feed({'kind':'msg','id':'external-email','contact':'synthetic/email','src':'email','from':'Synthetic email',
