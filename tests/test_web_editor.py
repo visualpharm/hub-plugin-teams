@@ -1427,10 +1427,13 @@ class InboxWebAcceptance(PageInChrome):
         react=self.queued('react')
         self.assertEqual((react['id'],react['emoji']),('source-a','👍'))
         self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent.includes('Ставлю реакцию')"})[-1]['until'])
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-received-reactions .tm-own-reaction.tm-reaction-wait')?.textContent"})[-1]['eval'],'👍')
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(react))
         self.feed({'kind':'reacted','id':'source-a','rid':react['rid'],'emoji':'👍'})
-        self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent==='Реакция поставлена 👍'"})[-1]['until'])
+        # the emoji went onto the bubble, as on iPhone/Mac: no "reaction sent" line instead of it
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-received-reactions .tm-own-reaction:not(.tm-reaction-wait)')?.textContent==='👍'"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status')"})[-1]['eval'])
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
         self.p14_shot('teams-reaction-sent-402',402)
 
@@ -1455,6 +1458,9 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'mclick':'.tm-thread .tm-suggested-reaction button.tm-send-reaction'})
         react=self.queued('react')
         self.assertEqual((react['id'],react['emoji']),('source-a','🎉'))
+        self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(react))
+        self.feed({'kind':'reacted','id':'source-a','rid':react['rid'],'emoji':'🎉'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-received-reactions .tm-own-reaction:not(.tm-reaction-wait)')?.textContent==='🎉'"})[-1]['until'])
 
     def test_suggested_reaction_menu_survives_a_repaint_and_a_new_suggestion_drops_the_old_pick(self):
         self.seed_inbox(start_editing=False)
@@ -2428,7 +2434,8 @@ class InboxWebAcceptance(PageInChrome):
         q=self.queued('react');self.assertEqual((q['id'],q['emoji'],q.get('msg')),('source-a','👍','turn-first'))
         self.assertTrue(self.page({'until':"document.querySelector('.tm-history-row .tm-reaction-status')?.textContent.includes('Ставлю реакцию')"})[-1]['until'])
         self.feed({'kind':'reacted','id':'source-a','rid':q['rid'],'emoji':'👍'})
-        self.assertTrue(self.page({'until':"document.querySelector('.tm-history-row .tm-reaction-status')?.textContent==='Реакция поставлена 👍'"})[-1]['until'])
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history-row .tm-own-reaction:not(.tm-reaction-wait)')?.textContent==='👍'"})[-1]['until'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-history-row .tm-reaction-status')"})[-1]['eval'])
         self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-thread > .tm-acts .tm-react-trigger')"})[-1]['eval'])
         # the item's own bubble: the same row under it, the reaction without msg (the message the post came for)
         self.page({'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));true"},
@@ -4047,14 +4054,14 @@ class InboxWebAcceptance(PageInChrome):
             self.page({'sleep':300})
             self.assertIn('Ставлю реакцию',self.page({'eval':"document.querySelector('.tm-reaction-status').textContent"})[-1]['eval'])
         self.feed({'kind':'reacted','id':q['id'],'rid':q['rid'],'emoji':'👍','target':'synthetic-target-a'})
-        self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent.includes('Реакция поставлена')"})[-1]['until'])
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-own-reaction:not(.tm-reaction-wait)')"})[-1]['until'])
         self.feed({'kind':'msg','id':'source-a','contact':'synthetic-account/conversation-a','src':'dm','from':'Review colleague','text':'Replacement reaction target','react':True,'reply':True,'inbox':self.token,'target':'synthetic-target-b','at':datetime.now(timezone.utc).isoformat()})
         self.assertTrue(self.page({'until':"document.body.innerText.includes('Replacement reaction target')"})[-1]['until'])
-        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status, .tm-own-reaction')"})[-1]['eval'])
         self.ev('ext.post',None,plugin='teams',channel='web',owner=True,text=json.dumps(q))
         self.feed({'kind':'reacted','id':q['id'],'rid':q['rid'],'target':'synthetic-target-a','emoji':'👍'})
         self.page({'sleep':300})
-        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status')"})[-1]['eval'])
+        self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-reaction-status, .tm-own-reaction')"})[-1]['eval'])
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep this draft')
 
     def test_detached_reaction_button_cannot_send_to_replacement_destination(self):
@@ -4095,17 +4102,17 @@ class InboxWebAcceptance(PageInChrome):
         self.page({"mclick":".tm-react-trigger"},{"mclick":".tm-reactions button:nth-child(2)"})
         retry=self.queued("react");self.assertNotEqual(retry["rid"],request["rid"])
         self.feed({"kind":"reacted","id":"source-a","rid":retry["rid"],"emoji":"❤️"})
-        self.page({"wait":"Реакция поставлена"})
+        self.assertTrue(self.page({"until":"document.querySelector('.tm-own-reaction:not(.tm-reaction-wait)')?.textContent==='❤️'"})[-1]["until"])
         self.feed({"kind":"answered","id":"source-a"})
         self.page({"mclick":"[data-folder=sent]"},{"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"})
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
-        got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-reaction-status'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
+        got=self.page({"eval":"({attached:!!document.querySelector('.tm-line .tm-own-reaction'),notice:document.querySelector('.tm-note')?.textContent||''})"})[-1]["eval"]
         self.assertTrue(got["attached"],got)
         self.assertNotIn("Ты ответил",got["notice"])
         self.shot("reaction-confirmed-draft-retained")
         self.page({"go":f"http://127.0.0.1:{self.port}/#/x/inbox"},{"until":"!!document.querySelector('[data-folder=sent]')"},{"mclick":"[data-folder=sent]"},
-                  {"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"},{"wait":"Реакция поставлена"})
-        self.assertIn("❤️",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
+                  {"until":"!!document.querySelector('.tm-person')"},{"mclick":".tm-person"})
+        self.assertTrue(self.page({"until":"document.querySelector('.tm-own-reaction:not(.tm-reaction-wait)')?.textContent==='❤️'"})[-1]["until"])
 
     def test_whole_inbox_instruction_preserves_exact_text_and_is_dispatch_only(self):
         self.seed_inbox()

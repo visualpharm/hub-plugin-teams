@@ -1862,25 +1862,32 @@ function line(m, source=m, named=false) {
   if (messageText(m) || text.querySelector('.tm-quote')) row.append(text);
   if (mediaList(m).length) row.append(mediaBody(m));
   const preview=linkPreview(m);if(preview)row.append(preview);
-  if(Array.isArray(m.reactions)) {
-    const reactions=el("div","tm-received-reactions");
-    for(const r of m.reactions)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
+  // the reaction's status under the bubble it went to: the item's own message, or the one picked in the conversation
+  const sent = reactionSends.get(source.id);
+  const result = sent && (sent.msg || '') === (m===source ? '' : m.providerId) ? sent : null;
+  {
+    // the owner's reaction sits on the bubble with the others, as on iPhone/Mac; while it goes — dimmed
+    const reactions=el("div","tm-received-reactions"), got=Array.isArray(m.reactions) ? m.reactions : [];
+    for(const r of got)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
+    if(result && result.state!=="fail" && result.emoji && !got.some(r=>r?.emoji===result.emoji)) {
+      const own=el("span","tm-own-reaction"+(result.state==="wait" ? " tm-reaction-wait" : ""),result.emoji);
+      own.setAttribute("aria-label",(result.state==="wait" ? T("Ставлю реакцию ","Sending reaction ","Enviando reacción ") : T("Твоя реакция ","Your reaction ","Tu reacción "))+result.emoji);
+      reactions.append(own);
+    }
     if(reactions.childElementCount)row.append(reactions);
   }
   {
     const foot=[m.edited ? T("Изменено","Edited") : "",Number.isFinite(Date.parse(m.at)) ? clock(new Date(m.at)) : ""].filter(Boolean).join(" · ");
     if(foot)row.append(el("time","tm-message-time",foot));
   }
-  // the reaction's status under the bubble it went to: the item's own message, or the one picked in the conversation
-  const sent = reactionSends.get(source.id);
-  const result = sent && (sent.msg || '') === (m===source ? '' : m.providerId) ? sent : null;
   const reactionNotice=m===source && reactionNotices.get(pendingReplyKey(m));
   if(reactionNotice) {
     const notice=el("p","tm-reaction-status tm-reaction-notice",reactionNotice);
     notice.setAttribute("role","status");row.append(notice);
   }
-  if (result) {
-    const status = el("p", "tm-reaction-status", result.state === "wait" ? T("Ставлю реакцию…","Sending reaction…") : result.state === "ok" ? T("Реакция поставлена ","Reaction sent ") + result.emoji : result.error);
+  // words only while it goes or when it failed: a reaction that went is the emoji on the bubble
+  if (result && result.state !== "ok") {
+    const status = el("p", "tm-reaction-status", result.state === "wait" ? T("Ставлю реакцию…","Sending reaction…") : result.error);
     status.setAttribute("role","status"); row.append(status);
   }
   const sus = suspicious(m.text);
