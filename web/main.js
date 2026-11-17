@@ -86,6 +86,10 @@ const sends = new Map();     // rid → {id, text, ts, state: "wait"|"ok"|"fail"
 const detachedSends = new Set(); // A reused message ID must never adopt its former destination's delivery.
 const staleRetries = new Set(); // id: the collector refused only a stale CAS version — the pressed reply goes once more
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
+// the owner's delivered reaction per bubble (item id + the turn inside its conversation): a later reaction to another
+// bubble of the same item does not take the emoji off this one
+const ownReactions = new Map();
+const ownReactionKey = (id, msg) => `${id}\n${msg || ""}`;
 const deliveredReactions = new Map(); // exact message -> last confirmed reaction, independent of a retry
 const reactionNotices = new Map();
 const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
@@ -649,6 +653,7 @@ async function sync() {
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
           deliveredReactions.delete(d.id);
+          for (const k of ownReactions.keys()) if (k.startsWith(`${d.id}\n`)) ownReactions.delete(k);
           answered.delete(d.id);answeredAt.delete(d.id);reopened.delete(d.id);
           for (const [rid,send] of sends) if (send.id===d.id) {
             clearTimeout(send.cancelTimer);detachedSends.add(rid);sends.delete(rid);
@@ -728,6 +733,7 @@ async function sync() {
         if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) {
           const result = {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"};
           reactionSends.set(d.id,result);
+          if (d.kind === "reacted") ownReactions.set(ownReactionKey(d.id,r.msg),r.emoji);
           // a reaction to one bubble of the conversation does not answer it (as the native client): it stays where it is
           if (d.kind === "reacted" && !r.msg) deliveredReactions.set(d.id,result);
         }
@@ -1867,14 +1873,26 @@ function line(m, source=m, named=false) {
   const result = sent && (sent.msg || '') === (m===source ? '' : m.providerId) ? sent : null;
   {
     // the owner's reaction sits on the bubble with the others, as on iPhone/Mac; while it goes — dimmed
-    const reactions=el("div","tm-received-reactions"), got=Array.isArray(m.reactions) ? m.reactions : [];
-    for(const r of got)if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)reactions.append(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
-    if(result && result.state!=="fail" && result.emoji && !got.some(r=>r?.emoji===result.emoji)) {
-      const own=el("span","tm-own-reaction"+(result.state==="wait" ? " tm-reaction-wait" : ""),result.emoji);
-      own.setAttribute("aria-label",(result.state==="wait" ? T("Ставлю реакцию ","Sending reaction ","Enviando reacción ") : T("Твоя реакция ","Your reaction ","Tu reacción "))+result.emoji);
-      reactions.append(own);
+    const reactions=el("div","tm-received-reactions"), pills=new Map();
+    for(const r of Array.isArray(m.reactions) ? m.reactions : [])if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0) {
+      const pill=reactions.appendChild(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
+      if(!pills.has(r.emoji))pills.set(r.emoji,pill);
+    }
+    const delivered=ownReactions.get(ownReactionKey(source.id,m===source ? '' : m.providerId));
+    const mine=result && result.state!=="fail" && result.emoji ? {emoji:result.emoji,wait:result.state==="wait"} : delivered ? {emoji:delivered,wait:false} : null;
+    if(mine) {
+      // the same emoji from others already there: that pill is marked as the owner's too, the count is the provider's
+      const own=pills.get(mine.emoji) || reactions.appendChild(el("span","",mine.emoji));
+      own.classList.add("tm-own-reaction");own.classList.toggle("tm-reaction-wait",mine.wait);
+      own.setAttribute("role","img");
+      own.setAttribute("aria-label",(mine.wait ? T("Ставлю реакцию ","Sending reaction ","Enviando reacción ") : T("Твоя реакция ","Your reaction ","Tu reacción "))+own.textContent);
     }
     if(reactions.childElementCount)row.append(reactions);
+    // the words the old line said, for a screen reader only: the emoji on the bubble is what the eye sees
+    if(result?.state==="ok") {
+      const said=el("p","tm-sr-only",T("Реакция поставлена ","Reaction sent ","Reacción enviada ")+result.emoji);
+      said.setAttribute("role","status");row.append(said);
+    }
   }
   {
     const foot=[m.edited ? T("Изменено","Edited") : "",Number.isFinite(Date.parse(m.at)) ? clock(new Date(m.at)) : ""].filter(Boolean).join(" · ");

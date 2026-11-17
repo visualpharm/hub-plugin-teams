@@ -2442,6 +2442,24 @@ class InboxWebAcceptance(PageInChrome):
           {'mclick':'.tm-message-menu button:first-child'},{'until':"!!document.querySelector('[data-message=\"source-a\"] + .tm-reactions')"},
           {'mclick':'.tm-reactions button:nth-child(2)'},{'sleep':150})
         q=self.queued('react');self.assertEqual(q['emoji'],'❤️');self.assertNotIn('msg',q)
+        # the second reaction lands on its own bubble; the first stays on the turn it went to
+        self.feed({'kind':'reacted','id':'source-a','rid':q['rid'],'emoji':'❤️'})
+        own="[...document.querySelectorAll('.tm-own-reaction:not(.tm-reaction-wait)')].map(x=>x.closest('[data-message]')?.dataset.message+' '+x.textContent).sort().join('|')"
+        self.assertTrue(self.page({'until':own+".includes('❤️')"})[-1]['until'])
+        got=self.page({'eval':own})[-1]['eval']
+        self.assertIn('source-a ❤️',got);self.assertIn('👍',got);self.assertEqual(got.count('|'),1,got)
+
+    def test_own_reaction_with_an_emoji_others_already_put_marks_their_pill_and_keeps_the_count(self):
+        self.seed_inbox(start_editing=False,msg={'reactions':[{'emoji':'👍','n':2}]})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-received-reactions')?.textContent==='👍 2'"})[-1]['until'])
+        self.page({'mclick':'.tm-react-trigger'},{'mclick':'.tm-reactions button:first-child'})
+        q=self.queued('react');self.assertEqual(q['emoji'],'👍')
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-received-reactions .tm-own-reaction.tm-reaction-wait')"})[-1]['until'])
+        self.feed({'kind':'reacted','id':'source-a','rid':q['rid'],'emoji':'👍'})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-own-reaction:not(.tm-reaction-wait)')"})[-1]['until'])
+        got=self.page({'eval':"[...document.querySelectorAll('.tm-received-reactions > span')].map(x=>[x.textContent,x.classList.contains('tm-own-reaction'),x.getAttribute('role'),x.getAttribute('aria-label')])"})[-1]['eval']
+        self.assertEqual(got,[['👍 2',True,'img','Твоя реакция 👍 2']],got)
+        self.assertEqual(self.page({'eval':"document.querySelector('.tm-sr-only[role=status]')?.textContent"})[-1]['eval'],'Реакция поставлена 👍')
 
     def test_message_that_cannot_take_a_reaction_shows_no_reaction(self):
         # WhatsApp without a reaction command (react absent): no greyed "React" in the actions and none in the bubble menu
@@ -4098,6 +4116,7 @@ class InboxWebAcceptance(PageInChrome):
         self.assertIn("Ставлю реакцию",self.page({"eval":"document.querySelector('.tm-reaction-status').textContent"})[-1]["eval"])
         self.feed({"kind":"react_failed","id":"source-a","rid":request["rid"],"error":"Synthetic reaction refused"})
         self.page({"wait":"Synthetic reaction refused"})
+        self.assertFalse(self.page({"eval":"!!document.querySelector('.tm-own-reaction')"})[-1]["eval"])
         self.assertEqual(self.page({"eval":"document.querySelector('.tm-shared-compose .composer textarea').value"})[-1]["eval"],"Keep my unsent reply")
         self.page({"mclick":".tm-react-trigger"},{"mclick":".tm-reactions button:nth-child(2)"})
         retry=self.queued("react");self.assertNotEqual(retry["rid"],request["rid"])
