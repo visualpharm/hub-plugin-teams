@@ -1267,7 +1267,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'mclick':'.tm-options summary'},
                   {'eval':"[...document.querySelectorAll('.tm-srcs button')].find(n=>n.textContent.includes('Все')).click();document.querySelector('.tm-options').open=false;true"})
         self.assertTrue(self.page({'until':"document.querySelectorAll('.tm-person').length===3"})[-1]['until'])
-        self.assertLessEqual(self.page({'eval':"document.querySelector('.tm-list-pane').getBoundingClientRect().width"})[-1]['eval'],336)
+        self.assertLessEqual(self.page({'eval':"document.querySelector('.tm-list-pane').getBoundingClientRect().width"})[-1]['eval'],460)
         self.assertEqual(self.non_history_actions(),[])
 
     def test_mixed_teams_sources_name_only_group_bubbles_and_flat_cards_do_not_repeat(self):
@@ -1809,7 +1809,7 @@ class InboxWebAcceptance(PageInChrome):
         for width,theme in ((402,'light'),(1240,'dark')):self.page({'media':theme});self.p14_shot(f'teams-to-attachment-{theme}-{width}',width)
 
     def test_unread_dot_left_one_quick_button_and_phone_icons_name_themselves(self):
-        # (4) unread dot in the left sign column, 9; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
+        # (4) unread dot in the left sign column, 8; (5) one ⚡ on a wide screen; (8) a long press names a phone icon
         self.seed_inbox(start_editing=False)
         self.feed({'kind':'msg','id':'dot-b','contact':'synthetic/dot','src':'telegram','from':'Unread person','text':'Новое сообщение','reply':True,'at':datetime.now(timezone.utc).isoformat()})
         got=self.page({'viewport':{'width':1240,'height':874}},{'until':"[...document.querySelectorAll('.tm-person')].some(n=>n.textContent.includes('Unread person'))"},
@@ -1817,7 +1817,7 @@ class InboxWebAcceptance(PageInChrome):
                              "return {width:d.width,left:d.right<=n.left,sameLine:Math.abs((d.top+d.bottom)/2-(n.top+n.bottom)/2)<=3,quick:[...document.querySelectorAll('.tm-quick-trigger')].filter(q=>q.checkVisibility()).length,headQuick:[...document.querySelectorAll('.tm-thread > .tm-head > .tm-quick-trigger')].filter(q=>q.checkVisibility()).length,"
                              "discard:getComputedStyle(document.querySelector('.tm-discard')).color===getComputedStyle(document.querySelector('.tm-header-source,.tm-conversation-source')).color}})()"})
         self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
-        self.assertEqual(got['width'],9,got);self.assertTrue(got['left'] and got['sameLine'],got)
+        self.assertEqual(got['width'],8,got);self.assertTrue(got['left'] and got['sameLine'],got)
         self.assertLessEqual(got['quick'],1,got);self.assertEqual(got['headQuick'],0,'One ⚡ on a wide screen: not a second one in the letter header');self.assertTrue(got['discard'],'The draft bin is secondary text, not red')
         self.page({'viewport':{'width':402,'height':874}},{'touch':True},
                   {'eval':"(()=>{const b=document.querySelector('.tm-thread > .tm-acts [aria-label=\"Черновик ответа для Review colleague\"]'),r=b.getBoundingClientRect();b.dispatchEvent(new PointerEvent('pointerdown',{pointerType:'touch',clientX:r.x+5,clientY:r.y+5,bubbles:true}));return true})()"},
@@ -4191,6 +4191,56 @@ class InboxWebAcceptance(PageInChrome):
         got=self.page({'until':f"JSON.stringify(({self.ORDER}).sort())===JSON.stringify({want})"},{'eval':self.ORDER})   # only the fixture rows: the seed row is hidden
         self.assertTrue(got[-2]['until'],got)
         return got[-1]['eval']
+
+    LIST_LOOK = """(()=>{const box=n=>n.getBoundingClientRect(),cs=(n,p)=>getComputedStyle(n,p||null),pane=box(document.querySelector('.tm-list-pane'));
+      const at=x=>Math.round(x-pane.left),end=x=>Math.round(pane.right-x),rows=[...document.querySelectorAll('.tm-list > .tm-person')],sel=document.querySelector('.tm-person.tm-selected');
+      const line=r=>{const a=cs(r,'::after'),c=cs(r);if(a.content!=='none'&&a.display!=='none'){const b=box(r);return [at(b.left+parseFloat(a.left)),end(b.right-parseFloat(a.right))]}
+        return c.borderBottomWidth!=='0px'&&c.borderBottomColor!=='rgba(0, 0, 0, 0)'?'border':null};
+      const name=rows[0].querySelector('.tm-from'),prev=rows.find(r=>r!==sel).querySelector('.tm-text'),dot=document.querySelector('.tm-person:not(.tm-selected) .tm-unread');
+      const alert=[...document.querySelectorAll('.tm-alert')].find(n=>n.textContent.includes('https://'));
+      return {pane:Math.round(pane.width),narrow:document.querySelector('.tm-container').classList.contains('tm-narrow'),order:rows.map(r=>r.dataset.conversation),
+        text:rows.map(r=>at(box(r.querySelector('.tm-from')).left)),time:end(box(rows[0].querySelector('.tm-head :is(.ago,.tm-age)')).right),
+        name:[cs(name).fontSize,cs(name).lineHeight,cs(name).fontWeight],prev:[cs(prev).fontSize,cs(prev).lineHeight,cs(prev).color],fg:cs(name).color,
+        pad:rows.map(r=>[cs(r).paddingTop,cs(r).paddingBottom])[1],
+        unread:dot&&{width:box(dot).width,left:at(box(dot).left),mid:Math.abs((box(dot).top+box(dot).bottom)/2-(box(dot.closest('.tm-person').querySelector('.tm-from')).top+box(dot.closest('.tm-person').querySelector('.tm-from')).bottom)/2)},
+        plate:sel&&(cs(sel,'::before').content!=='none'?[at(box(sel).left+parseFloat(cs(sel,'::before').left)),cs(sel,'::before').borderRadius,cs(sel.querySelector('.tm-from')).color,cs(sel.querySelector('.tm-text')).color]:null),
+        lines:rows.map(line),alert:alert&&{right:Math.round(box(alert).right-pane.right),wraps:alert.scrollWidth<=alert.clientWidth},overflow:document.documentElement.scrollWidth-innerWidth}})()"""
+
+    def test_the_inbox_list_keeps_the_macs_row_anatomy(self):
+        # the Inbox list as the Mac's lists: a middle column of 400-460 on a desktop; the sign in its own column (10 + 4, 12 + 8
+        # on a phone), the unread dot of 8 on the name's line; the name 15/20 semibold and the preview 13/18 in the second
+        # colour (17/22 and 15/20 on a phone), 6 above and below a row (10 on a phone); the selected plate 8 from the column
+        # edge with white text; a line between rows from the text edge to the time's edge, none under the last row and none at
+        # the selected row or above it; a long URL in a source error wraps inside the column; nothing open — icon 48, title 17
+        order=self.seed_people(4)
+        self.feed({'kind':'status','source':'gmail','ok':False,'error':'invalid_grant https://accounts.google.com/o/oauth2/v2/auth?client_id=synthetic-client-id.apps.googleusercontent.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.modify'})
+        self.assertTrue(self.page({'until':"[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('https://'))"})[-1]['until'])
+        rows=self.page({'viewport':{'width':1440,'height':900}},{'sleep':200},{'eval':self.ORDER})[-1]['eval']
+        self.open_row(rows[1])
+        shots=Path(os.environ.get("HUB_TEST_SHOTS") or self.state)
+        got=self.page({'sleep':300},{'eval':self.LIST_LOOK},{'shot':str(shots/'inbox-list-1440.png'),'width':1440,'height':900},
+                      {'media':'dark'},{'sleep':300},{'shot':str(shots/'inbox-list-1440-dark.png'),'width':1440,'height':900},{'media':'light'})
+        wide=got[1]['eval']
+        self.assertFalse(wide['narrow'],wide);self.assertTrue(400<=wide['pane']<=460,wide)
+        self.assertEqual(set(wide['text']),{28},wide);self.assertEqual(wide['time'],14,wide)
+        self.assertEqual(wide['name'],['15px','20px','600'],wide)
+        self.assertEqual(wide['prev'][:2],['13px','18px'],wide);self.assertNotEqual(wide['prev'][2],wide['fg'],wide)
+        self.assertEqual(wide['pad'],['6px','6px'],wide)
+        self.assertEqual((wide['unread']['width'],wide['unread']['left']),(8,15),wide);self.assertLessEqual(wide['unread']['mid'],1,wide)
+        self.assertEqual(wide['plate'],[8,'8px','rgb(255, 255, 255)','rgb(255, 255, 255)'],wide)
+        self.assertEqual(wide['lines'],[None,None,[28,14],None],wide)   # above the selected, the selected, between rows, the last row
+        self.assertLessEqual(wide['alert']['right'],0,wide);self.assertTrue(wide['alert']['wraps'],wide);self.assertEqual(wide['overflow'],0,wide)
+        self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-empty-detail')?.checkVisibility()"})
+        empty=self.page({'eval':"(()=>{const e=document.querySelector('.tm-empty-detail'),i=e.querySelector('.tm-native-icon').getBoundingClientRect(),h=getComputedStyle(e.querySelector('h2'));return {icon:[i.width,i.height],title:[h.fontSize,h.fontWeight,h.color],fg:getComputedStyle(document.querySelector('.tm-person .tm-from')).color}})()"},
+                        {'shot':str(shots/'inbox-none-1440.png'),'width':1440,'height':900})[0]['eval']
+        self.assertEqual(empty['icon'],[48,48],empty);self.assertEqual(empty['title'][:2],['17px','600'],empty);self.assertNotEqual(empty['title'][2],empty['fg'],empty)
+        got=self.page({'viewport':{'width':390,'height':844}},{'sleep':300},{'eval':self.LIST_LOOK},{'shot':str(shots/'inbox-list-390.png'),'width':390,'height':844},
+                      {'media':'dark'},{'sleep':300},{'shot':str(shots/'inbox-list-390-dark.png'),'width':390,'height':844},{'media':'light'})
+        phone=got[2]['eval']
+        self.assertTrue(phone['narrow'],phone);self.assertEqual(phone['name'],['17px','22px','600'],phone);self.assertEqual(phone['prev'][:2],['15px','20px'],phone)
+        self.assertEqual(phone['pad'],['10px','10px'],phone);self.assertEqual(phone['unread']['width'],8,phone);self.assertLessEqual(phone['unread']['mid'],1,phone)
+        self.assertEqual(len(set(phone['text'])),1,phone);self.assertEqual(phone['lines'][-1],None,phone);self.assertTrue(all(l==[phone['text'][0],16] for l in phone['lines'][:-1]),phone)
+        self.assertTrue(phone['alert']['wraps'],phone);self.assertEqual(phone['overflow'],0,phone)
 
     def open_row(self, key):
         self.page({'eval':f"[...document.querySelectorAll('.tm-person')].find(r=>r.dataset.conversation==={json.dumps(key)}).click();true"},

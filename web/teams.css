@@ -768,3 +768,33 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-ignored-where { color: var(--muted-foreground); font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-ignored-row .tm-restore { margin-left: auto; min-height: 44px; border: 0; background: transparent; font-weight: 500;
   color: light-dark(#3f5ced, var(--primary)); }   /* light: 5.3:1 on white, 4.7:1 on the gray shell; --primary there is 4.4:1 */
+
+/* The Inbox list as the Mac's lists (the shared list anatomy): the middle column 400–460 on a desktop (it narrows on a
+   tablet so the open letter keeps its room); the sign in a column of its own, 10 + 4 to the text (12 + 8 on a phone), an
+   unread dot of 8 on the name's line; the name 15/20 semibold and the preview 13/18 in the second colour (17/22 and 15/20
+   on a phone); 6 above and below a row (10 on a phone); the selected plate 8 from the column edge; a line between rows
+   from the text edge to the time's edge — none under the last row and none at the selected row or above it; with nothing
+   open — the section's icon 48 and its title 17 in the second colour; a long word in a source error (a URL) wraps inside
+   the column. The flat Mentions/Channels cards keep their own look. */
+.tm { grid-template-columns: clamp(336px, 40cqw, 460px) minmax(0, 1fr); }
+.tm.tm-flat { grid-template-columns: minmax(0, 1fr); }
+.tm-alert { overflow-wrap: anywhere; }
+.tm-unread { width: 8px; height: 8px; }
+.tm:not(.tm-flat) .tm-list > .tm-person { min-height: 0; padding-block: 6px; border-bottom: 0; position: relative; }
+.tm:not(.tm-flat) .tm-person > .tm-sign { align-self: start; height: 20px; display: flex; align-items: center; }
+.tm:not(.tm-flat) .tm-person .tm-from { font-size: 15px; line-height: 20px; }
+.tm:not(.tm-flat) .tm-person .tm-head { line-height: 20px; }
+.tm:not(.tm-flat) .tm-person :is(.tm-text.tm-clamp, .tm-text) { font-size: 13px; line-height: 18px; }
+.tm:not(.tm-flat) .tm-person:not(.tm-selected) :is(.tm-text.tm-clamp, .tm-text) { color: var(--muted-foreground); }
+.tm:not(.tm-flat) .tm-list > .tm-person::after { content: ""; position: absolute; inset: auto 0 0 20px; height: 1px; background: var(--border); }
+.tm-container:not(.tm-narrow) .tm:not(.tm-flat) .tm-list > .tm-person { grid-template-columns: 10px minmax(0, 1fr); column-gap: 4px; padding-inline: 14px; }
+.tm-container:not(.tm-narrow) .tm:not(.tm-flat) .tm-list > .tm-person::after { inset: auto 14px 0 28px; }
+.tm:not(.tm-flat) .tm-list > .tm-person:is(:nth-last-child(1 of .tm-person), .tm-selected, :has(+ .tm-person.tm-selected))::after { display: none; }
+.tm-container:not(.tm-narrow) .tm-list > .tm-person.tm-selected::before { inset: 0 8px; }
+.tm-narrow .tm:not(.tm-flat) .tm-list > .tm-person { padding-block: 10px; }
+.tm-narrow .tm:not(.tm-flat) .tm-person > .tm-sign { height: 22px; }
+.tm-narrow .tm:not(.tm-flat) .tm-person .tm-from { font-size: 17px; line-height: 22px; }
+.tm-narrow .tm:not(.tm-flat) .tm-person .tm-head { line-height: 22px; }
+.tm-narrow .tm:not(.tm-flat) .tm-person :is(.tm-text.tm-clamp, .tm-text) { font-size: 15px; line-height: 20px; }
+.tm-empty-detail > .tm-native-icon { width: 48px; height: 48px; }
+.tm-empty-detail h2 { font-size: 17px; line-height: 22px; color: var(--muted-foreground); }
