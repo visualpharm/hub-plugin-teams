@@ -1027,7 +1027,10 @@ function fitDrop(menu, panel, gap = 6, edge = 8) {
   panel.classList.toggle("tm-drop-up", up);
   panel.style.maxHeight = `${Math.max(88, Math.floor(Math.min(cap, up ? above : below)))}px`;
 }
-const fitOpenHandoffs = () => { for (const menu of handoffMenus.values()) if (menu.open) fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu")); };
+const fitOpenHandoffs = () => {
+  for (const menu of handoffMenus.values()) if (menu.open) fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu"));
+  for (const menu of suggestMenus.values()) if (menu.open) fitDrop(menu, menu.querySelector(":scope > .tm-suggest-menu"));
+};
 function handoffMenu(m) {
   let menu = handoffMenus.get(m.post);
   if (menu?.open) { queueMicrotask(() => fitDrop(menu, menu.querySelector(":scope > .tm-handoff-menu"))); return menu; }   // перерисовка могла сдвинуть ряд
@@ -2738,18 +2741,53 @@ async function reactTo(m, emoji, msg='') {
   paint();
 }
 
-// I-12: хаб посоветовал реакцию вместо текста (👍 на «посмотрю») — в треде рядом с советом, одним нажатием, как «Поставить» на iPhone/Mac
+// I-12, I-14: хаб посоветовал реакцию вместо текста (👍 на «посмотрю») — в треде рядом с советом две капсулы, как на iPhone/Mac
+// (kit/inbox-reaction.md): эмодзи совета со стрелкой — меню другого эмодзи, «Поставить» — одним нажатием
 function suggestedReaction(m) {
-  const emoji = hubOffer(m).text.trim();
-  if (!QUICK_REACTIONS.includes(emoji) || !m.react || done(m) || deliveredReactions.has(m.id) || ["wait","ok"].includes(reactionSends.get(m.id)?.state)) return null;
+  const offered = hubOffer(m).text.trim();
+  if (!QUICK_REACTIONS.includes(offered) || !m.react || done(m) || deliveredReactions.has(m.id) || ["wait","ok"].includes(reactionSends.get(m.id)?.state)) return null;
+  const emoji = suggestPicks.get(m.id) || offered;
   const row = el("div", "tm-suggested-reaction");
-  const label = el("span", "tm-suggested-label", T("Хаб советует реакцию", "Hub suggests a reaction"));
-  const send = button(`${T("Поставить", "Send")} ${emoji}`, "primary tm-send-reaction", () => reactTo(m, emoji), `${T("Поставить реакцию", "Send reaction")} ${emoji}: ${personName(m.from)}`);
+  row.setAttribute("role", "group"); row.setAttribute("aria-label", T("Хаб советует реакцию", "Hub suggests a reaction"));
+  const send = button(T("Поставить", "Send"), "primary tm-send-reaction", () => reactTo(m, emoji), `${T("Поставить реакцию", "Send reaction")} ${emoji}: ${personName(m.from)}`);
   send.disabled = !!m.target && !reactionTargetSupported;
   if (send.disabled) send.title = REACTION_UNAVAILABLE_NOTICE;
-  row.append(label, send);
+  row.append(suggestPick(m, emoji), send);
   return row;
 }
+
+// Набор для замены совета — тот же, что в меню натива (Inbox.palette): первая строка — быстрые реакции
+const REACTION_PALETTE = [...QUICK_REACTIONS, "😄", "😊", "😉", "😍", "🤔", "😢", "😡", "🎉", "👏", "💪", "🤝", "👌",
+  "✅", "👀", "💯", "🙌", "🤗", "😅", "🤣", "😎", "🥳", "😴", "🤷", "👎"];
+const suggestPicks = new Map();   // id сообщения → эмодзи, выбранный вместо совета
+// узел меню живёт между перерисовками, как у «В работу»: снимок ядра, пришедший во время выбора, меню не закрывает
+const suggestMenus = new Map();
+function suggestPick(m, emoji) {
+  let menu = suggestMenus.get(m.id);
+  if (!menu) {
+    menu = el("details", "tm-suggest-pick");
+    const summary = el("summary", "btn small tm-suggest-toggle"), panel = el("div", "tm-suggest-menu");
+    summary.setAttribute("aria-haspopup", "menu"); panel.setAttribute("role", "menu");
+    menu.append(summary, panel);
+    const fit = () => fitDrop(menu, panel);
+    menu.addEventListener("toggle", fit);
+    summary.addEventListener("click", () => requestAnimationFrame(fit));
+    menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
+    if (suggestMenus.size > 50) suggestMenus.delete(suggestMenus.keys().next().value);
+    suggestMenus.set(m.id, menu);
+  } else if (menu.open) queueMicrotask(() => fitDrop(menu, menu.querySelector(":scope > .tm-suggest-menu")));
+  const summary = menu.querySelector(":scope > summary"), panel = menu.querySelector(":scope > .tm-suggest-menu");
+  const label = T("Хаб советует реакцию", "Hub suggests a reaction");
+  summary.replaceChildren(el("span", "tm-suggest-emoji", emoji), nativeIcon("chevron-down"));
+  summary.setAttribute("aria-label", `${label}: ${emoji}`); summary.title = label;
+  panel.replaceChildren(...REACTION_PALETTE.map(x => {
+    const b = button(x, "quiet tm-suggest-choice", () => { suggestPicks.set(m.id, x); menu.open = false; paint(); summary.focus(); }, T("Реакция ", "React ") + x);
+    b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(x === emoji));
+    return b;
+  }));
+  return menu;
+}
+const closeSuggestMenus = (keep) => { for (const menu of suggestMenus.values()) if (menu.open && !menu.contains(keep)) menu.open = false; };
 
 function reactionRow(m, msg='') {
   const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label",T("Реакция","Reaction"));
@@ -3520,6 +3558,7 @@ export default function register(h) {
   newComposer = newMessage(h, textInput);
   window.addEventListener('storage',e=>{if(e.key===null || e.key===quickKey() || e.key===quickKey()+':files')syncQuickButtons();if(e.key===null || e.key===sendActionKey() || e.key==='hub.inbox.pinned.v1:'+hubName() || e.key==='hub.inbox.read.v1:'+hubName())paint();});
   window.addEventListener('hashchange',()=>{for(const {dialog,canClose} of quickDialogs.values())if(dialog.open && canClose())dialog.close();for(const menu of handoffMenus.values())menu.open=false;});
+  document.addEventListener('pointerdown',e=>closeSuggestMenus(e.target),true);window.addEventListener('hashchange',()=>closeSuggestMenus(null));
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==="f" && location.hash==="#/x/inbox" && !document.querySelector("dialog[open]") && ui?.search && !ui.search.hidden){e.preventDefault();ui.search.querySelector("input").focus();}});
   // Cmd/Ctrl+Z — the strip's Undo, as in the native lists; inside a text field it stays the field's own undo
   document.addEventListener("keydown",e=>{if((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==="z" && undoStrip && location.hash.startsWith("#/x/inbox") && !document.querySelector("dialog[open]") && !e.target.closest?.("input,textarea,select,[contenteditable]:not([contenteditable=false])")){e.preventDefault();undoArchive();}});

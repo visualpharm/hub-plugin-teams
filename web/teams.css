@@ -317,10 +317,21 @@
 .tm-action-label { white-space: nowrap; }
 .tm-thread > .tm-head .tm-link { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin-left: auto; }
 .tm-thread { container: inbox-thread / inline-size; }
-.tm-suggested-reaction { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin: 0 0 8px; }
-.tm-suggested-label, .tm-draft-stale { color: var(--muted-foreground); }
-.tm-draft-stale { margin: 0 0 8px; }
-.tm-suggested-reaction .tm-send-reaction { min-height: 44px; border-radius: 22px; padding-inline: 16px; }
+/* I-14: две капсулы высоты ряда действий — эмодзи со стрелкой (меню другого эмодзи) и «Поставить» (kit/inbox-reaction.md) */
+.tm-suggested-reaction { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin: 0 0 8px; }
+.tm-draft-stale { color: var(--muted-foreground); margin: 0 0 8px; }
+.tm-suggested-reaction .tm-send-reaction { min-height: 44px; border-radius: 22px; padding-inline: 16px; font-weight: 600; }
+.tm-suggest-pick { position: relative; display: flex; }
+.tm-suggested-reaction .tm-suggest-pick > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 0 14px;
+  border-radius: 22px; background: var(--muted); color: var(--foreground); border: 0; }
+.tm-suggest-pick > summary::-webkit-details-marker { display: none; }
+.tm-suggest-emoji { font-size: 20px; line-height: 1; }
+.tm-suggested-reaction .tm-suggest-pick > summary > .tm-native-icon { width: 12px; height: 12px; }
+.tm-suggest-menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; display: grid; grid-template-columns: repeat(6, 40px); gap: 4px; max-height: 50vh; overflow: auto;
+  padding: 12px; border-radius: 12px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / .18)); }
+.tm-suggest-menu.tm-drop-up { top: auto; bottom: calc(100% + 6px); }
+.tm-suggest-menu .tm-suggest-choice { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; font-size: 26px; line-height: 1; background: transparent; }
+.tm-suggest-menu .tm-suggest-choice[aria-checked="true"] { background: var(--muted); }
 /* I-54: «В работу» и стрелка выбора агента — одна кнопка с меню, как на Mac */
 .tm-handoff-split { display: inline-flex; align-items: stretch; gap: 2px; position: relative; }
 .tm-handoff { position: relative; display: flex; }

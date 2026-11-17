@@ -1415,10 +1415,12 @@ class InboxWebAcceptance(PageInChrome):
         self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nПочему: он только обещал посмотреть, реакции хватит.',reply_to=post)
         got=self.page({'until':"!!document.querySelector('.tm-thread .tm-suggested-reaction')"},
                       {'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction'),b=s.querySelector('button.tm-send-reaction'),a=document.querySelector('.tm-thread > .tm-acts').getBoundingClientRect();"
-                             "return {text:s.textContent,button:b.textContent,label:b.getAttribute('aria-label'),above:s.getBoundingClientRect().bottom<=a.top+1,reply:document.querySelector('.tm-shared-compose textarea').value}})()"})
+                             "return {pick:s.querySelector('.tm-suggest-pick > summary').textContent,group:s.getAttribute('aria-label'),button:b.textContent,label:b.getAttribute('aria-label'),above:s.getBoundingClientRect().bottom<=a.top+1,reply:document.querySelector('.tm-shared-compose textarea').value}})()"})
         self.assertTrue(got[-2]['until'],got)
         got=got[-1]['eval']
-        self.assertIn('👍',got['button']);self.assertIn('Хаб советует реакцию',got['text']);self.assertTrue(got['above'],got)
+        # I-14: two capsules as on iPhone/Mac — the suggested emoji with its menu, then "Поставить"; no caption in the row
+        self.assertIn('👍',got['pick']);self.assertEqual(got['button'],'Поставить');self.assertIn('👍',got['label'])
+        self.assertEqual(got['group'],'Хаб советует реакцию');self.assertTrue(got['above'],got)
         self.assertEqual(got['reply'],'',got)
         self.p14_shot('teams-reaction-402',402);self.p14_shot('teams-reaction-1240',1240)
         self.page({'viewport':{'width':402,'height':874}},{'mclick':'.tm-thread .tm-suggested-reaction button.tm-send-reaction'})
@@ -1431,6 +1433,40 @@ class InboxWebAcceptance(PageInChrome):
         self.assertTrue(self.page({'until':"document.querySelector('.tm-reaction-status')?.textContent==='Реакция поставлена 👍'"})[-1]['until'])
         self.assertFalse(self.page({'eval':"!!document.querySelector('.tm-suggested-reaction')"})[-1]['eval'])
         self.p14_shot('teams-reaction-sent-402',402)
+
+    def test_suggested_reaction_can_be_swapped_for_another_emoji_from_its_capsule(self):
+        # I-14: the emoji capsule opens a menu of other reactions; the picked one is what "Поставить" sends
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nПочему: он только обещал посмотреть, реакции хватит.',reply_to=post)
+        self.assertTrue(self.page({'viewport':{'width':402,'height':874}},{'until':"!!document.querySelector('.tm-thread .tm-suggest-pick > summary')"})[-1]['until'])
+        got=self.page({'mclick':'.tm-thread .tm-suggest-pick > summary'},{'until':"document.querySelector('.tm-suggest-pick')?.open"},
+                      {'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction'),p=s.querySelector('.tm-suggest-pick > summary').getBoundingClientRect(),b=s.querySelector('.tm-send-reaction').getBoundingClientRect(),"
+                             "m=document.querySelector('.tm-suggest-menu').getBoundingClientRect();"
+                             "return {h:[p.height,b.height],gap:b.left-p.right,menu:[m.top>=0,m.bottom<=innerHeight,m.left>=0,m.right<=innerWidth],"
+                             "items:[...document.querySelectorAll('.tm-suggest-menu [role=menuitemradio]')].map(x=>x.textContent),checked:document.querySelector('.tm-suggest-menu [aria-checked=true]')?.textContent}})()"})
+        self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
+        self.assertEqual(got['h'],[44,44],got);self.assertAlmostEqual(got['gap'],8,delta=1);self.assertEqual(got['menu'],[True]*4,got)
+        self.assertEqual(got['items'][:6],['👍','❤️','😂','😮','🙏','🔥']);self.assertGreater(len(got['items']),6);self.assertEqual(got['checked'],'👍')
+        self.p14_shot('teams-reaction-pick-402',402)
+        self.page({'mclick':'.tm-suggest-menu [aria-label="Реакция 🎉"]'},{'until':"!document.querySelector('.tm-suggest-pick')?.open"})
+        got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction');return [s.querySelector('.tm-suggest-pick > summary').textContent,s.querySelector('.tm-send-reaction').getAttribute('aria-label')]})()"})[-1]['eval']
+        self.assertIn('🎉',got[0]);self.assertIn('🎉',got[1])
+        self.page({'mclick':'.tm-thread .tm-suggested-reaction button.tm-send-reaction'})
+        react=self.queued('react')
+        self.assertEqual((react['id'],react['emoji']),('source-a','🎉'))
+
+    def test_suggested_reaction_menu_closes_on_escape_and_on_a_tap_outside(self):
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nПочему: реакции хватит.',reply_to=post)
+        open_="document.querySelector('.tm-suggest-pick')?.open"
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-thread .tm-suggest-pick > summary')"},{'mclick':'.tm-thread .tm-suggest-pick > summary'},{'until':open_})[-1]['until'])
+        self.page({'key':'Escape'})
+        self.assertFalse(self.page({'eval':"!!("+open_+")"})[-1]['eval'])
+        self.page({'mclick':'.tm-thread .tm-suggest-pick > summary'},{'until':open_})
+        self.page({'mclick':'.tm-shared-compose textarea'})
+        self.assertFalse(self.page({'eval':"!!("+open_+")"})[-1]['eval'])
 
     def test_draft_by_hub_again_regenerates_and_retires_the_old_draft(self):
         # I-16: ✨ again (e.g. the day changed) asks for a new draft; the old one is marked stale and never doubled
