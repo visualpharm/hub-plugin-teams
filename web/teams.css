@@ -769,14 +769,14 @@ main:has(.tm-container.tm-narrow .tm-detail-open) > .view-nav { display: none; }
 .tm-ignored-row .tm-restore { margin-left: auto; min-height: 44px; border: 0; background: transparent; font-weight: 500;
   color: light-dark(#3f5ced, var(--primary)); }   /* light: 5.3:1 on white, 4.7:1 on the gray shell; --primary there is 4.4:1 */
 
-/* The Inbox list as the Mac's lists (the shared list anatomy): the middle column 400–460 on a desktop (it narrows on a
-   tablet so the open letter keeps its room); the sign in a column of its own, 10 + 4 to the text (12 + 8 on a phone), an
+/* The Inbox list as the Mac's lists (the shared list anatomy): the middle column 336–460 by the window (it gives way
+   first so the open letter keeps its action labels); the sign in a column of its own, 10 + 4 to the text (12 + 8 on a phone), an
    unread dot of 8 on the name's line; the name 15/20 semibold and the preview 13/18 in the second colour (17/22 and 15/20
    on a phone); 6 above and below a row (10 on a phone); the selected plate 8 from the column edge; a line between rows
    from the text edge to the time's edge — none under the last row and none at the selected row or above it; with nothing
    open — the section's icon 48 and its title 17 in the second colour; a long word in a source error (a URL) wraps inside
    the column. The flat Mentions/Channels cards keep their own look. */
-.tm { grid-template-columns: clamp(336px, 40cqw, 460px) minmax(0, 1fr); }
+.tm { grid-template-columns: clamp(336px, min(40cqw, 100cqw - 593px), 460px) minmax(0, 1fr); }   /* the letter keeps 561 (its 560 label threshold below, + 32 padding) once the list can spare it */
 .tm.tm-flat { grid-template-columns: minmax(0, 1fr); }
 .tm-alert { overflow-wrap: anywhere; }
 .tm-unread { width: 8px; height: 8px; }

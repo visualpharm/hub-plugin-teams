@@ -4030,7 +4030,7 @@ class InboxWebAcceptance(PageInChrome):
         probe=("(()=>{const b=[...document.querySelectorAll('.tm-thread > .tm-acts > .tm-action, .tm-thread > .tm-acts > * > .tm-action')].filter(n=>n.checkVisibility());"
                "return b.map(n=>{const r=n.getBoundingClientRect(),l=n.querySelector('.tm-action-label');"
                "return {top:Math.round(r.top),left:r.left,right:r.right,height:r.height,label:!!l&&l.checkVisibility(),name:n.getAttribute('aria-label'),title:n.title}})})()")
-        for width in (360,402,1240):
+        for width in (360,402,1240,1440):
             got=self.page({"viewport":{"width":width,"height":874}},{"eval":probe})[-1]["eval"]
             self.assertGreaterEqual(len(got),4,got)
             self.assertEqual(len({b["top"] for b in got}),1,(width,got))
