@@ -1444,10 +1444,10 @@ class InboxWebAcceptance(PageInChrome):
                       {'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction'),p=s.querySelector('.tm-suggest-pick > summary').getBoundingClientRect(),b=s.querySelector('.tm-send-reaction').getBoundingClientRect(),"
                              "m=document.querySelector('.tm-suggest-menu').getBoundingClientRect();"
                              "return {h:[p.height,b.height],gap:b.left-p.right,menu:[m.top>=0,m.bottom<=innerHeight,m.left>=0,m.right<=innerWidth],"
-                             "items:[...document.querySelectorAll('.tm-suggest-menu [role=menuitemradio]')].map(x=>x.textContent),checked:document.querySelector('.tm-suggest-menu [aria-checked=true]')?.textContent}})()"})
+                             "items:[...document.querySelectorAll('.tm-suggest-menu .tm-suggest-choice')].map(x=>x.textContent),checked:document.querySelector('.tm-suggest-menu [aria-pressed=true]')?.textContent,focus:document.activeElement?.textContent}})()"})
         self.assertTrue(got[-2]['until'],got);got=got[-1]['eval']
         self.assertEqual(got['h'],[44,44],got);self.assertAlmostEqual(got['gap'],8,delta=1);self.assertEqual(got['menu'],[True]*4,got)
-        self.assertEqual(got['items'][:6],['👍','❤️','😂','😮','🙏','🔥']);self.assertGreater(len(got['items']),6);self.assertEqual(got['checked'],'👍')
+        self.assertEqual(got['items'][:6],['👍','❤️','😂','😮','🙏','🔥']);self.assertGreater(len(got['items']),6);self.assertEqual(got['checked'],'👍');self.assertEqual(got['focus'],'👍')
         self.p14_shot('teams-reaction-pick-402',402)
         self.page({'mclick':'.tm-suggest-menu [aria-label="Реакция 🎉"]'},{'until':"!document.querySelector('.tm-suggest-pick')?.open"})
         got=self.page({'eval':"(()=>{const s=document.querySelector('.tm-thread .tm-suggested-reaction');return [s.querySelector('.tm-suggest-pick > summary').textContent,s.querySelector('.tm-send-reaction').getAttribute('aria-label')]})()"})[-1]['eval']
@@ -1455,6 +1455,23 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'mclick':'.tm-thread .tm-suggested-reaction button.tm-send-reaction'})
         react=self.queued('react')
         self.assertEqual((react['id'],react['emoji']),('source-a','🎉'))
+
+    def test_suggested_reaction_menu_survives_a_repaint_and_a_new_suggestion_drops_the_old_pick(self):
+        self.seed_inbox(start_editing=False)
+        post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).id==='source-a'}catch{return false}}).id)"})[-1]['eval']
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='👍\n---\nПочему: реакции хватит.',reply_to=post)
+        pick="document.querySelector('.tm-thread .tm-suggest-pick > summary')?.textContent||''"
+        self.page({'until':"!!document.querySelector('.tm-thread .tm-suggest-pick > summary')"},{'mclick':'.tm-thread .tm-suggest-pick > summary'},
+                  {'until':"document.querySelector('.tm-suggest-pick')?.open"},{'eval':"window.__choice=document.querySelector('.tm-suggest-choice');true"})
+        # a snapshot lands while the menu is open: the pressed button stays in the page, the menu stays open
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='🙏\n---\nПочему: поблагодарить.',reply_to=post)
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-thread .tm-suggest-pick')?.open && window.__choice.isConnected && (window.__seen=1)"},{'sleep':1200},
+                                  {'eval':"window.__choice.isConnected && document.querySelector('.tm-suggest-pick').open"})[-1]['eval'])
+        self.page({'mclick':'.tm-suggest-menu [aria-label="Реакция 🎉"]'},{'until':"!document.querySelector('.tm-suggest-pick')?.open"})
+        self.assertIn('🎉',self.page({'until':pick+".includes('🎉')"},{'eval':pick})[-1]['eval'])
+        # the hub suggests again: its new emoji replaces the pick made for the old suggestion
+        self.ev('ext.post',None,plugin='teams',channel='session',owner=False,sender='hub',text='❤️\n---\nПочему: тёплое спасибо.',reply_to=post)
+        self.assertTrue(self.page({'until':pick+".includes('❤️')"})[-1]['until'])
 
     def test_suggested_reaction_menu_closes_on_escape_and_on_a_tap_outside(self):
         self.seed_inbox(start_editing=False)

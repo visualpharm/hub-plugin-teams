@@ -2746,7 +2746,7 @@ async function reactTo(m, emoji, msg='') {
 function suggestedReaction(m) {
   const offered = hubOffer(m).text.trim();
   if (!QUICK_REACTIONS.includes(offered) || !m.react || done(m) || deliveredReactions.has(m.id) || ["wait","ok"].includes(reactionSends.get(m.id)?.state)) return null;
-  const emoji = suggestPicks.get(m.id) || offered;
+  const pick = suggestPicks.get(m.id), emoji = pick?.offered === offered ? pick.emoji : offered;   // новый совет снимает прежний выбор
   const row = el("div", "tm-suggested-reaction");
   row.setAttribute("role", "group"); row.setAttribute("aria-label", T("Хаб советует реакцию", "Hub suggests a reaction"));
   const send = button(T("Поставить", "Send"), "primary tm-send-reaction", () => reactTo(m, emoji), `${T("Поставить реакцию", "Send reaction")} ${emoji}: ${personName(m.from)}`);
@@ -2759,30 +2759,38 @@ function suggestedReaction(m) {
 // Набор для замены совета — тот же, что в меню натива (Inbox.palette): первая строка — быстрые реакции
 const REACTION_PALETTE = [...QUICK_REACTIONS, "😄", "😊", "😉", "😍", "🤔", "😢", "😡", "🎉", "👏", "💪", "🤝", "👌",
   "✅", "👀", "💯", "🙌", "🤗", "😅", "🤣", "😎", "🥳", "😴", "🤷", "👎"];
-const suggestPicks = new Map();   // id сообщения → эмодзи, выбранный вместо совета
+const suggestPicks = new Map();   // id сообщения → {emoji, offered}: эмодзи, выбранный вместо совета offered
 // узел меню живёт между перерисовками, как у «В работу»: снимок ядра, пришедший во время выбора, меню не закрывает
 const suggestMenus = new Map();
 function suggestPick(m, emoji) {
+  for (const [id, other] of suggestMenus) if (id !== m.id && other.open) other.open = false;   // совет ушёл к другому сообщению
   let menu = suggestMenus.get(m.id);
+  // открытое меню не пересобирается: перерисовка посреди нажатия съела бы выбор и фокус
+  if (menu?.open) { queueMicrotask(() => fitDrop(menu, menu.querySelector(":scope > .tm-suggest-menu"))); return menu; }
   if (!menu) {
     menu = el("details", "tm-suggest-pick");
     const summary = el("summary", "btn small tm-suggest-toggle"), panel = el("div", "tm-suggest-menu");
-    summary.setAttribute("aria-haspopup", "menu"); panel.setAttribute("role", "menu");
+    panel.setAttribute("role", "group"); panel.setAttribute("aria-label", T("Другая реакция", "Another reaction"));
     menu.append(summary, panel);
     const fit = () => fitDrop(menu, panel);
-    menu.addEventListener("toggle", fit);
+    // открыли — фокус на текущем эмодзи; закрыли — ряд догоняет то, что пришло, пока меню было открыто
+    menu.addEventListener("toggle", () => { fit(); if (menu.open) panel.querySelector('[aria-pressed="true"]')?.focus(); else paint(); });
     summary.addEventListener("click", () => requestAnimationFrame(fit));
     menu.addEventListener("keydown", e => { if (e.key === "Escape" && menu.open) { e.preventDefault(); e.stopPropagation(); menu.open = false; summary.focus(); } });
     if (suggestMenus.size > 50) suggestMenus.delete(suggestMenus.keys().next().value);
     suggestMenus.set(m.id, menu);
-  } else if (menu.open) queueMicrotask(() => fitDrop(menu, menu.querySelector(":scope > .tm-suggest-menu")));
+  }
   const summary = menu.querySelector(":scope > summary"), panel = menu.querySelector(":scope > .tm-suggest-menu");
   const label = T("Хаб советует реакцию", "Hub suggests a reaction");
   summary.replaceChildren(el("span", "tm-suggest-emoji", emoji), nativeIcon("chevron-down"));
   summary.setAttribute("aria-label", `${label}: ${emoji}`); summary.title = label;
   panel.replaceChildren(...REACTION_PALETTE.map(x => {
-    const b = button(x, "quiet tm-suggest-choice", () => { suggestPicks.set(m.id, x); menu.open = false; paint(); summary.focus(); }, T("Реакция ", "React ") + x);
-    b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(x === emoji));
+    const b = button(x, "quiet tm-suggest-choice", () => {
+      if (suggestPicks.size > 50) suggestPicks.delete(suggestPicks.keys().next().value);
+      // совет, каков он сейчас: мог смениться, пока меню было открыто, — выбор отвечает на него
+      suggestPicks.set(m.id, {emoji: x, offered: hubOffer(msgs.get(m.id) || m).text.trim()}); menu.open = false; paint(); summary.focus();
+    }, T("Реакция ", "React ") + x);
+    b.setAttribute("aria-pressed", String(x === emoji));
     return b;
   }));
   return menu;
