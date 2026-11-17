@@ -2274,7 +2274,7 @@ class InboxWebAcceptance(PageInChrome):
         self.page({'eval':"navigator.clipboard.writeText=async t=>window.__copied=t;document.querySelector('.tm-history-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:300}));true"},
           {'eval':"document.querySelectorAll('.tm-history-row')[1].dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch',clientX:100,clientY:360}));true"},{'sleep':650})
         self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-message-menu')"})[-1]['eval'])
-        self.page({'mclick':'.tm-message-menu button:first-child'})
+        self.page({'mclick':'.tm-message-menu button:nth-child(2)'})
         self.assertEqual(self.page({'eval':'window.__copied'})[-1]['eval'],'Second question')
         self.assertEqual(self.non_history_actions(),[])
 
@@ -2283,7 +2283,7 @@ class InboxWebAcceptance(PageInChrome):
         self.menu_history()
         thread_post=self.page({'eval':"fetch('/api/feed?plugin=teams').then(r=>r.json()).then(d=>d.posts.find(p=>{try{return JSON.parse(p.text).kind==='thread'}catch{return false}}).id)"})[-1]['eval']
         self.page({'eval':"document.querySelector('.tm-history-row').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:100,clientY:300}));true"},
-          {'mclick':'.tm-message-menu button:nth-child(2)'},{'until':"location.hash==='#/s/hub'"},{'sleep':150})
+          {'mclick':'.tm-message-menu button:nth-child(3)'},{'until':"location.hash==='#/s/hub'"},{'sleep':150})
         quote=self.page({'eval':"import('/static/js/state.js').then(m=>m.S.replyTarget?.quote)"})[-1]['eval']
         self.assertIn('post '+thread_post,quote);self.assertIn('turn-first',quote)
         self.assertIn('First question',quote);self.assertNotIn('Please check the navigation',quote)
@@ -2329,7 +2329,7 @@ class InboxWebAcceptance(PageInChrome):
             self.assertTrue(all(mask!='none' for mask in got['masks']),got);rows.append({'width':width,**got})
             self.page({'key':'Escape'})
         self.page({'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));true"},
-          {'mclick':'.tm-message-menu button:nth-child(2)'},
+          {'mclick':'.tm-message-menu button:nth-child(3)'},
           {'until':"location.hash==='#/s/hub' && !!document.querySelector('form.composer textarea')"})
         self.assertEqual(self.page({'eval':"document.querySelector('form.composer textarea').value"})[-1]['eval'],'Разбери.')
         self.assertEqual(self.non_history_actions(),[])
@@ -2339,8 +2339,8 @@ class InboxWebAcceptance(PageInChrome):
         self.seed_inbox();self.acknowledge(self.queued('draft_control'));self.edit('Keep my unfinished reply')
         self.page({'eval':"navigator.clipboard.writeText=async text=>{window.__copied=text};document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));true"})
         got=self.page({'eval':"[...document.querySelectorAll('.tm-message-menu [role=menuitem]')].map(n=>n.textContent)"})[-1]['eval']
-        self.assertEqual(len(got),3,got)
-        self.page({'mclick':'.tm-message-menu button:first-child'})
+        self.assertEqual(len(got),4,got)
+        self.page({'mclick':'.tm-message-menu button:nth-child(2)'})
         self.assertEqual(self.page({'eval':'window.__copied'})[-1]['eval'],'Please check the navigation.')
         self.assertEqual(self.page({'eval':"document.querySelector('.tm-shared-compose textarea').value"})[-1]['eval'],'Keep my unfinished reply')
         self.assertEqual(self.non_history_actions(),[])
@@ -2357,6 +2357,39 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(q['from'],'Earlier colleague');self.assertEqual(q['at'],'2026-10-17T12:00:00Z')
         self.assertRegex(q['post'],r'^p\d+$');self.assertRegex(q['place'],r'^post p\d+ \(thread, part 1 of 1\)$')
         self.assertNotIn('text',q);self.assertNotIn('instruction',q);self.assertNotIn('id',q)
+
+    def test_message_menu_reacts_to_that_exact_bubble(self):
+        # as the native bubble menu: "React" on one message of the conversation, the emoji row under that bubble, the
+        # reaction goes to that provider message (msg), not to the latest one; the conversation's own actions stay
+        self.menu_history()
+        menu="(i)=>{document.querySelectorAll('.tm-history-row')[i].dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));return [...document.querySelectorAll('.tm-message-menu [role=menuitem]')].map(n=>n.textContent)}"
+        got=self.page({'eval':f"({menu})(0)"})[-1]['eval']
+        self.assertEqual(got[0],'Реакция',got)
+        self.page({'mclick':'.tm-message-menu button:first-child'})
+        got=self.page({'until':"!!document.querySelector('.tm-history-row + .tm-reactions')"},
+          {'eval':"(()=>{const r=document.querySelector('.tm-reactions');return {after:r.previousElementSibling.textContent.includes('First question'),"
+                  "buttons:r.querySelectorAll('button').length,acts:!!document.querySelector('.tm-thread > .tm-acts')}})()"})
+        self.assertTrue(got[0]['until'],got);got=got[-1]['eval']
+        self.assertEqual(got,{'after':True,'buttons':7,'acts':True})
+        self.page({'mclick':'.tm-reactions button:first-child'},{'sleep':150})
+        q=self.queued('react');self.assertEqual((q['id'],q['emoji'],q.get('msg')),('source-a','👍','turn-first'))
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history-row .tm-reaction-status')?.textContent.includes('Ставлю реакцию')"})[-1]['until'])
+        self.feed({'kind':'reacted','id':'source-a','rid':q['rid'],'emoji':'👍'})
+        self.assertTrue(self.page({'until':"document.querySelector('.tm-history-row .tm-reaction-status')?.textContent==='Реакция поставлена 👍'"})[-1]['until'])
+        self.assertTrue(self.page({'eval':"!!document.querySelector('.tm-thread > .tm-acts .tm-react-trigger')"})[-1]['eval'])
+        # the item's own bubble: the same row under it, the reaction without msg (the message the post came for)
+        self.page({'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));true"},
+          {'mclick':'.tm-message-menu button:first-child'},{'until':"!!document.querySelector('[data-message=\"source-a\"] + .tm-reactions')"},
+          {'mclick':'.tm-reactions button:nth-child(2)'},{'sleep':150})
+        q=self.queued('react');self.assertEqual(q['emoji'],'❤️');self.assertNotIn('msg',q)
+
+    def test_message_that_cannot_take_a_reaction_shows_no_reaction(self):
+        # WhatsApp without a reaction command (react absent): no greyed "React" in the actions and none in the bubble menu
+        self.seed_inbox(start_editing=False, open_editor=False, msg={'src':'whatsapp','react':None,'link':None})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-thread > .tm-acts') && !document.querySelector('.tm-react-trigger')"})[-1]['until'])
+        got=self.page({'eval':"document.querySelector('[data-message=\"source-a\"]').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:100,clientY:300}));[...document.querySelectorAll('.tm-message-menu [role=menuitem]')].map(b=>b.textContent.trim())"})[-1]['eval']
+        self.assertTrue(got,got)
+        self.assertNotIn('Реакция',got)
 
     def test_native_message_menu_keyboard_dismissal_and_rebound_source(self):
         self.seed_inbox(start_editing=False)
@@ -4215,7 +4248,7 @@ class InboxWebAcceptance(PageInChrome):
     def feed(self, data):
         self.ev("ext.post", None, plugin="teams", channel="plugin", sender="teams", text=json.dumps(data))
 
-    def seed_inbox(self, start_editing=True, open_editor=True, target=None):
+    def seed_inbox(self, start_editing=True, open_editor=True, target=None, msg=None):
         cfg = Path(self.state) / "inbox.json"
         cfg.write_text(json.dumps({"extensions": {"teams": {"path": str(Path(__file__).resolve().parents[1]), "web": "web/main.js"}}}))
         env = mock.patch.dict(os.environ, {"HUB_CONFIG": str(cfg)}); env.start(); self.addCleanup(env.stop)
@@ -4223,8 +4256,10 @@ class InboxWebAcceptance(PageInChrome):
         self.ev("session.started", "hub", session_id="s-hub")
         self.token = {"v": 1, "version": "synthetic-source-A", "edit_version": 0, "held": False, "holder": None}
         self.feed({"kind": "config", "inbox_protocol": {"version": 1, "editor_cas": True}, "reaction_target":1})
-        self.feed({"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
-                   "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token, **({"target":target} if target else {})})
+        first = {"kind": "msg", "id": "source-a", "contact": "synthetic-account/conversation-a", "src": "dm", "from": "Review colleague",
+                   "text": "Please check the navigation.", "react": True, "link": "https://teams.microsoft.com/l/message/synthetic-source-a", "at": datetime.now(timezone.utc).isoformat(), "reply": True, "inbox": self.token, **({"target":target} if target else {})}
+        # msg: fields of the first message to change (None drops one), e.g. a WhatsApp message with no reaction command
+        self.feed({k: v for k, v in {**first, **(msg or {})}.items() if v is not None})
         self.page({"go": f"http://127.0.0.1:{self.port}/#/x/inbox"}, {"until": "!!document.querySelector('.tm-person')"},
                   {"eval": "document.querySelector('.tm-person').click();true"})
         if open_editor:

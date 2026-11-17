@@ -91,6 +91,7 @@ const reactionNotices = new Map();
 const REACTION_REOPEN_NOTICE="Reopen this conversation before reacting.";
 const REACTION_UNAVAILABLE_NOTICE="Reactions are unavailable. Refresh Inbox.";
 let reacting = null;
+let reactingMsg = null; // the emoji row under one bubble (the bubble menu): its provider message id, '' — the item's own; null — the row of the conversation's actions
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "🔥"];
 const composing = new Map(); // id сообщения → {text} — открытое поле ответа (текст переживает перерисовку)
 const editorStates = new Map();
@@ -720,14 +721,15 @@ async function sync() {
       else if (p.by === "owner" && d?.kind === "react" && d.rid) {
         const old = reactionSends.get(d.id);
         if(d.target && d.target!==msgs.get(d.id)?.target)continue;
-        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {...(old?.rid===d.rid ? old : {}),id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : ""});
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {...(old?.rid===d.rid ? old : {}),id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : "",...(typeof d.msg==="string" && d.msg ? {msg:d.msg} : {})});
       }
       else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
         const r = reactionSends.get(d.id);
         if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) {
           const result = {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"};
           reactionSends.set(d.id,result);
-          if (d.kind === "reacted") deliveredReactions.set(d.id,result);
+          // a reaction to one bubble of the conversation does not answer it (as the native client): it stays where it is
+          if (d.kind === "reacted" && !r.msg) deliveredReactions.set(d.id,result);
         }
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
@@ -1824,6 +1826,10 @@ function line(m, source=m, named=false) {
   row.tabIndex=0;row.setAttribute('aria-haspopup','menu');
   const identity=JSON.stringify([draftKey(source),source.post,m.id,m.text,m._place,m.at,m.from,m.providerId]);
   const items=[];
+  // as the native bubble menu: a reaction to this very message (the collector takes msg: the provider message it goes to)
+  const bubble=m===source ? '' : m.providerId;
+  if(source.react && typeof bubble==='string' && (m===source || bubble) && !(source.target && !reactionTargetSupported) && reactionSends.get(source.id)?.state!=='wait')
+    items.push({label:T('Реакция','React'),icon:nativeIcon('react'),run:()=>{reacting=source.id;reactingMsg=bubble;paint();}});
   const copyText=messageText(m);
   if(copyText)items.push({label:T('Копировать','Copy'),icon:nativeIcon('copy'),run:()=>navigator.clipboard.writeText(copyText)});
   if(/^p\d+$/.test(source.post) && (source===m || m._place)) {
@@ -1862,8 +1868,10 @@ function line(m, source=m, named=false) {
     const foot=[m.edited ? T("Изменено","Edited") : "",Number.isFinite(Date.parse(m.at)) ? clock(new Date(m.at)) : ""].filter(Boolean).join(" · ");
     if(foot)row.append(el("time","tm-message-time",foot));
   }
-  const result = reactionSends.get(m.id);
-  const reactionNotice=reactionNotices.get(pendingReplyKey(m));
+  // the reaction's status under the bubble it went to: the item's own message, or the one picked in the conversation
+  const sent = reactionSends.get(source.id);
+  const result = sent && (sent.msg || '') === (m===source ? '' : m.providerId) ? sent : null;
+  const reactionNotice=m===source && reactionNotices.get(pendingReplyKey(m));
   if(reactionNotice) {
     const notice=el("p","tm-reaction-status tm-reaction-notice",reactionNotice);
     notice.setAttribute("role","status");row.append(notice);
@@ -2708,7 +2716,7 @@ function sentBlock(m, rid, x) {
   return d;
 }
 
-async function reactTo(m, emoji) {
+async function reactTo(m, emoji, msg='') {
   const currentMessage=msgs.get(m.id);
   if(!currentMessage || pendingReplyKey(currentMessage)!==pendingReplyKey(m)) {
     if(currentMessage)reactionNotices.set(pendingReplyKey(currentMessage),REACTION_REOPEN_NOTICE);else error=REACTION_REOPEN_NOTICE;
@@ -2718,11 +2726,11 @@ async function reactTo(m, emoji) {
   if(currentMessage.target && !reactionTargetSupported){reactionNotices.set(pendingReplyKey(currentMessage),REACTION_UNAVAILABLE_NOTICE);paint();return;}
   if(error===REACTION_REOPEN_NOTICE)error="";
   reactionNotices.delete(pendingReplyKey(currentMessage));
-  const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true};
-  reactionSends.set(m.id,r); reacting = null; paint();
+  const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true,...(msg ? {msg} : {})};
+  reactionSends.set(m.id,r); reacting = null; reactingMsg = null; paint();
   let failure = "";
   try {
-    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(m.target ? {target:m.target} : {})}))) failure = error || "Reaction refused";
+    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(msg ? {msg} : {}),...(m.target ? {target:m.target} : {})}))) failure = error || "Reaction refused";
   } catch { failure = "Could not send reaction. Try again."; }
   const current = reactionSends.get(m.id);
   if (failure && current?.rid === r.rid && current.state === "wait")
@@ -2743,13 +2751,13 @@ function suggestedReaction(m) {
   return row;
 }
 
-function reactionRow(m) {
+function reactionRow(m, msg='') {
   const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label",T("Реакция","Reaction"));
   for (const emoji of QUICK_REACTIONS) {
-    const choice=button(emoji,"",()=>reactTo(m,emoji),T("Реакция ","React ") + emoji);
+    const choice=button(emoji,"",()=>reactTo(m,emoji,msg),T("Реакция ","React ") + emoji);
     choice.disabled=!!m.target && !reactionTargetSupported;row.append(choice);
   }
-  const close=button("","quiet",()=>{reacting=null;paint();},T("Закрыть реакции","Close reactions"));close.append(hub.icon("close"));row.append(close);
+  const close=button("","quiet",()=>{reacting=null;reactingMsg=null;paint();},T("Закрыть реакции","Close reactions"));close.append(hub.icon("close"));row.append(close);
   return row;
 }
 
@@ -2864,6 +2872,8 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     // одно время под группой подряд идущих сообщений одной минуты одного автора (ui-expert): у предыдущего убираем
     if(previousRow && !split && sameBurst(previous,m))previousRow.querySelector(":scope > time.tm-message-time")?.remove();
     history.append(row);previous=m;previousRow=row;
+    // the emoji row picked in this bubble's menu: right under it, as in a messenger
+    if(reacting===source.id && reactingMsg!==null && reactingMsg===(m===source ? '' : m.providerId))history.append(reactionRow(source,reactingMsg));
   };
   const h = histories.get(last.id);
   if (historyAvailable && canReply(last) && (!h?.revealed || h.loading || h.error || (h.more && h.items?.some(t=>t.id)))) {
@@ -2953,10 +2963,13 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     dr.disabled = busy || !/^p\d+$/.test(target.post || "");
     acts.append(dr);
     acts.append(handoff);
-    const react = action(T("Реакция","React"), "react", () => { reacting = target.id; paint(); }, `${T("Реакция для","React to")} ${personName(target.from)}`);
-    react.classList.add("tm-react-trigger"); react.disabled = !target.react || !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
-    if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
-    acts.prepend(react);
+    // no reaction at all where the source takes none (WhatsApp without a reaction command, mail): no greyed button
+    if (target.react) {
+      const react = action(T("Реакция","React"), "react", () => { reacting = target.id; reactingMsg = null; paint(); }, `${T("Реакция для","React to")} ${personName(target.from)}`);
+      react.classList.add("tm-react-trigger"); react.disabled = !!target.target && !reactionTargetSupported || reactionSends.get(target.id)?.state === "wait";
+      if(target.target && !reactionTargetSupported)react.title=REACTION_UNAVAILABLE_NOTICE;
+      acts.prepend(react);
+    }
     acts.prepend(action(T("Убрать","Archive"), "archive", () => archive(open.map((m) => m.id)), `${T("Убрать сообщения","Archive messages from")} ${personName(target.from)}`));
   } else if (ms.some(isArchived)) {
     acts.append(action(T("Вернуть во входящие","Move to Inbox","Mover a Inbox"), "inbox", () => hide(ms.map((m) => m.id), false), `${T("Вернуть сообщения","Restore messages from")} ${personName(last.from)}`));  } else if (answeredAt.has(last.id) && !sentOk(last.id) && /^p\d+$/.test(last.post || "")) {
@@ -2978,7 +2991,7 @@ function thread(ms, detail=true) {   // ms — по возрастанию вр�
     const note = el("p", "tm-note tm-handoff-status", h.message); note.setAttribute("role", "status"); box.append(note);
   }
   const reactionTarget = ms.find(m=>m.id === reacting);
-  if (reactionTarget) box.append(reactionRow(reactionTarget));
+  if (reactionTarget && reactingMsg===null) box.append(reactionRow(reactionTarget));
   else if (acts.childElementCount) box.append(acts);
   if (composeFor) {
     const reply = composer(composeFor);
