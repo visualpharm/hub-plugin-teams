@@ -330,7 +330,7 @@
 .tm-suggest-menu { position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; display: grid; grid-template-columns: repeat(6, 40px); gap: 4px; max-height: 50vh; overflow: auto;
   padding: 12px; border-radius: 12px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow-lift, 0 8px 24px rgb(0 0 0 / .18)); }
 .tm-suggest-menu.tm-drop-up { top: auto; bottom: calc(100% + 6px); }
-.tm-suggest-menu .tm-suggest-choice { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; font-size: 26px; line-height: 1; background: transparent; }
+.tm-suggest-menu .tm-suggest-choice.btn { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; font-size: 28px; line-height: 1; background: transparent; }
 .tm-suggest-menu .tm-suggest-choice[aria-pressed="true"] { background: var(--muted); }
 /* I-54: «В работу» и стрелка выбора агента — одна кнопка с меню, как на Mac */
 .tm-handoff-split { display: inline-flex; align-items: stretch; gap: 2px; position: relative; }
