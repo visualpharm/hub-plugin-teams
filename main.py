@@ -5,7 +5,7 @@
 команд — постами {"kind": "channels"} (частями); какие из них читать, владелец выбирает во вкладке — его пост
 {"kind": "watch", "ids"} (Choice). Его же посты из вкладки и приложений: {"kind": "send", id, rid, text[, at]} — ответ
 (at — время в будущем: отложенная отправка, {"kind": "cancel", rid} её снимает), {"kind": "react", id, rid, emoji} —
-реакция, {"kind": "settings", signature, autodraft, prompt} — подпись черновиков, «черновик сразу» и указания владельца
+реакция ({"kind": "unreact", …} — снять её, только Teams), {"kind": "settings", signature, autodraft, prompt} — подпись черновиков, «черновик сразу» и указания владельца
 по разбору входящих, {"kind": "ignore", id} — больше не показывать и не драфтить этого собеседника (по сообщению id),
 {"kind": "unignore", contact} — вернуть, {"kind": "history", id} —
 показать всю переписку вокруг сообщения, {"kind": "hours", from, to, weekends} — рабочие часы отправки (hours.py),
@@ -13,7 +13,7 @@
 contact, target — привязанная просьба с квитанцией hours_set / hours_failed, config.hours_for_bound). Команда
 send отказала из-за ночи или выходного — это не ошибка: ответ переносится на ближайшее разрешённое время, пост
 {"kind": "scheduled", id, rid, at, held: "night"|"weekend"} (hold). В ответ плагин постит sent / send_failed / scheduled / canceled / reacted /
-react_failed, {"kind": "config"} — действующие настройки (в том числе prompt владельца и список ignored) и {"kind": "thread", id, part, of, items} — переписку кусками.
+react_failed / unreacted / unreact_failed, {"kind": "config"} — действующие настройки (в том числе prompt владельца и список ignored) и {"kind": "thread", id, part, of, items} — переписку кусками.
 Владелец ответил
 в той же переписке позже — пост {"kind": "answered", "id"}. Сбой чтения FAIL_AFTER раз подряд — {"kind": "status",
 "ok": false, "error"}, восстановилось — {"kind": "status", "ok": true}: вкладка показывает это плашкой. Модели нет.
@@ -57,7 +57,7 @@ FAIL_AFTER = 3
 SEEN_MAX = 3000
 POST_MAX = collect.POST_MAX
 PROMPT_MAX = 2000                  # знаков: указания владельца по разбору входящих
-OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|surface|reopen|draft_control|revision_result|manage)\\"')   # посты владельца, которые читает процесс
+OWNER_KINDS = re.compile(rb'watch|\\"(?:send|react|unreact|cancel|settings|history|ignore|unignore|contacts|send_new|read|edit|delete|hours|hours_for|ask|dismiss|surface|reopen|draft_control|revision_result|manage)\\"')   # посты владельца, которые читает процесс
 DIR_EVERY = 6 * 3600               # список каналов команд перечитываем и заново постим раз в 6 часов: канал плагина
                                    # хранит 500 последних постов, старые списки вытесняются сообщениями
 SCAN_EVERY = 10 * 60               # раз в 10 минут перечитываем чаты за сутки: ответ или реакция владельца на уже
@@ -218,9 +218,10 @@ class Choice:
         elif isinstance(body, dict) and body.get("kind") == "reopen":
             if all(isinstance(body.get(k), str) and re.fullmatch(r"p\d+", body[k]) for k in ("post", "corrects")):
                 self.sends.append({"reopen": body["post"], "corrects": body["corrects"]})
-        elif isinstance(body, dict) and body.get("kind") == "react":
+        elif isinstance(body, dict) and body.get("kind") in ("react", "unreact"):   # unreact — снять свою реакцию
             if all(isinstance(body.get(k), str) and body[k] for k in ("id", "rid", "emoji")) and len(body["emoji"]) <= 16:
-                self.sends.append({"react": body["emoji"], "id": body["id"], "rid": body["rid"], **({"ts": ev["ts"]} if ev.get("ts") else {}),
+                self.sends.append({"react": body["emoji"], **({"unset": True} if body["kind"] == "unreact" else {}),
+                                   "id": body["id"], "rid": body["rid"], **({"ts": ev["ts"]} if ev.get("ts") else {}),
                                    **({"reply_to": body["msg"][:200]} if isinstance(body.get("msg"), str) and body["msg"] else {}),
                                    # адрес, который видел клиент (target_of): send_one откажет до источника, если сменился
                                    **({"target": body["target"][:300]} if isinstance(body.get("target"), str) and body["target"] else {})})
@@ -829,6 +830,7 @@ def config(st, put=post):
          'reply_replay':1,
          'hours_for_bound':1,   # hours_for с rid/contact/target: квитанция hours_set/hours_failed (hours_for_one)
          'reaction_target':1,
+         'reaction_unset':1,   # unreact {id, rid, emoji[, msg, target]} — снять реакцию Teams; итог unreacted / unreact_failed
          'send_archive':1,
          'archive_selection':1,   # send.archive_ids [{id, target, contact?}] — убрать ровно выбранное   # send с archive: true — archived после подтверждённого sent (archive_after)   # react несёт target: сменился адрес — react_failed до источника (a8fac1a)
          "prompt": cfg.get("prompt") or "", "ignored": ignored_list(st), "hours": hours_config(st),
@@ -1261,10 +1263,12 @@ def outgoing_text(text, reply_to=None, quote=None):
     return f"> {' '.join(quote.split())[:300]}\n\n{text}" if quote and reply_to else text
 
 
-def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, quote=None):
+def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, quote=None, unset=False):
     if not ref:
         raise OSError("отсюда ответить нельзя: не знаю, куда")
     if ref.get("wa") or ref.get("mail") or ref.get("tg"):
+        if unset:
+            raise OSError("снять реакцию можно только в Teams")
         if emoji:
             return sources.react(ref, emoji, reply_to)
         return sources.reply(ref, text, files=files, reply_to=reply_to, quote=quote)
@@ -1273,6 +1277,8 @@ def deliver(st, reader, ref, text=None, emoji=None, files=None, reply_to=None, q
     text = outgoing_text(text,reply_to,quote)  # у чата Teams цитата текстом
     if not reader.mcp:
         reader.connect(st)
+    if emoji and unset:
+        return collect.unreact(reader.mcp, ref, emoji, reply_to)
     if emoji:
         return collect.react(reader.mcp, ref, emoji, reply_to) if reply_to else collect.react(reader.mcp, ref, emoji)
     return collect.reply(reader.mcp, ref, text)
@@ -1809,7 +1815,13 @@ def entombed(st, rid):
 def reply_print(q):
     """Отпечаток просьбы ответа: повтор rid подтверждает итог только той же просьбе (тот же пункт, текст, файлы, цитата,
     реакция и адрес) — иначе «отправлено» досталось бы другому собеседнику или тексту (17.10)."""
-    return inbox_delivery.digest({k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "react", "target") if k in q})
+    return inbox_delivery.digest({k: q[k] for k in ("id", "text", "files", "reply_to", "quote", "react", "unset", "target")
+                                  if k in q})
+
+
+def failed_kind(q):
+    """Отказ просьбы: ответ — send_failed, реакция — react_failed, снятие реакции — unreact_failed."""
+    return ("unreact_failed" if q.get("unset") else "react_failed") if q.get("react") else "send_failed"
 
 
 def reply_outcome(st, q):
@@ -1826,7 +1838,7 @@ def reply_outcome(st, q):
                 **pinned}
     if o.get("event"):
         return {**o["event"], **pinned}
-    return {"kind": "react_failed" if q.get("react") else "send_failed", "id": q["id"], "rid": q["rid"],
+    return {"kind": failed_kind(q), "id": q["id"], "rid": q["rid"],
             "error": UNKNOWN_OUTCOME, "unresolved": True, **({"target": q["target"]} if q.get("target") else {})}
 
 
@@ -1836,7 +1848,7 @@ def send_one(st, reader, q, put=post, now=None):
         echo = put
         put = lambda e: echo({**e, "target": q["target"]} if e.get("rid") == q["rid"] else e)
         if q["target"] != target_of(ref):
-            failed = {"kind": "react_failed" if q.get("react") else "send_failed", "id": q["id"], "rid": q["rid"],
+            failed = {"kind": failed_kind(q), "id": q["id"], "rid": q["rid"],
                       "error": "Conversation changed; refresh before sending."}
             st.setdefault("sent_rids", []).append(q["rid"])
             tomb(st, q["rid"])
@@ -1886,11 +1898,12 @@ def send_one(st, reader, q, put=post, now=None):
     emoji = q.get("react")
     try:
         deliver(st, reader, (st.get("refs") or {}).get(q["id"]), (q.get("text") or "")[:POST_MAX], emoji,
-                files=q.get("files"), reply_to=q.get("reply_to"), quote=q.get("quote"))
+                files=q.get("files"), reply_to=q.get("reply_to"), quote=q.get("quote"),
+                **({"unset": True} if q.get("unset") else {}))
     except sources.Held as e:
         if not emoji and hold(st, q, e.why, put, now):
             return
-        put({"kind": "react_failed" if emoji else "send_failed", "id": q["id"], "rid": q["rid"], "error": short(e)})
+        put({"kind": failed_kind(q), "id": q["id"], "rid": q["rid"], "error": short(e)})
         return
     except sources.NotSent as e:   # отказ до транспорта доказан — не «итог неизвестен»: черновик с причиной (21.10)
         put({"kind": "send_blocked", "id": q["id"], "rid": q["rid"], "error": short(e)})
@@ -1898,10 +1911,13 @@ def send_one(st, reader, q, put=post, now=None):
         return
     except Exception as e:   # noqa: BLE001
         reader.close()
-        put({"kind": "react_failed" if emoji else "send_failed", "id": q["id"], "rid": q["rid"], "error": short(e)})
+        put({"kind": failed_kind(q), "id": q["id"], "rid": q["rid"], "error": short(e)})
         print(f"teams: {'реакция' if emoji else 'ответ'} {q['rid']} не ушёл: {e}", file=sys.stderr, flush=True)
         return
     at = iso(datetime.now(timezone.utc))
+    if q.get("unset"):   # снятая реакция не отвечает на сообщение и не открывает его снова
+        put({"kind": "unreacted", "id": q["id"], "rid": q["rid"], "emoji": emoji, "at": at})
+        return
     put({"kind": "reacted", "id": q["id"], "rid": q["rid"], "emoji": emoji, "at": at} if emoji
         else {"kind": "sent", "id": q["id"], "rid": q["rid"], "at": at})
     put({"kind": "answered", "id": q["id"]})

@@ -397,22 +397,54 @@ def can_react(ref):
     return bool(ref.get("root")) and ref.get("msg") == ref.get("root")
 
 
+def reaction_target(ref, msg=None):
+    """Куда в Graph ставится или снимается реакция: (вид, аргументы) — чат: msg (из переписки) или сообщение пункта;
+    канал: только первое сообщение треда (у ответа в треде канала своего setReaction у ms365 нет — раньше реакция
+    на такой ответ молча ложилась на первое сообщение)."""
+    if ref.get("chat") and (msg or ref.get("msg")):
+        return "chat", {"chatId": ref["chat"], "chatMessageId": msg or ref["msg"]}
+    if ref.get("team") and ref.get("channel") and ref.get("root") and ref.get("msg") == ref["root"] \
+            and (not msg or msg == ref["root"]):
+        return "channel", {"teamId": ref["team"], "channelId": ref["channel"], "chatMessageId": ref["root"]}
+    raise OSError("на это сообщение реакцию поставить нельзя")
+
+
 def react(mcp, ref, emoji, msg=None):
     """Реакция владельца на сообщение: эмодзи как есть (Graph: reactionType — символ Unicode). msg — id конкретного
     сообщения чата (из переписки), иначе то, на которое пришёл пост."""
-    body = {"reactionType": emoji}
-    if ref.get("chat") and (msg or ref.get("msg")):
-        return mcp.call("set-chat-message-reaction", {"chatId": ref["chat"], "chatMessageId": msg or ref["msg"],
-                                                      "body": body}, empty_ok=True)
-    if ref.get("team") and ref.get("channel") and ref.get("root") and ref.get("msg") == ref["root"]:
-        return mcp.call("set-channel-message-reaction", {"teamId": ref["team"], "channelId": ref["channel"],
-                                                         "chatMessageId": ref["root"], "body": body}, empty_ok=True)
-    raise OSError("на это сообщение реакцию поставить нельзя")
+    kind, args = reaction_target(ref, msg)
+    return mcp.call(f"set-{kind}-message-reaction", {**args, "body": {"reactionType": emoji}}, empty_ok=True)
+
+
+def unreact(mcp, ref, emoji, msg=None):
+    """Снять реакцию владельца (повторное нажатие той же): Graph unsetReaction с тем же reactionType."""
+    kind, args = reaction_target(ref, msg)
+    return mcp.call(f"unset-{kind}-message-reaction", {**args, "body": {"reactionType": emoji}}, empty_ok=True)
+
+
+# reactionType старых реакций Teams — словом; новые — сам символ
+LEGACY_REACTIONS = {"like": "👍", "heart": "❤️", "laugh": "😆", "surprised": "😮", "sad": "😢", "angry": "😡"}
+
+
+def reaction_pills(m, me):
+    """Реакции сообщения, как их видит Teams: [{emoji, n[, mine]}] в порядке появления; mine — среди них реакция
+    владельца (источник правды для его пилюли на странице)."""
+    pills = {}
+    for r in m.get("reactions") or []:
+        emoji = LEGACY_REACTIONS.get(r.get("reactionType"), r.get("reactionType"))
+        if not isinstance(emoji, str) or not emoji or len(emoji) > 16:
+            continue
+        pill = pills.setdefault(emoji, {"emoji": emoji, "n": 0})
+        pill["n"] += 1
+        if ((r.get("user") or {}).get("user") or {}).get("id") == me:
+            pill["mine"] = True
+    return list(pills.values())
 
 
 def history(mcp, ref, me, top=20, before_at=None, search=None):
     """Переписка вокруг сообщения — для «всей переписки» во вкладке: последние сообщения чата или тред канала (первое
-    сообщение и ответы). Чтение через Graph ничего не отмечает прочитанным. [{at, from, me, text}] по времени."""
+    сообщение и ответы). Чтение через Graph ничего не отмечает прочитанным. [{at, from, me, text[, id, reactions,
+    source]}] по времени."""
     if ref.get("chat"):
         args = {"chatId": ref["chat"], "top": top}
         if search:   # поиск Graph по тексту чата; с filter не сочетается
@@ -432,8 +464,12 @@ def history(mcp, ref, me, top=20, before_at=None, search=None):
         who, text = sender(m), plain((m.get("body") or {}).get("content"))
         if m.get("messageType") != "message" or m.get("deletedDateTime") or not who.get("id") or not text:
             continue
+        pills = reaction_pills(m, me)
         out.append({"at": m.get("createdDateTime") or "", "from": who.get("displayName") or "", "me": who["id"] == me,
-                    "text": text, **({"id": str(m["id"])} if m.get("id") else {})})
+                    "text": text, **({"id": str(m["id"])} if m.get("id") else {}),
+                    **({"reactions": pills} if pills else {}),
+                    # сообщение самого пункта: его реакции — для пузыря пункта на странице
+                    **({"source": True} if m.get("id") and str(m["id"]) == str(ref.get("msg") or "") else {})})
     return sorted(out, key=lambda x: x["at"])[-top:]
 
 

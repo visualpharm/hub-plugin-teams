@@ -88,7 +88,9 @@ const staleRetries = new Set(); // id: the collector refused only a stale CAS ve
 const reactionSends = new Map(); // exact message -> latest reaction request and collector outcome
 // the owner's delivered reaction per bubble (item id + the turn inside its conversation): a later reaction to another
 // bubble of the same item does not take the emoji off this one
-const ownReactions = new Map();
+const ownReactions = new Map(); // bubble -> {emoji (null: taken off), seq}: the outcome of the owner's own reaction
+// bubble -> {list: [{emoji, n, mine?}], seq}: the reactions Teams reported with the conversation; the later fact wins
+const providerReactions = new Map();
 const ownReactionKey = (id, msg) => `${id}\n${msg || ""}`;
 const deliveredReactions = new Map(); // exact message -> last confirmed reaction, independent of a retry
 const reactionNotices = new Map();
@@ -246,6 +248,7 @@ function acceptArchive(d) {
   }
 }
 let reactionTargetSupported = false;
+let reactionUnsetSupported = false;   // the collector takes a reaction off (unreact) — Teams only
 let sendHours = null;
 let hoursForBound = false;
 const weekendSettings = recipientWeekendState(hubName);
@@ -330,6 +333,12 @@ function historyFact(d, post) {
     if (!unique.has(key)) unique.set(key,t);
   }
   h.items=[...unique.values()].sort((a,b)=>(Date.parse(a.at)||0)-(Date.parse(b.at)||0));
+  // Teams reads each message's reactions with the conversation: the owner's pill follows them when they are newer
+  if (TEAMS_SRCS.includes(msgs.get(d.id)?.src)) for (const t of fresh) if (typeof t.id==="string" && t.id) {
+    const seen={list:validReactions(t.reactions),seq:Number(String(post).slice(1)) || 0};
+    providerReactions.set(ownReactionKey(d.id,t.id),seen);
+    if (t.source===true) providerReactions.set(ownReactionKey(d.id,''),seen);
+  }
   h.loading=false;h.error="";h.tries=0;clearTimeout(h.retryTimer);h.more=d.more===true;h.request=null;h.parts.clear();clearTimeout(h.timer);
   anchorHistory=d.id;   // раннее встало над прочитанным: paint() держит читаемое место
 }
@@ -653,7 +662,7 @@ async function sync() {
           if(reaction)detachedSends.add(reaction.rid);
           reactionSends.delete(d.id);
           deliveredReactions.delete(d.id);
-          for (const k of ownReactions.keys()) if (k.startsWith(`${d.id}\n`)) ownReactions.delete(k);
+          for (const map of [ownReactions,providerReactions]) for (const k of map.keys()) if (k.startsWith(`${d.id}\n`)) map.delete(k);
           answered.delete(d.id);answeredAt.delete(d.id);reopened.delete(d.id);
           for (const [rid,send] of sends) if (send.id===d.id) {
             clearTimeout(send.cancelTimer);detachedSends.add(rid);sends.delete(rid);
@@ -723,19 +732,20 @@ async function sync() {
         acceptDraft(msgs.get(d.id),d.rid);
         if (!guarded && !hasOwnerDraft(msgs.get(d.id))) { composing.get(d.id)?.box?.set({text:"",files:[]}); composing.delete(d.id); }
       }
-      else if (p.by === "owner" && d?.kind === "react" && d.rid) {
+      else if (p.by === "owner" && ["react","unreact"].includes(d?.kind) && d.rid) {
         const old = reactionSends.get(d.id);
         if(d.target && d.target!==msgs.get(d.id)?.target)continue;
-        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {...(old?.rid===d.rid ? old : {}),id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : "",...(typeof d.msg==="string" && d.msg ? {msg:d.msg} : {})});
+        if (!old?.local || old.rid === d.rid) reactionSends.set(d.id, {...(old?.rid===d.rid ? old : {}),id:d.id,rid:d.rid,emoji:d.emoji,ts:old?.rid===d.rid ? old.ts ?? p.ts : p.ts,sequence:old?.rid===d.rid ? old.sequence ?? Number(p.id.slice(1)) : Number(p.id.slice(1)),target:old?.rid===d.rid ? old.target || d.target : d.target,local:old?.rid===d.rid && old.local,state:old?.rid === d.rid ? old.state : "wait",error:old?.rid === d.rid ? old.error : "",unset:d.kind==="unreact",...(typeof d.msg==="string" && d.msg ? {msg:d.msg} : {})});
       }
-      else if (p.by === AUTHOR && ["reacted", "react_failed"].includes(d?.kind)) {
-        const r = reactionSends.get(d.id);
-        if (r?.rid === d.rid && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) {
-          const result = {...r,state:d.kind === "reacted" ? "ok" : "fail",...(d.kind === "reacted" ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"};
+      else if (p.by === AUTHOR && ["reacted", "react_failed", "unreacted", "unreact_failed"].includes(d?.kind)) {
+        const r = reactionSends.get(d.id), ok = ["reacted","unreacted"].includes(d.kind);
+        if (r?.rid === d.rid && !!r.unset===d.kind.startsWith("un") && (!r.target || d.target===r.target && msgs.get(d.id)?.target===r.target)) {
+          const result = {...r,state:ok ? "ok" : "fail",...(ok ? {deliveredTs:r.deliveredTs ?? p.ts,deliveredSequence:r.deliveredSequence ?? Number(p.id.slice(1))} : {}),error:d.error || "Reaction refused"};
           reactionSends.set(d.id,result);
-          if (d.kind === "reacted") ownReactions.set(ownReactionKey(d.id,r.msg),r.emoji);
+          if (ok) ownReactions.set(ownReactionKey(d.id,r.msg),{emoji:r.unset ? null : r.emoji,seq:Number(p.id.slice(1))});
           // a reaction to one bubble of the conversation does not answer it (as the native client): it stays where it is
           if (d.kind === "reacted" && !r.msg) deliveredReactions.set(d.id,result);
+          if (d.kind === "unreacted" && !r.msg) deliveredReactions.delete(d.id);
         }
       }
       else if (p.by === AUTHOR && d?.kind === "scheduled" && d.rid) sends.set(d.rid, { ts: p.ts, ...(d.text ? { text: d.text } : {}), ...(sends.get(d.rid) || {}), id: d.id, state: "later", at: d.at });
@@ -755,7 +765,7 @@ async function sync() {
           if (st) { st.error="";st.started=false; }
         }
       }
-      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; archiveSupported=d.send_archive===1 && d.archive_selection===1; reactionTargetSupported = d.reaction_target===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; applyIgnored(d.ignored); }
+      else if (p.by === AUTHOR && d?.kind === "config") { signature = String(d.signature || "").trim(); inboxProtocol = d.inbox_protocol; replyReplay = d.reply_replay===1; archiveSupported=d.send_archive===1 && d.archive_selection===1; reactionTargetSupported = d.reaction_target===1; reactionUnsetSupported = d.reaction_unset===1; hoursForBound = d.hours_for_bound===1; sendHours = workingHours(d.hours); historyAvailable = d.v>=3 || inboxProtocol?.version===1; applyIgnored(d.ignored); }
       else if (p.by === AUTHOR && ["hours_set","hours_failed"].includes(d?.kind)) {
         const accept=()=>weekendSettings.accept(d);
         const result=typeof navigator!=="undefined" && navigator.locks ? await navigator.locks.request('hub.inbox.weekend:'+hubName(),accept) : accept();
@@ -1874,23 +1884,35 @@ function line(m, source=m, named=false) {
   {
     // the owner's reaction sits on the bubble with the others, as on iPhone/Mac; while it goes — dimmed
     const reactions=el("div","tm-received-reactions"), pills=new Map();
-    for(const r of Array.isArray(m.reactions) ? m.reactions : [])if(r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0) {
+    const bubble=m===source ? '' : m.providerId, seen=providerReactions.get(ownReactionKey(source.id,bubble));
+    const pending=result?.state==="wait" ? result : null, mine=ownReactionOf(source,bubble);
+    const shown=pending ? (pending.unset ? mine : pending.emoji) : mine;
+    let list=seen ? seen.list.map(r=>({...r})) : validReactions(m.reactions);
+    if(seen) {
+      // Teams counts the owner too: the owner's reaction moved since that read moves its count
+      const was=list.find(r=>r.mine);
+      if(was?.emoji!==shown) {
+        if(was){was.n--;was.mine=false;}
+        const now=shown && list.find(r=>r.emoji===shown);
+        if(now){now.n++;now.mine=true;} else if(shown)list.push({emoji:shown,n:1,mine:true});
+      }
+      list=list.filter(r=>r.n>0);
+    }
+    for(const r of list) {
       const pill=reactions.appendChild(el("span","",r.emoji+(r.n>1 ? ` ${r.n}` : "")));
       if(!pills.has(r.emoji))pills.set(r.emoji,pill);
     }
-    const delivered=ownReactions.get(ownReactionKey(source.id,m===source ? '' : m.providerId));
-    const mine=result && result.state!=="fail" && result.emoji ? {emoji:result.emoji,wait:result.state==="wait"} : delivered ? {emoji:delivered,wait:false} : null;
-    if(mine) {
+    if(shown) {
       // the same emoji from others already there: that pill is marked as the owner's too, the count is the provider's
-      const own=pills.get(mine.emoji) || reactions.appendChild(el("span","",mine.emoji));
-      own.classList.add("tm-own-reaction");own.classList.toggle("tm-reaction-wait",mine.wait);
+      const own=pills.get(shown) || reactions.appendChild(el("span","",shown));
+      own.classList.add("tm-own-reaction");own.classList.toggle("tm-reaction-wait",!!pending);
       own.setAttribute("role","img");
-      own.setAttribute("aria-label",(mine.wait ? T("Ставлю реакцию ","Sending reaction ","Enviando reacción ") : T("Твоя реакция ","Your reaction ","Tu reacción "))+own.textContent);
+      own.setAttribute("aria-label",(pending?.unset ? T("Снимаю реакцию ","Removing reaction ","Quitando reacción ") : pending ? T("Ставлю реакцию ","Sending reaction ","Enviando reacción ") : T("Твоя реакция ","Your reaction ","Tu reacción "))+own.textContent);
     }
     if(reactions.childElementCount)row.append(reactions);
     // the words the old line said, for a screen reader only: the emoji on the bubble is what the eye sees
     if(result?.state==="ok") {
-      const said=el("p","tm-sr-only",T("Реакция поставлена ","Reaction sent ","Reacción enviada ")+result.emoji);
+      const said=el("p","tm-sr-only",(result.unset ? T("Реакция снята ","Reaction removed ","Reacción quitada ") : T("Реакция поставлена ","Reaction sent ","Reacción enviada "))+result.emoji);
       said.setAttribute("role","status");row.append(said);
     }
   }
@@ -1905,7 +1927,7 @@ function line(m, source=m, named=false) {
   }
   // words only while it goes or when it failed: a reaction that went is the emoji on the bubble
   if (result && result.state !== "ok") {
-    const status = el("p", "tm-reaction-status", result.state === "wait" ? T("Ставлю реакцию…","Sending reaction…") : result.error);
+    const status = el("p", "tm-reaction-status", result.state === "wait" ? (result.unset ? T("Снимаю реакцию…","Removing reaction…","Quitando reacción…") : T("Ставлю реакцию…","Sending reaction…","Enviando reacción…")) : result.error);
     status.setAttribute("role","status"); row.append(status);
   }
   const sus = suspicious(m.text);
@@ -2744,7 +2766,19 @@ function sentBlock(m, rid, x) {
   return d;
 }
 
-async function reactTo(m, emoji, msg='') {
+// the provider's reactions as the page draws them: [{emoji, n[, mine]}], anything else dropped
+const validReactions = list => (Array.isArray(list) ? list : []).filter(r=>r && typeof r.emoji==="string" && r.emoji && Number.isInteger(r.n) && r.n>0)
+  .map(r=>({emoji:r.emoji,n:r.n,...(r.mine===true ? {mine:true} : {})}));
+// the owner's reaction on one bubble: the later fact in the feed — the outcome of the owner's own reaction or the
+// reactions Teams reported with the conversation (taken off in Teams — the pill goes)
+function ownReactionOf(source, bubble='') {
+  const key=ownReactionKey(source.id,bubble), own=ownReactions.get(key), seen=providerReactions.get(key);
+  if(seen && (!own || seen.seq>own.seq))return seen.list.find(r=>r.mine)?.emoji || null;
+  return own?.emoji || null;
+}
+const canUnreact = m => reactionUnsetSupported && TEAMS_SRCS.includes(m.src);
+
+async function reactTo(m, emoji, msg='', unset=false) {
   const currentMessage=msgs.get(m.id);
   if(!currentMessage || pendingReplyKey(currentMessage)!==pendingReplyKey(m)) {
     if(currentMessage)reactionNotices.set(pendingReplyKey(currentMessage),REACTION_REOPEN_NOTICE);else error=REACTION_REOPEN_NOTICE;
@@ -2754,11 +2788,11 @@ async function reactTo(m, emoji, msg='') {
   if(currentMessage.target && !reactionTargetSupported){reactionNotices.set(pendingReplyKey(currentMessage),REACTION_UNAVAILABLE_NOTICE);paint();return;}
   if(error===REACTION_REOPEN_NOTICE)error="";
   reactionNotices.delete(pendingReplyKey(currentMessage));
-  const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true,...(msg ? {msg} : {})};
+  const r = {id:m.id,rid:requestId(),emoji,target:m.target,state:"wait",error:"",local:true,...(unset ? {unset:true} : {}),...(msg ? {msg} : {})};
   reactionSends.set(m.id,r); reacting = null; reactingMsg = null; paint();
   let failure = "";
   try {
-    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(msg ? {msg} : {}),...(m.target ? {target:m.target} : {})}))) failure = error || T("Реакция отклонена","Reaction refused","Reacción rechazada");
+    if (!(await mark(unset ? "unreact" : "react",{id:m.id,rid:r.rid,emoji,...(msg ? {msg} : {}),...(m.target ? {target:m.target} : {})}))) failure = error || T("Реакция отклонена","Reaction refused","Reacción rechazada");
   } catch { failure = T("Не удалось отправить реакцию. Попробуйте ещё раз.","Could not send reaction. Try again.","No se pudo enviar la reacción. Inténtalo de nuevo."); }
   const current = reactionSends.get(m.id);
   if (failure && current?.rid === r.rid && current.state === "wait")
@@ -2824,8 +2858,12 @@ const closeSuggestMenus = (keep) => { for (const menu of suggestMenus.values()) 
 
 function reactionRow(m, msg='') {
   const row=el("div","tm-reactions"); row.setAttribute("role","group"); row.setAttribute("aria-label",T("Реакция","Reaction"));
-  for (const emoji of QUICK_REACTIONS) {
-    const choice=button(emoji,"",()=>reactTo(m,emoji,msg),T("Реакция ","React ") + emoji);
+  // the owner's own emoji pressed again takes it off (Teams), as in Teams and the native clients
+  const own=canUnreact(m) ? ownReactionOf(m,msg) : null;
+  for (const emoji of own && !QUICK_REACTIONS.includes(own) ? [own,...QUICK_REACTIONS] : QUICK_REACTIONS) {
+    const off=emoji===own;
+    const choice=button(emoji,"",()=>reactTo(m,emoji,msg,off),(off ? T("Снять реакцию ","Remove reaction ","Quitar reacción ") : T("Реакция ","React ","Reacción ")) + emoji);
+    if(off)choice.setAttribute("aria-pressed","true");
     choice.disabled=!!m.target && !reactionTargetSupported;row.append(choice);
   }
   const close=button("","quiet",()=>{reacting=null;reactingMsg=null;paint();},T("Закрыть реакции","Close reactions"));close.append(hub.icon("close"));row.append(close);

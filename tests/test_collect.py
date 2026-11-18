@@ -1335,7 +1335,7 @@ class Later(unittest.TestCase):
         self.assertEqual(self.out[:1], [{"kind": "config", "v": 3, "signature": "_Хаб_", "autodraft": True, "prompt": "", "ignored": [],
                                   'inbox_guard':True,'inbox_hold_ttl':1800,'inbox_protocol':{'version':1,'private_proposal':True,
                                   'editor_cas':True,'shared_claim':True,'takeover':True,'receipt_sources':['teams'],'requires_all_clients':True},
-                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1}])   # повтор rid сверяет просьбу и target; выходные
+                                  'reply_replay':1,'hours_for_bound':1,'reaction_target':1,'send_archive':1,'archive_selection':1,'reaction_unset':1}])   # повтор rid сверяет просьбу и target; выходные
         self.assertEqual([p['kind'] for p in self.out[1:]],['triage_config','triage_prompt'])
 
     def test_automatic_inbox_sending_is_on_by_the_owners_word_unless_he_turns_it_off(self):
