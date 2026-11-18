@@ -3283,7 +3283,7 @@ function paintAll() {
       const { text, reconnect } = sourceAlert(name, d.error, NAMES), note = el("div", "tm-alert tm-source", text);
       // "Reconnect" asks the hub to sign the source in again and opens the talk with it, as "Work on it" does
       if (reconnect) {
-        const b = button(T("Подключить заново", "Reconnect", "Volver a conectar"), "quiet", async () => {
+        const b = button(T("Подключить заново", "Reconnect", "Volver a conectar"), "", async () => {
           b.disabled = true;
           const r = await hub.post("/api/send", { session: hubName(), text: reconnectAsk(name, d.error, NAMES) });
           if (r.error) { b.disabled = false; error = r.error; paint(); return; }
