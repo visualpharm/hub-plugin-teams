@@ -8,6 +8,7 @@
 // (`hub post teams --reply pN`) — он показан под сообщением. В Teams отсюда ничего не уходит.
 import { stamp } from "/static/js/dom.js";
 import { T, bindHub } from "./ui-text.js";
+import { sourceAlert, reconnectAsk, plain } from "./source-alert.js";
 import { replyText } from "./reply-text.js";
 import { decorateValues, valueElement } from "./copy-values.js";
 import { InboxEditor, boundedRequest } from "./editor-state.js";
@@ -3278,9 +3279,21 @@ function paintAll() {
   }
   else if (failed) banner.push(el("p", "tm-alert", failed));
   for (const [name, d] of statuses) {
-    if (!d.ok) banner.push(el("p", "tm-alert", `Не могу прочитать ${NAMES[name] || name}: ${d.error || "ошибка"}.`
-      + (name === "teams" ? " Возможно, истёк вход ms365 — новые сообщения сюда не приходят." : " Новые сообщения оттуда сюда не приходят.")));
-    else if (d.warn) banner.push(el("p", "tm-alert", `${NAMES[name] || name}: ${d.warn}`));
+    if (!d.ok) {
+      const { text, reconnect } = sourceAlert(name, d.error, NAMES), note = el("div", "tm-alert tm-source", text);
+      // "Reconnect" asks the hub to sign the source in again and opens the talk with it, as "Work on it" does
+      if (reconnect) {
+        const b = button(T("Подключить заново", "Reconnect", "Volver a conectar"), "quiet", async () => {
+          b.disabled = true;
+          const r = await hub.post("/api/send", { session: hubName(), text: reconnectAsk(name, d.error, NAMES) });
+          if (r.error) { b.disabled = false; error = r.error; paint(); return; }
+          location.hash = `#/s/${encodeURIComponent(hubName())}`;
+        });
+        note.append(b);
+      }
+      banner.push(note);
+    }
+    else if (d.warn) banner.push(el("p", "tm-alert", `${NAMES[name] || name}: ${plain(d.warn)}`));   // one mailbox of several: its words, no URLs
   }
   if (error) banner.push(el("p", "tm-alert", error));
   if (openNotice) banner.push(el("p", "tm-alert", openNotice));

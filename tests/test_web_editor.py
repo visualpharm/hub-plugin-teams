@@ -4221,24 +4221,28 @@ class InboxWebAcceptance(PageInChrome):
       const line=r=>{const a=cs(r,'::after'),c=cs(r);if(a.content!=='none'&&a.display!=='none'){const b=box(r);return [at(b.left+parseFloat(a.left)),end(b.right-parseFloat(a.right))]}
         return c.borderBottomWidth!=='0px'&&c.borderBottomColor!=='rgba(0, 0, 0, 0)'?'border':null};
       const name=rows[0].querySelector('.tm-from'),prev=rows.find(r=>r!==sel).querySelector('.tm-text'),dot=document.querySelector('.tm-person:not(.tm-selected) .tm-unread');
-      const alert=[...document.querySelectorAll('.tm-alert')].find(n=>n.textContent.includes('https://'));
+      const alert=document.querySelector('.tm-alert.tm-source');
       return {pane:Math.round(pane.width),narrow:document.querySelector('.tm-container').classList.contains('tm-narrow'),order:rows.map(r=>r.dataset.conversation),
         text:rows.map(r=>at(box(r.querySelector('.tm-from')).left)),time:end(box(rows[0].querySelector('.tm-head :is(.ago,.tm-age)')).right),
         name:[cs(name).fontSize,cs(name).lineHeight,cs(name).fontWeight],prev:[cs(prev).fontSize,cs(prev).lineHeight,cs(prev).color],fg:cs(name).color,
         pad:rows.map(r=>[cs(r).paddingTop,cs(r).paddingBottom])[1],
         unread:dot&&{width:box(dot).width,left:at(box(dot).left),mid:Math.abs((box(dot).top+box(dot).bottom)/2-(box(dot.closest('.tm-person').querySelector('.tm-from')).top+box(dot.closest('.tm-person').querySelector('.tm-from')).bottom)/2)},
         plate:sel&&(cs(sel,'::before').content!=='none'?[at(box(sel).left+parseFloat(cs(sel,'::before').left)),cs(sel,'::before').borderRadius,cs(sel.querySelector('.tm-from')).color,cs(sel.querySelector('.tm-text')).color]:null),
-        lines:rows.map(line),alert:alert&&{right:Math.round(box(alert).right-pane.right),wraps:alert.scrollWidth<=alert.clientWidth},overflow:document.documentElement.scrollWidth-innerWidth}})()"""
+        lines:rows.map(line),alert:alert&&{right:Math.round(box(alert).right-pane.right),wraps:alert.scrollWidth<=alert.clientWidth,text:alert.firstChild.textContent,button:alert.querySelector('button')?.textContent||null},overflow:document.documentElement.scrollWidth-innerWidth}})()"""
 
     def test_the_inbox_list_keeps_the_macs_row_anatomy(self):
         # the Inbox list as the Mac's lists: a middle column of 400-460 on a desktop; the sign in its own column (10 + 4, 12 + 8
         # on a phone), the unread dot of 8 on the name's line; the name 15/20 semibold and the preview 13/18 in the second
         # colour (17/22 and 15/20 on a phone), 6 above and below a row (10 on a phone); the selected plate 8 from the column
         # edge with white text; a line between rows from the text edge to the time's edge, none under the last row and none at
-        # the selected row or above it; a long URL in a source error wraps inside the column; nothing open — icon 48, title 17
+        # the selected row or above it; a source error wraps inside the column and names a lost sign-in in plain words with
+        # "Reconnect" (a request to the hub), never the raw error with its sign-in URL; nothing open — icon 48, title 17
         order=self.seed_people(4)
-        self.feed({'kind':'status','source':'gmail','ok':False,'error':'invalid_grant https://accounts.google.com/o/oauth2/v2/auth?client_id=synthetic-client-id.apps.googleusercontent.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.modify'})
-        self.assertTrue(self.page({'until':"[...document.querySelectorAll('.tm-alert')].some(n=>n.textContent.includes('https://'))"})[-1]['until'])
+        # as the reader sends it: source "email", the account first, the line cut to 160 characters inside the sign-in URL
+        lost=('me@example.com: oauth2: "invalid_grant" "Token has been expired or revoked." visit https://accounts.google.com/o/oauth2/v2/auth'
+              '?client_id=synthetic-client-id.apps.googleusercontent.com&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback')[:160]
+        self.feed({'kind':'status','source':'email','ok':False,'error':lost})
+        self.assertTrue(self.page({'until':"!!document.querySelector('.tm-alert.tm-source')"})[-1]['until'])
         rows=self.page({'viewport':{'width':1440,'height':900}},{'sleep':200},{'eval':self.ORDER})[-1]['eval']
         self.open_row(rows[1])
         shots=Path(os.environ.get("HUB_TEST_SHOTS") or self.state)
@@ -4254,6 +4258,8 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(wide['plate'],[8,'8px','rgb(255, 255, 255)','rgb(255, 255, 255)'],wide)
         self.assertEqual(wide['lines'],[None,None,[28,14],None],wide)   # above the selected, the selected, between rows, the last row
         self.assertLessEqual(wide['alert']['right'],0,wide);self.assertTrue(wide['alert']['wraps'],wide);self.assertEqual(wide['overflow'],0,wide)
+        # a lost sign-in is one plain line and a button, without the provider's sign-in URL
+        self.assertEqual((wide['alert']['text'],wide['alert']['button']),('Gmail отключился — новые письма сюда не приходят.','Подключить заново'),wide)
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-empty-detail')?.checkVisibility()"})
         empty=self.page({'eval':"(()=>{const e=document.querySelector('.tm-empty-detail'),i=e.querySelector('.tm-native-icon').getBoundingClientRect(),h=getComputedStyle(e.querySelector('h2'));return {icon:[i.width,i.height],title:[h.fontSize,h.fontWeight,h.color],fg:getComputedStyle(document.querySelector('.tm-person .tm-from')).color}})()"},
                         {'shot':str(shots/'inbox-none-1440.png'),'width':1440,'height':900})[0]['eval']
@@ -4265,6 +4271,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(phone['pad'],['10px','10px'],phone);self.assertEqual(phone['unread']['width'],8,phone);self.assertLessEqual(phone['unread']['mid'],1,phone)
         self.assertEqual(len(set(phone['text'])),1,phone);self.assertEqual(phone['lines'][-1],None,phone);self.assertTrue(all(l==[phone['text'][0],16] for l in phone['lines'][:-1]),phone)
         self.assertTrue(phone['alert']['wraps'],phone);self.assertEqual(phone['overflow'],0,phone)
+        # "Reconnect" sends the hub the request and opens the talk with it
+        got=self.page({'eval':"document.querySelector('.tm-alert.tm-source button').click();true"},{'until':"location.hash.startsWith('#/s/')"})
+        self.assertTrue(got[-1]['until'],got)
 
     def open_row(self, key):
         self.page({'eval':f"[...document.querySelectorAll('.tm-person')].find(r=>r.dataset.conversation==={json.dumps(key)}).click();true"},
