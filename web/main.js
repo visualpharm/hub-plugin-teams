@@ -2758,8 +2758,8 @@ async function reactTo(m, emoji, msg='') {
   reactionSends.set(m.id,r); reacting = null; reactingMsg = null; paint();
   let failure = "";
   try {
-    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(msg ? {msg} : {}),...(m.target ? {target:m.target} : {})}))) failure = error || "Reaction refused";
-  } catch { failure = "Could not send reaction. Try again."; }
+    if (!(await mark("react",{id:m.id,rid:r.rid,emoji,...(msg ? {msg} : {}),...(m.target ? {target:m.target} : {})}))) failure = error || T("Реакция отклонена","Reaction refused","Reacción rechazada");
+  } catch { failure = T("Не удалось отправить реакцию. Попробуйте ещё раз.","Could not send reaction. Try again.","No se pudo enviar la reacción. Inténtalo de nuevo."); }
   const current = reactionSends.get(m.id);
   if (failure && current?.rid === r.rid && current.state === "wait")
     reactionSends.set(m.id, {...current,state:"fail",error:failure});
