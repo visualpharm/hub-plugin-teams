@@ -4228,7 +4228,13 @@ class InboxWebAcceptance(PageInChrome):
         pad:rows.map(r=>[cs(r).paddingTop,cs(r).paddingBottom])[1],
         unread:dot&&{width:box(dot).width,left:at(box(dot).left),mid:Math.abs((box(dot).top+box(dot).bottom)/2-(box(dot.closest('.tm-person').querySelector('.tm-from')).top+box(dot.closest('.tm-person').querySelector('.tm-from')).bottom)/2)},
         plate:sel&&(cs(sel,'::before').content!=='none'?[at(box(sel).left+parseFloat(cs(sel,'::before').left)),cs(sel,'::before').borderRadius,cs(sel.querySelector('.tm-from')).color,cs(sel.querySelector('.tm-text')).color]:null),
-        lines:rows.map(line),alert:alert&&{right:Math.round(box(alert).right-pane.right),wraps:alert.scrollWidth<=alert.clientWidth,text:alert.firstChild.textContent,button:alert.querySelector('button')?.textContent||null},overflow:document.documentElement.scrollWidth-innerWidth}})()"""
+        lines:rows.map(line),alert:alert&&{right:Math.round(box(alert).right-pane.right),wraps:alert.scrollWidth<=alert.clientWidth,text:alert.firstChild.textContent,button:alert.querySelector('button')?.textContent||null,
+          contrast:(()=>{const c=document.createElement('canvas').getContext('2d',{willReadFrequently:true}),px=v=>{c.clearRect(0,0,1,1);c.fillStyle=getComputedStyle(document.body).backgroundColor;c.fillRect(0,0,1,1);c.fillStyle=v;c.fillRect(0,0,1,1);return [...c.getImageData(0,0,1,1).data].slice(0,3)};
+            const lum=a=>{const [r,g,b]=a.map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4});return .2126*r+.7152*g+.0722*b};
+            const [x,y]=[lum(px(cs(alert.querySelector('.tm-alert-text')||alert).color)),lum(px(cs(alert).backgroundColor))].sort((p,q)=>q-p);return Math.round((x+.05)/(y+.05)*100)/100})(),
+          sign:(()=>{const b=cs(alert,'::before');return [b.content!=='none'&&b.display!=='none',/warning\\.svg/.test(b.maskImage||b.webkitMaskImage),b.backgroundColor,box(alert.querySelector('.tm-alert-text')||alert).left>box(alert).left+20]})(),
+          red:getComputedStyle(document.documentElement).getPropertyValue('--destructive').trim(),
+          buttonRed:(()=>{const b=alert.querySelector('button'),t=document.createElement('i');if(!b)return null;t.style.color='var(--destructive-text, var(--destructive))';alert.append(t);const v=cs(t).color;t.remove();return cs(b).color===v})()},overflow:document.documentElement.scrollWidth-innerWidth}})()"""
 
     def test_the_inbox_list_keeps_the_macs_row_anatomy(self):
         # the Inbox list as the Mac's lists: a middle column of 400-460 on a desktop; the sign in its own column (10 + 4, 12 + 8
@@ -4260,6 +4266,11 @@ class InboxWebAcceptance(PageInChrome):
         self.assertLessEqual(wide['alert']['right'],0,wide);self.assertTrue(wide['alert']['wraps'],wide);self.assertEqual(wide['overflow'],0,wide)
         # a lost sign-in is one plain line and a button, without the provider's sign-in URL
         self.assertEqual((wide['alert']['text'],wide['alert']['button']),('Gmail отключился — новые письма сюда не приходят.','Подключить заново'),wide)
+        # the hub's error look: plain text readable on the reddish plate (4.5:1 and up), the red warning sign left of it
+        for look in (wide,):
+            self.assertGreaterEqual(look['alert']['contrast'],4.5,look['alert'])
+            self.assertEqual(look['alert']['sign'][:2]+[look['alert']['sign'][3]],[True,True,True],look['alert'])
+            self.assertTrue(look['alert']['buttonRed'],look['alert'])  # "Reconnect" stays red on white
         self.page({'eval':"document.querySelector('.tm-close-conversation').click();true"},{'until':"!!document.querySelector('.tm-empty-detail')?.checkVisibility()"})
         empty=self.page({'eval':"(()=>{const e=document.querySelector('.tm-empty-detail'),i=e.querySelector('.tm-native-icon').getBoundingClientRect(),h=getComputedStyle(e.querySelector('h2'));return {icon:[i.width,i.height],title:[h.fontSize,h.fontWeight,h.color],fg:getComputedStyle(document.querySelector('.tm-person .tm-from')).color}})()"},
                         {'shot':str(shots/'inbox-none-1440.png'),'width':1440,'height':900})[0]['eval']
@@ -4271,6 +4282,9 @@ class InboxWebAcceptance(PageInChrome):
         self.assertEqual(phone['pad'],['10px','10px'],phone);self.assertEqual(phone['unread']['width'],8,phone);self.assertLessEqual(phone['unread']['mid'],1,phone)
         self.assertEqual(len(set(phone['text'])),1,phone);self.assertEqual(phone['lines'][-1],None,phone);self.assertTrue(all(l==[phone['text'][0],16] for l in phone['lines'][:-1]),phone)
         self.assertTrue(phone['alert']['wraps'],phone);self.assertEqual(phone['overflow'],0,phone)
+        self.assertGreaterEqual(phone['alert']['contrast'],4.5,phone['alert']);self.assertTrue(phone['alert']['sign'][0] and phone['alert']['sign'][1],phone['alert'])
+        dark=self.page({'media':'dark'},{'sleep':300},{'eval':self.LIST_LOOK},{'media':'light'})[2]['eval']
+        self.assertGreaterEqual(dark['alert']['contrast'],4.5,dark['alert']);self.assertTrue(dark['alert']['buttonRed'],dark['alert'])
         # "Reconnect" sends the hub the request and opens the talk with it
         got=self.page({'eval':"document.querySelector('.tm-alert.tm-source button').click();true"},{'until':"location.hash.startsWith('#/s/')"})
         self.assertTrue(got[-1]['until'],got)

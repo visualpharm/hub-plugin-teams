@@ -3280,7 +3280,8 @@ function paintAll() {
   else if (failed) banner.push(el("p", "tm-alert", failed));
   for (const [name, d] of statuses) {
     if (!d.ok) {
-      const { text, reconnect } = sourceAlert(name, d.error, NAMES), note = el("div", "tm-alert tm-source", text);
+      const { text, reconnect } = sourceAlert(name, d.error, NAMES), note = el("div", "tm-alert tm-source");
+      note.append(el("span", "tm-alert-text", text));
       // "Reconnect" asks the hub to sign the source in again and opens the talk with it, as "Work on it" does
       if (reconnect) {
         const b = button(T("Подключить заново", "Reconnect", "Volver a conectar"), "", async () => {

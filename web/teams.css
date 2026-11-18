@@ -9,10 +9,17 @@
 .tm-confirm { font-size: var(--text-sm); }
 .tm-alerts:empty { display: none; }
 /* I-46: «нет связи» и «обновляю» — состояние, не ошибка: обычный текст на нейтральном фоне */
-.tm-alert.tm-source { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-3); }   /* the line and "Reconnect" */
-.tm-alert.tm-offline, .tm-updating { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--muted); color: var(--foreground); font-size: 15px; }
-.tm-alert { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); font-size: var(--text-sm);
-  background: color-mix(in oklch, var(--destructive) 10%, var(--card)); color: var(--destructive-text, var(--destructive)); }
+/* an error, as the hub's accepted look: plain text in the main colour on a reddish plate (red on pink was 4.04:1 in the
+   light theme) and the red Icons8 warning sign on the left; a source line keeps "Reconnect" at its end */
+.tm-alert { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius);
+  font-size: var(--text-sm); background: color-mix(in oklch, var(--destructive) 10%, var(--card)); color: var(--foreground); }
+.tm-alert::before { content: ""; flex: none; width: 16px; height: 16px; margin-block: calc((1lh - 16px) / 2); background: var(--destructive);
+  mask: url("./icons/warning.svg") center / contain no-repeat; }
+.tm-alert.tm-source { flex-wrap: wrap; align-items: center; column-gap: var(--space-2); row-gap: var(--space-1); }
+.tm-alert.tm-source > .tm-alert-text { flex: 1 1 12em; min-width: 0; }
+.tm-alert.tm-source > button { color: var(--destructive-text, var(--destructive)); }
+.tm-alert.tm-offline, .tm-updating { display: block; margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--muted); color: var(--foreground); font-size: 15px; }
+.tm-alert.tm-offline::before { content: none; }
 
 .tm-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-4) var(--space-5); }
